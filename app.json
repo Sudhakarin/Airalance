@@ -1,30 +1,77 @@
 {
   "expo": {
-    "name": "Airalance-app",
-    "slug": "Airalance-app",
+    "name": "Airalance",
+    "slug": "airalance-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "scheme": "airalance",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0C12"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.airalance.app",
+      "infoPlist": {
+        "UIUserInterfaceStyle": "Dark",
+        "NSMicrophoneUsageDescription": "Airalance needs microphone access to send voice messages.",
+        "NSPhotoLibraryUsageDescription": "Airalance needs photo library access to share photos.",
+        "NSCameraUsageDescription": "Airalance needs camera access to take photos."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0C12"
+      },
+      "package": "com.airalance.app",
+      "permissions": [
+        "RECORD_AUDIO",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
     },
     "plugins": [
       "expo-router",
-      "expo-status-bar",
+      "expo-font",
       "expo-image",
-      "expo-font"
-    ]
+      "expo-av",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Airalance needs access to your photos to share them.",
+          "cameraPermission": "Airalance needs camera access to take photos."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#7C5CFF"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "your-eas-project-id"
+      }
+    },
+    "experiments": {
+      "typedRoutes": false
+    }
   }
 }
