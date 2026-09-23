@@ -82,6 +82,7 @@ export default function ChatScreen() {
   const channelRef = useRef<any>(null);
   const typingTimeoutRef = useRef<any>(null);
   const lastTypingSentRef = useRef(0);
+  const inputRef = useRef<TextInput>(null);
 
   // === Voice recording ===
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -250,6 +251,19 @@ export default function ChatScreen() {
       }, 50);
     }
   }, [messages.length]);
+
+  // === Web: composer auto-height ===
+  // react-native-web multiline TextInput default me 2 rows ka hota hai, isliye text
+  // upar chipak jaata tha. Yahan height content ke hisaab se set hoti hai (1 line = 44px+,
+  // zyada text pe max 110px tak badhti hai) — isse single-line text bilkul bich me rehta hai.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const el: any = inputRef.current;
+    if (!el || !el.style) return;
+    el.style.height = 'auto';
+    const next = Math.min(Math.max(el.scrollHeight, 46), 110);
+    el.style.height = `${next}px`;
+  }, [input, isRecording]);
 
   // === Typing broadcast ===
   function onInputChange(text: string) {
@@ -653,7 +667,9 @@ export default function ChatScreen() {
               </TouchableOpacity>
 
               <TextInput
+                ref={inputRef}
                 style={styles.composerInput}
+                {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
                 value={input}
                 onChangeText={onInputChange}
                 placeholder="Message"
@@ -803,17 +819,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   // ✅ FIXED: text ab composer ke bich (vertical center) me aata hai
-  // minHeight 44 = paddingTop 9 + lineHeight 26 + paddingBottom 9 (symmetric)
+  // minHeight 46 = paddingTop 9 + lineHeight 28 + paddingBottom 9 (symmetric)
   // iOS/web multiline me textAlignVertical kaam nahi karta, isliye padding se center kiya
   composerInput: {
     flex: 1,
-    minHeight: 44,
-    maxHeight: 100,
+    minHeight: 46,
+    maxHeight: 110,
     paddingHorizontal: 8,
     paddingTop: 9,
     paddingBottom: 9,
-    fontSize: 20,
-    lineHeight: 26,
+    fontSize: 22,
+    lineHeight: 28,
     includeFontPadding: false,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
