@@ -106,7 +106,7 @@ function HomeSkeleton() {
       {/* Featured card skeleton */}
       <SkeletonBlock
         width="100%"
-        height={200}
+        height={230}
         borderRadius={RADII.xl}
         style={{ marginBottom: SPACING.lg }}
       />
@@ -117,17 +117,17 @@ function HomeSkeleton() {
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            gap: 8,
+            gap: 10,
             marginBottom: SPACING.sm,
             paddingHorizontal: 4,
           }}
         >
-          <SkeletonBlock width={8} height={8} borderRadius={4} />
-          <SkeletonBlock width={40} height={14} borderRadius={6} />
+          <SkeletonBlock width={10} height={10} borderRadius={5} />
+          <SkeletonBlock width={50} height={16} borderRadius={6} />
         </View>
         <SkeletonBlock
           width="100%"
-          height={180}
+          height={200}
           borderRadius={RADII.xl}
         />
       </View>
@@ -140,16 +140,16 @@ function HomeSkeleton() {
             flexDirection: 'row',
             alignItems: 'center',
             gap: SPACING.md,
-            paddingVertical: SPACING.sm,
+            paddingVertical: SPACING.md,
             paddingHorizontal: 4,
           }}
         >
-          <SkeletonBlock width={70} height={70} borderRadius={RADII.lg} />
-          <View style={{ flex: 1, gap: 6 }}>
-            <SkeletonBlock width={50} height={10} borderRadius={4} />
-            <SkeletonBlock width="90%" height={14} borderRadius={5} />
-            <SkeletonBlock width="70%" height={14} borderRadius={5} />
-            <SkeletonBlock width={100} height={10} borderRadius={4} />
+          <SkeletonBlock width={80} height={80} borderRadius={RADII.lg} />
+          <View style={{ flex: 1, gap: 8 }}>
+            <SkeletonBlock width={60} height={12} borderRadius={4} />
+            <SkeletonBlock width="90%" height={16} borderRadius={5} />
+            <SkeletonBlock width="70%" height={16} borderRadius={5} />
+            <SkeletonBlock width={110} height={12} borderRadius={4} />
           </View>
         </View>
       ))}
@@ -232,7 +232,7 @@ export default function HomeScreen() {
           onPress={() => router.push('/notifications')}
           activeOpacity={0.7}
         >
-          <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
+          <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
           {notifCount > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
@@ -264,7 +264,7 @@ export default function HomeScreen() {
               end={{ x: 1, y: 1 }}
               style={styles.welcomeIconGradient}
             >
-              <Ionicons name="chatbubble" size={28} color="#FFFFFF" />
+              <Ionicons name="chatbubble" size={34} color="#FFFFFF" />
             </LinearGradient>
           </View>
           <Text style={styles.welcomeTitle}>Welcome to Airalance!</Text>
@@ -332,7 +332,7 @@ export default function HomeScreen() {
             <HomeSkeleton />
           ) : filteredArticles.length === 0 ? (
             <View style={styles.emptyWrap}>
-              <Ionicons name="newspaper-outline" size={42} color={COLORS.mist} />
+              <Ionicons name="newspaper-outline" size={50} color={COLORS.mist} />
               <Text style={styles.emptyText}>
                 No {selectedCategory === 'For you' ? 'news' : selectedCategory} articles yet.
               </Text>
@@ -402,7 +402,7 @@ export default function HomeScreen() {
                   <Text style={styles.liveTitle}>Live</Text>
                 </View>
                 <View style={styles.liveBox}>
-                  <Ionicons name="radio-outline" size={42} color={COLORS.mist} />
+                  <Ionicons name="radio-outline" size={50} color={COLORS.mist} />
                   <Text style={styles.liveText}>
                     Live stream will appear here
                   </Text>
@@ -465,8 +465,8 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.ink900 },
-  scroll: { paddingBottom: 40 },
+  safe: { flex: 1, backgroundColor: '#000000' },
+  scroll: { paddingBottom: 48 },
 
   glowTop: {
     position: 'absolute',
@@ -482,20 +482,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.sm,
-    paddingBottom: SPACING.md,
+    paddingHorizontal: 24,
+    paddingTop: 18,
+    paddingBottom: 18,
   },
+  // Brand — 34px (was 28)
   brandText: {
-    fontSize: 28,
+    fontSize: 34,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
+  // Bell button — 46 (was 42)
   bellBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -503,23 +505,23 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: 4,
-    right: 4,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+    top: 3,
+    right: 3,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: '#EF4444',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
     borderWidth: 2,
-    borderColor: COLORS.ink900,
+    borderColor: '#000000',
   },
   badgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 10,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 12,
+    lineHeight: 13,
   },
 
   welcomeCard: {
@@ -530,30 +532,34 @@ const styles = StyleSheet.create({
   },
   welcomeIcon: {
     marginBottom: SPACING.lg,
-    borderRadius: 24,
+    borderRadius: 28,
     overflow: 'hidden',
     ...SHADOWS.card,
   },
+  // Welcome icon — bigger
   welcomeIconGradient: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
+    width: 96,
+    height: 96,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Welcome title — 28px (was 22)
   welcomeTitle: {
-    fontSize: 22,
+    fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     textAlign: 'center',
   },
+  // Welcome subtitle — 16px (was 13)
   welcomeSubtitle: {
-    marginTop: 6,
-    fontSize: 13,
+    marginTop: 8,
+    fontSize: 16,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
     paddingHorizontal: 20,
+    lineHeight: 22,
   },
   welcomeBtn: {
     marginTop: SPACING.xl,
@@ -562,16 +568,17 @@ const styles = StyleSheet.create({
     ...SHADOWS.buttonViolet,
   },
   welcomeBtnGradient: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingVertical: 15,
+    paddingHorizontal: 30,
   },
+  // Welcome button — 16px (was 14)
   welcomeBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  newsSection: { paddingHorizontal: SPACING.lg, marginTop: SPACING.md },
+  newsSection: { paddingHorizontal: 24, marginTop: SPACING.md },
   newsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -579,49 +586,58 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: SPACING.md,
   },
+  // News title — 20px (was 16)
   newsTitle: {
-    fontSize: 16,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
 
-  categoriesRow: { gap: 8, paddingRight: SPACING.lg, paddingBottom: SPACING.md },
+  categoriesRow: { gap: 10, paddingRight: SPACING.lg, paddingBottom: SPACING.md },
   categoryWrap: { marginRight: 8 },
   categoryPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
     borderRadius: RADII.full,
   },
   categoryPillInactive: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
     backgroundColor: 'rgba(255,255,255,0.03)',
   },
+  // Category text — 14px (was 12)
   categoryTextActive: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
   categoryTextInactive: {
     color: COLORS.mist,
-    fontSize: 12,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  emptyWrap: { paddingVertical: 60, alignItems: 'center', gap: 10 },
+  emptyWrap: { paddingVertical: 70, alignItems: 'center', gap: 12 },
+  // Empty text — 17px (was 14)
   emptyText: {
     color: COLORS.text,
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.bodyMedium,
     textAlign: 'center',
   },
-  emptySubtext: { color: COLORS.mist, fontSize: 12, fontFamily: FONTS.body },
+  // Empty subtext — 14.5px (was 12)
+  emptySubtext: {
+    color: COLORS.mist,
+    fontSize: 14.5,
+    fontFamily: FONTS.body,
+  },
 
+  // Featured card — bigger
   featuredCard: {
-    height: 200,
+    height: 230,
     borderRadius: RADII.xl,
     overflow: 'hidden',
     marginBottom: SPACING.lg,
@@ -639,7 +655,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  featuredEmoji: { fontSize: 56, opacity: 0.85 },
+  // Featured emoji — bigger
+  featuredEmoji: { fontSize: 68, opacity: 0.85 },
   featuredOverlay: {
     position: 'absolute',
     left: 0,
@@ -656,28 +673,31 @@ const styles = StyleSheet.create({
   },
   featuredBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: RADII.full,
     backgroundColor: 'rgba(255,255,255,0.18)',
-    marginBottom: 8,
+    marginBottom: 10,
   },
+  // Featured badge — 11px (was 9)
   featuredBadgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 11,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.5,
   },
+  // Featured title — 18px (was 15)
   featuredTitle: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
-    lineHeight: 20,
+    lineHeight: 24,
   },
-  featuredMeta: { marginTop: 6 },
+  featuredMeta: { marginTop: 8 },
+  // Featured meta — 13.5px (was 11)
   featuredMetaText: {
     color: 'rgba(255,255,255,0.75)',
-    fontSize: 11,
+    fontSize: 13.5,
     fontFamily: FONTS.body,
   },
 
@@ -685,76 +705,88 @@ const styles = StyleSheet.create({
   liveHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: SPACING.sm,
+    gap: 10,
+    marginBottom: SPACING.md,
     paddingHorizontal: 4,
   },
   livePulse: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: COLORS.danger,
     opacity: 0.3,
     position: 'absolute',
   },
   livePulseInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: COLORS.danger,
   },
+  // Live title — 19px (was 15)
   liveTitle: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 19,
     fontFamily: FONTS.displayBold,
   },
+  // Live box — taller
   liveBox: {
-    height: 180,
+    height: 200,
     borderRadius: RADII.xl,
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 10,
   },
-  liveText: { color: COLORS.mist, fontSize: 12, fontFamily: FONTS.body },
+  // Live text — 15px (was 12)
+  liveText: {
+    color: COLORS.mist,
+    fontSize: 15,
+    fontFamily: FONTS.body,
+  },
 
-  listSection: { gap: 4 },
+  listSection: { gap: 6 },
   articleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
-    paddingVertical: SPACING.sm,
+    paddingVertical: SPACING.md,
     paddingHorizontal: 4,
     borderRadius: RADII.lg,
   },
+  // Article thumb — 80 (was 70)
   articleThumb: {
-    width: 70,
-    height: 70,
+    width: 84,
+    height: 84,
     borderRadius: RADII.lg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  articleEmoji: { fontSize: 28, opacity: 0.9 },
+  // Article emoji — bigger
+  articleEmoji: { fontSize: 34, opacity: 0.9 },
   articleInfo: { flex: 1 },
+  // Article category — 11.5px (was 9.5)
   articleCategory: {
     color: COLORS.teal,
-    fontSize: 9.5,
+    fontSize: 11.5,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.6,
-    marginBottom: 3,
+    marginBottom: 4,
   },
+  // Article title — 16px (was 13.5)
   articleTitle: {
     color: '#FFFFFF',
-    fontSize: 13.5,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 18,
+    lineHeight: 21,
   },
+  // Article meta — 13px (was 11)
   articleMeta: {
-    marginTop: 4,
+    marginTop: 5,
     color: COLORS.mist,
-    fontSize: 11,
+    fontSize: 13,
     fontFamily: FONTS.body,
   },
 });
