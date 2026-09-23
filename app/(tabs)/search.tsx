@@ -47,7 +47,6 @@ export default function SearchScreen() {
   const [myId, setMyId] = useState<string | null>(null);
   const searchSeq = useRef(0);
 
-  // Get current user
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setMyId(data.user.id);
@@ -78,7 +77,7 @@ export default function SearchScreen() {
     loadSuggestion();
   }, [myId]);
 
-  // Debounced search
+  // Debounced search — only username + display_name
   useEffect(() => {
     if (!myId) return;
 
@@ -289,15 +288,6 @@ export default function SearchScreen() {
               <Text style={styles.resultUsername} numberOfLines={1}>
                 @{item.username}
               </Text>
-              {item.bio ? (
-                <Text
-                  style={styles.resultBio}
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                >
-                  {item.bio}
-                </Text>
-              ) : null}
             </View>
 
             <Ionicons name="chevron-forward" size={18} color={COLORS.mist} />
@@ -330,7 +320,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(34, 211, 184, 0.06)',
   },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -375,7 +364,6 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
 
-  // Search box
   searchWrap: {
     paddingHorizontal: SPACING.lg,
     paddingBottom: SPACING.md,
@@ -398,14 +386,12 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
 
-  // List
   listContent: {
     paddingHorizontal: SPACING.md,
     paddingBottom: SPACING.xxl,
     flexGrow: 1,
   },
 
-  // Suggestions header
   suggestHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -421,7 +407,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  // Glass card (suggestion)
   glassCard: {
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
@@ -429,7 +414,6 @@ const styles = StyleSheet.create({
     borderRadius: RADII.xl,
     paddingVertical: SPACING.sm,
     paddingHorizontal: SPACING.sm,
-    // Glass effect
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -478,7 +462,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  // Skeleton
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -505,7 +488,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
 
-  // Result row
+  // Result row — NO BIO
   resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -534,21 +517,12 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     marginTop: 1,
   },
-  resultBio: {
-    fontSize: 12,
-    fontFamily: FONTS.body,
-    color: COLORS.mist,
-    marginTop: 3,
-    opacity: 0.75,
-  },
 
-  // Loading
   searchingWrap: {
     paddingVertical: SPACING.xl,
     alignItems: 'center',
   },
 
-  // Empty
   emptyWrap: {
     alignItems: 'center',
     justifyContent: 'center',
