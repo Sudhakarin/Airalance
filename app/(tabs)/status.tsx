@@ -111,9 +111,7 @@ export default function StatusScreen() {
         .from('status_views')
         .select('status_id')
         .eq('viewer_id', myId);
-      setViewedIds(
-        new Set((views ?? []).map((v: any) => v.status_id))
-      );
+      setViewedIds(new Set((views ?? []).map((v: any) => v.status_id)));
     } catch (err) {
       console.warn('Load statuses error:', err);
     } finally {
@@ -261,7 +259,7 @@ export default function StatusScreen() {
             <Text style={styles.myStatusTitle}>My Status</Text>
             <Text style={styles.myStatusSubtitle}>
               {myStatuses.length > 0
-                ? `Tapgroup to view · ${myStatuses.length} update${
+                ? `Tap to view · ${myStatuses.length} update${
                     myStatuses.length > 1 ? 's' : ''
                   }`
                 : 'Tap to add a status update'}
@@ -283,13 +281,13 @@ export default function StatusScreen() {
           </View>
         </TouchableOpacity>
 
-        {/* Recent */}
+        {/* Recent updates */}
         {recent.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>Recent updates</Text>
             {recent.map((group) => (
               <TouchableOpacity
-                key={.userId}
+                key={group.userId}
                 style={styles.statusRow}
                 onPress={() => openStatusViewer(group.userId)}
                 activeOpacity={0.7}
@@ -328,7 +326,7 @@ export default function StatusScreen() {
           </>
         )}
 
-        {/* Viewed */}
+        {/* Viewed updates */}
         {viewed.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>Viewed updates</Text>
