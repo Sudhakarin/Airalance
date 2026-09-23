@@ -72,7 +72,6 @@ export default function ProfileScreen() {
     (!!p.verified ||
       VERIFIED_USERNAMES.includes(p.username?.toLowerCase() ?? ''));
 
-  // Load profile
   const loadProfile = useCallback(async () => {
     try {
       const { data: authData } = await supabase.auth.getUser();
@@ -140,7 +139,6 @@ export default function ProfileScreen() {
     }, [loadProfile])
   );
 
-  // Load follow list
   const loadFollowList = useCallback(
     async (tab: ListTab) => {
       if (!profile) return;
@@ -177,7 +175,6 @@ export default function ProfileScreen() {
     [profile]
   );
 
-  // Toggle follow from list
   async function toggleFollowFromList(targetId: string) {
     if (!profile || toggleLoadingId) return;
     if (targetId === profile.id) return;
@@ -220,7 +217,6 @@ export default function ProfileScreen() {
     }
   }
 
-  // Pick + upload avatar
   async function pickAvatar() {
     if (!profile || uploading) return;
 
@@ -283,7 +279,6 @@ export default function ProfileScreen() {
     }
   }
 
-  // Save
   async function saveChanges() {
     if (!profile || saving) return;
     const trimmedName = nameDraft.trim();
@@ -319,7 +314,6 @@ export default function ProfileScreen() {
     }
   }
 
-  // Logout
   async function handleLogout() {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -373,7 +367,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Top row: Avatar + (Name + Stats stacked) */}
+        {/* Top row: Avatar (left) + Name & Stats (right) */}
         <View style={styles.topRow}>
           <TouchableOpacity
             onPress={pickAvatar}
@@ -385,26 +379,27 @@ export default function ProfileScreen() {
               name={profile.display_name}
               color={profile.avatar_color}
               avatarUrl={profile.avatar_url}
-              size={82}
+              size={78}
             />
             <View style={styles.cameraBadge}>
               {uploading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Ionicons name="camera" size={13} color="#FFFFFF" />
+                <Ionicons name="camera" size={12} color="#FFFFFF" />
               )}
             </View>
           </TouchableOpacity>
 
-          {/* Right side: Name on top, Stats below */}
           <View style={styles.rightCol}>
+            {/* Name — smaller (17px), one line */}
             <View style={styles.nameRow}>
               <Text style={styles.displayName} numberOfLines={1}>
                 {profile.display_name}
               </Text>
-              {verified && <VerifiedBadge size={18} />}
+              {verified && <VerifiedBadge size={16} />}
             </View>
 
+            {/* Stats row */}
             <View style={styles.statsWrap}>
               <StatItem
                 label="status"
@@ -425,7 +420,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Username + bio (below top row, full width) */}
+        {/* Username + bio below */}
         <View style={styles.bioBlock}>
           <Text style={styles.username}>@{profile.username}</Text>
           {profile.bio ? (
@@ -542,7 +537,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ===== Follow list modal — pure black background ===== */}
+      {/* Follow list modal */}
       {listTab && (
         <Modal
           visible
@@ -552,7 +547,6 @@ export default function ProfileScreen() {
         >
           <View style={styles.listModalWrap}>
             <View style={styles.listModal}>
-              {/* Header: back + @username + verified (centered) */}
               <View style={styles.listHeader}>
                 <TouchableOpacity
                   onPress={() => setListTab(null)}
@@ -570,7 +564,6 @@ export default function ProfileScreen() {
                 <View style={styles.listHeaderBtn} />
               </View>
 
-              {/* Tabs */}
               <View style={styles.listTabsRow}>
                 <TouchableOpacity
                   onPress={() => loadFollowList('followers')}
@@ -610,7 +603,6 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               </View>
 
-              {/* List */}
               {listLoading ? (
                 <View style={styles.listLoading}>
                   <ActivityIndicator color={COLORS.violet} />
@@ -768,23 +760,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Top row: avatar left, rightCol (name + stats) right
+  // ===== Top row: Avatar + Right column (Name + Stats) =====
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.md,
+    paddingTop: SPACING.sm,
     paddingBottom: SPACING.md,
-    gap: SPACING.lg,
+    gap: 16,
   },
   avatarWrap: { position: 'relative' },
   cameraBadge: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
@@ -803,7 +795,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   displayName: {
-    fontSize: 20,
+    fontSize: 17,          // ← Chhoti kar di
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     flexShrink: 1,
@@ -811,18 +803,19 @@ const styles = StyleSheet.create({
 
   statsWrap: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 18,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingRight: 8,
   },
   statItem: {
     alignItems: 'flex-start',
     gap: 2,
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 18,          // ← Chhota kiya
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    lineHeight: 24,
+    lineHeight: 22,
   },
   statLabel: {
     fontSize: 12,
@@ -830,7 +823,7 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
   },
 
-  // Bio block below top row
+  // ===== Bio block below top row =====
   bioBlock: {
     paddingHorizontal: SPACING.lg,
     paddingBottom: SPACING.lg,
@@ -838,7 +831,7 @@ const styles = StyleSheet.create({
   },
   username: {
     fontSize: 15,
-    fontFamily: FONTS.bodyBold,       // ← BOLD username
+    fontFamily: FONTS.bodySemiBold,  // ← Bold username
     color: '#FFFFFF',
     marginTop: 1,
   },
@@ -972,7 +965,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ===== Follow list modal — pure black background =====
+  // ===== Follow list modal =====
   listModalWrap: {
     flex: 1,
     backgroundColor: '#000000',
