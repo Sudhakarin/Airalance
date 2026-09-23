@@ -19,6 +19,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
+import VerifiedBadge from '../../components/VerifiedBadge';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const STATUS_DURATION_MS = 15000;
@@ -188,11 +189,7 @@ export default function StatusViewerScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.emptyWrap}>
-          <Ionicons
-            name="time-outline"
-            size={48}
-            color={COLORS.mist}
-          />
+          <Ionicons name="time-outline" size={48} color={COLORS.mist} />
           <Text style={styles.emptyText}>This status has expired</Text>
           <TouchableOpacity
             style={styles.emptyBtn}
@@ -228,10 +225,7 @@ export default function StatusViewerScreen() {
         />
       ) : (
         <LinearGradient
-          colors={[
-            current.bg_color ?? COLORS.violet,
-            '#0A0C12',
-          ]}
+          colors={[current.bg_color ?? COLORS.violet, '#0A0C12']}
           style={styles.textBg}
         >
           <Text style={styles.textContent}>{current.text_content}</Text>
@@ -284,14 +278,7 @@ export default function StatusViewerScreen() {
               <Text style={styles.headerName} numberOfLines={1}>
                 {profile?.display_name ?? 'Unknown'}
               </Text>
-              {profile?.verified && (
-                <Ionicons
-                  name="checkmark-circle"
-                  size={14}
-                  color={COLORS.violetLight}
-                  style={{ marginLeft: 4 }}
-                />
-              )}
+              {profile?.verified && <VerifiedBadge size={14} />}
             </View>
             <Text style={styles.headerTime}>
               {formatTime(current.created_at)}
