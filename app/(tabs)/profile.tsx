@@ -546,7 +546,7 @@ export default function ProfileScreen() {
         >
           <View style={styles.listModalWrap}>
             <View style={styles.listModal}>
-              {/* Header: back + @username + verified */}
+              {/* Header: back + @username + verified (centered) */}
               <View style={styles.listHeader}>
                 <TouchableOpacity
                   onPress={() => setListTab(null)}
@@ -564,7 +564,7 @@ export default function ProfileScreen() {
                 <View style={styles.listHeaderBtn} />
               </View>
 
-              {/* Tabs: text + underline (website style) */}
+              {/* Tabs: text + full-width white underline (website style) */}
               <View style={styles.listTabsRow}>
                 <TouchableOpacity
                   onPress={() => loadFollowList('followers')}
@@ -577,7 +577,8 @@ export default function ProfileScreen() {
                       listTab === 'followers' && styles.listTabTextActive,
                     ]}
                   >
-                    {followersCount === null ? '' : `${followersCount} `}followers
+                    {followersCount === null ? '' : `${followersCount} `}
+                    followers
                   </Text>
                   {listTab === 'followers' && (
                     <View style={styles.listTabUnderline} />
@@ -594,7 +595,8 @@ export default function ProfileScreen() {
                       listTab === 'following' && styles.listTabTextActive,
                     ]}
                   >
-                    {followingCount === null ? '' : `${followingCount} `}following
+                    {followingCount === null ? '' : `${followingCount} `}
+                    following
                   </Text>
                   {listTab === 'following' && (
                     <View style={styles.listTabUnderline} />
@@ -1056,11 +1058,12 @@ const styles = StyleSheet.create({
   },
 
   // Website colours: Follow back = #E54E60 (coral), Following = #2E2E2E (dark grey)
+  // Website shape: rounded rectangle (radius ~8), NOT a full pill
   followBtnSmall: {
     minWidth: 100,
     height: 34,
     paddingHorizontal: 14,
-    borderRadius: RADII.full,
+    borderRadius: 8,
     backgroundColor: '#E54E60',
     alignItems: 'center',
     justifyContent: 'center',
