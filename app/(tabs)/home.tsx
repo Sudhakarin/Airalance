@@ -1,7 +1,7 @@
 // app/(tabs)/home.tsx
-// Home screen — welcome + news feed with categories + live section
+// Home screen — welcome + news feed with categories + live section + skeleton
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Image,
   ActivityIndicator,
   RefreshControl,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -49,6 +50,112 @@ const CATEGORY_GRADIENTS: Record<string, [string, string]> = {
   Education: ['#22D3B8', '#16A98C'],
   Awareness: ['#F4607A', '#D66BE0'],
 };
+
+// ===== Skeleton component (pulse/shimmer effect) =====
+function SkeletonBlock({
+  width,
+  height,
+  borderRadius = 8,
+  style,
+}: {
+  width: number | string;
+  height: number;
+  borderRadius?: number;
+  style?: any;
+}) {
+  const opacity = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: 'rgba(255,255,255,0.08)',
+          opacity,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+function HomeSkeleton() {
+  return (
+    <View>
+      {/* Featured card skeleton */}
+      <SkeletonBlock
+        width="100%"
+        height={200}
+        borderRadius={RADII.xl}
+        style={{ marginBottom: SPACING.lg }}
+      />
+
+      {/* Live section skeleton */}
+      <View style={{ marginBottom: SPACING.lg }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: SPACING.sm,
+            paddingHorizontal: 4,
+          }}
+        >
+          <SkeletonBlock width={8} height={8} borderRadius={4} />
+          <SkeletonBlock width={40} height={14} borderRadius={6} />
+        </View>
+        <SkeletonBlock
+          width="100%"
+          height={180}
+          borderRadius={RADII.xl}
+        />
+      </View>
+
+      {/* Articles list skeleton — 4 rows */}
+      {[0, 1, 2, 3].map((i) => (
+        <View
+          key={i}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: SPACING.md,
+            paddingVertical: SPACING.sm,
+            paddingHorizontal: 4,
+          }}
+        >
+          <SkeletonBlock width={70} height={70} borderRadius={RADII.lg} />
+          <View style={{ flex: 1, gap: 6 }}>
+            <SkeletonBlock width={50} height={10} borderRadius={4} />
+            <SkeletonBlock width="90%" height={14} borderRadius={5} />
+            <SkeletonBlock width="70%" height={14} borderRadius={5} />
+            <SkeletonBlock width={100} height={10} borderRadius={4} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -116,7 +223,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
 
-      {/* Header — brand left, bell right */}
+      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.brandText}>Airalance!</Text>
 
@@ -220,12 +327,9 @@ export default function HomeScreen() {
             })}
           </ScrollView>
 
-          {/* Loading */}
+          {/* Loading → Skeleton */}
           {loading ? (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator color={COLORS.violet} />
-              <Text style={styles.loadingText}>Loading news…</Text>
-            </View>
+            <HomeSkeleton />
           ) : filteredArticles.length === 0 ? (
             <View style={styles.emptyWrap}>
               <Ionicons name="newspaper-outline" size={42} color={COLORS.mist} />
@@ -374,7 +478,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(124, 92, 255, 0.12)',
   },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -419,7 +522,6 @@ const styles = StyleSheet.create({
     lineHeight: 12,
   },
 
-  // Welcome card
   welcomeCard: {
     alignItems: 'center',
     paddingHorizontal: SPACING.xl,
@@ -469,7 +571,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // News
   newsSection: { paddingHorizontal: SPACING.lg, marginTop: SPACING.md },
   newsHeader: {
     flexDirection: 'row',
@@ -484,7 +585,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // Categories
   categoriesRow: { gap: 8, paddingRight: SPACING.lg, paddingBottom: SPACING.md },
   categoryWrap: { marginRight: 8 },
   categoryPill: {
@@ -511,9 +611,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Loading / empty
-  loadingWrap: { paddingVertical: 60, alignItems: 'center', gap: 12 },
-  loadingText: { color: COLORS.mist, fontSize: 13, fontFamily: FONTS.body },
   emptyWrap: { paddingVertical: 60, alignItems: 'center', gap: 10 },
   emptyText: {
     color: COLORS.text,
@@ -523,7 +620,6 @@ const styles = StyleSheet.create({
   },
   emptySubtext: { color: COLORS.mist, fontSize: 12, fontFamily: FONTS.body },
 
-  // Featured
   featuredCard: {
     height: 200,
     borderRadius: RADII.xl,
@@ -585,7 +681,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
   },
 
-  // Live
   liveSection: { marginBottom: SPACING.lg },
   liveHeader: {
     flexDirection: 'row',
@@ -625,7 +720,6 @@ const styles = StyleSheet.create({
   },
   liveText: { color: COLORS.mist, fontSize: 12, fontFamily: FONTS.body },
 
-  // Article list
   listSection: { gap: 4 },
   articleRow: {
     flexDirection: 'row',
