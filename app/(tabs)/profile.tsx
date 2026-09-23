@@ -373,6 +373,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Top row: Avatar + (Name + Stats stacked) */}
         <View style={styles.topRow}>
           <TouchableOpacity
             onPress={pickAvatar}
@@ -395,32 +396,37 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
 
-          <View style={styles.statsWrap}>
-            <StatItem
-              label="status"
-              value={initialsForCounts.status}
-              onPress={() => router.push('/(tabs)/status')}
-            />
-            <StatItem
-              label="followers"
-              value={initialsForCounts.followers}
-              onPress={() => loadFollowList('followers')}
-            />
-            <StatItem
-              label="following"
-              value={initialsForCounts.following}
-              onPress={() => loadFollowList('following')}
-            />
+          {/* Right side: Name on top, Stats below */}
+          <View style={styles.rightCol}>
+            <View style={styles.nameRow}>
+              <Text style={styles.displayName} numberOfLines={1}>
+                {profile.display_name}
+              </Text>
+              {verified && <VerifiedBadge size={18} />}
+            </View>
+
+            <View style={styles.statsWrap}>
+              <StatItem
+                label="status"
+                value={initialsForCounts.status}
+                onPress={() => router.push('/(tabs)/status')}
+              />
+              <StatItem
+                label="followers"
+                value={initialsForCounts.followers}
+                onPress={() => loadFollowList('followers')}
+              />
+              <StatItem
+                label="following"
+                value={initialsForCounts.following}
+                onPress={() => loadFollowList('following')}
+              />
+            </View>
           </View>
         </View>
 
+        {/* Username + bio (below top row, full width) */}
         <View style={styles.bioBlock}>
-          <View style={styles.nameRow}>
-            <Text style={styles.displayName} numberOfLines={1}>
-              {profile.display_name}
-            </Text>
-            {verified && <VerifiedBadge size={18} />}
-          </View>
           <Text style={styles.username}>@{profile.username}</Text>
           {profile.bio ? (
             <Text style={styles.bio}>{profile.bio}</Text>
@@ -564,7 +570,7 @@ export default function ProfileScreen() {
                 <View style={styles.listHeaderBtn} />
               </View>
 
-              {/* Tabs: text + full-width white underline (website style) */}
+              {/* Tabs */}
               <View style={styles.listTabsRow}>
                 <TouchableOpacity
                   onPress={() => loadFollowList('followers')}
@@ -762,11 +768,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // Top row: avatar left, rightCol (name + stats) right
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.md,
     gap: SPACING.lg,
   },
   avatarWrap: { position: 'relative' },
@@ -783,17 +791,32 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#000000',
   },
-  statsWrap: {
+
+  // Right column: name on top, stats below
+  rightCol: {
     flex: 1,
+    minWidth: 0,
+  },
+  nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
+    marginBottom: 10,
+  },
+  displayName: {
+    fontSize: 20,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+
+  statsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 18,
   },
   statItem: {
     alignItems: 'flex-start',
     gap: 2,
-    paddingVertical: 6,
-    paddingHorizontal: 4,
   },
   statValue: {
     fontSize: 20,
@@ -807,22 +830,16 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
   },
 
+  // Bio block below top row
   bioBlock: {
     paddingHorizontal: SPACING.lg,
     paddingBottom: SPACING.lg,
     gap: 3,
   },
-  nameRow: { flexDirection: 'row', alignItems: 'center' },
-  displayName: {
-    fontSize: 20,
-    fontFamily: FONTS.displayBold,
-    color: '#FFFFFF',
-    flexShrink: 1,
-  },
   username: {
-    fontSize: 14,
-    fontFamily: FONTS.body,
-    color: COLORS.mist,
+    fontSize: 15,
+    fontFamily: FONTS.bodyBold,       // ← BOLD username
+    color: '#FFFFFF',
     marginTop: 1,
   },
   bio: {
@@ -1057,8 +1074,6 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  // Website colours: Follow back = #E54E60 (coral), Following = #2E2E2E (dark grey)
-  // Website shape: rounded rectangle (radius ~8), NOT a full pill
   followBtnSmall: {
     minWidth: 100,
     height: 34,
