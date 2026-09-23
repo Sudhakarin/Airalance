@@ -101,7 +101,12 @@ export default function MessageBubble({
           grouped ? styles.rowGrouped : styles.rowSpaced,
         ]}
       >
-        <View style={[styles.bubbleWrap, { maxWidth: '80%' }]}>
+        <View
+          style={[
+            styles.bubbleWrap,
+            { maxWidth: '80%', alignItems: isMine ? 'flex-end' : 'flex-start' },
+          ]}
+        >
           {isMine ? (
             isImage ? (
               <View style={styles.imageWrapMine}>
@@ -110,17 +115,6 @@ export default function MessageBubble({
                   style={styles.image}
                   resizeMode="cover"
                 />
-                <View style={styles.imageTimeWrap}>
-                  <Text style={styles.imageTime}>
-                    {formatTime(message.created_at)}
-                  </Text>
-                  <Ionicons
-                    name={message.read_at ? 'checkmark-done' : 'checkmark'}
-                    size={14}
-                    color={message.read_at ? '#7DD3FC' : '#FFFFFF'}
-                    style={{ marginLeft: 4 }}
-                  />
-                </View>
               </View>
             ) : (
               <LinearGradient
@@ -140,17 +134,6 @@ export default function MessageBubble({
                 ) : (
                   <Text style={styles.text}>{message.content}</Text>
                 )}
-                <View style={styles.metaRow}>
-                  <Text style={styles.time}>
-                    {formatTime(message.created_at)}
-                  </Text>
-                  <Ionicons
-                    name={message.read_at ? 'checkmark-done' : 'checkmark'}
-                    size={14}
-                    color={message.read_at ? '#7DD3FC' : 'rgba(255,255,255,0.7)'}
-                    style={{ marginLeft: 4 }}
-                  />
-                </View>
               </LinearGradient>
             )
           ) : (
@@ -158,6 +141,7 @@ export default function MessageBubble({
               style={[
                 styles.bubble,
                 styles.bubbleOther,
+                isImage && !isDeleted && styles.bubbleOtherImage,
                 nextIsSameSender && styles.bubbleOtherTightBottom,
               ]}
             >
@@ -166,30 +150,29 @@ export default function MessageBubble({
                   This message was deleted
                 </Text>
               ) : isImage ? (
-                <>
-                  <Image
-                    source={{ uri: message.media_url! }}
-                    style={styles.image}
-                    resizeMode="cover"
-                  />
-                  <View style={styles.imageTimeWrap}>
-                    <Text style={styles.imageTime}>
-                      {formatTime(message.created_at)}
-                    </Text>
-                  </View>
-                </>
+                <Image
+                  source={{ uri: message.media_url! }}
+                  style={styles.image}
+                  resizeMode="cover"
+                />
               ) : (
                 <Text style={styles.text}>{message.content}</Text>
               )}
-              {!isImage && (
-                <View style={styles.metaRow}>
-                  <Text style={styles.time}>
-                    {formatTime(message.created_at)}
-                  </Text>
-                </View>
-              )}
             </View>
           )}
+
+          {/* ✅ Time ab bubble ke NICHE */}
+          <View style={styles.metaRow}>
+            <Text style={styles.time}>{formatTime(message.created_at)}</Text>
+            {isMine && (
+              <Ionicons
+                name={message.read_at ? 'checkmark-done' : 'checkmark'}
+                size={14}
+                color={message.read_at ? '#7DD3FC' : 'rgba(255,255,255,0.55)'}
+                style={{ marginLeft: 4 }}
+              />
+            )}
+          </View>
         </View>
       </View>
     </>
@@ -246,12 +229,14 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
   },
   bubbleOtherTightBottom: { borderBottomLeftRadius: 6 },
+  bubbleOtherImage: { padding: 3, borderRadius: 18 },
 
+  // ✅ FIXED: message font thoda mota (Medium weight) + size 15 -> 16
   text: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontFamily: FONTS.body,
-    lineHeight: 20,
+    fontSize: 16,
+    fontFamily: FONTS.bodyMedium,
+    lineHeight: 22,
   },
   deletedText: {
     color: COLORS.mist,
@@ -260,16 +245,17 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 
+  // time bubble ke niche — mine: right side, other: left side (bubbleWrap alignItems se)
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    marginTop: 2,
+    marginTop: 4,
+    marginHorizontal: 4,
   },
   time: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: FONTS.body,
-    color: 'rgba(255,255,255,0.65)',
+    color: 'rgba(255,255,255,0.55)',
   },
 
   imageWrapMine: {
@@ -282,21 +268,5 @@ const styles = StyleSheet.create({
     width: 220,
     height: 220,
     borderRadius: 16,
-  },
-  imageTimeWrap: {
-    position: 'absolute',
-    bottom: 8,
-    right: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-  },
-  imageTime: {
-    fontSize: 10,
-    color: '#FFFFFF',
-    fontFamily: FONTS.body,
   },
 });
