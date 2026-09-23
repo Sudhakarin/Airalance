@@ -18,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
+import VerifiedBadge from '../../components/VerifiedBadge';
 
 type Profile = {
   id: string;
@@ -110,14 +111,7 @@ export default function SettingsScreen() {
                 <Text style={styles.userName} numberOfLines={1}>
                   {profile.display_name}
                 </Text>
-                {profile.verified && (
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={15}
-                    color={COLORS.violetLight}
-                    style={{ marginLeft: 4 }}
-                  />
-                )}
+                {profile.verified && <VerifiedBadge size={15} />}
               </View>
               <Text style={styles.userUsername}>@{profile.username}</Text>
             </View>
