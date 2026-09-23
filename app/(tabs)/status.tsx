@@ -1,5 +1,5 @@
 // app/(tabs)/status.tsx
-// Status tab — shows status list grouped by user with story rings
+// Status tab — shows status list grouped by user with story rings + proper spacing
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -282,87 +282,98 @@ export default function StatusScreen() {
           </View>
         </TouchableOpacity>
 
+        {/* Divider after My Status */}
+        <View style={styles.thickDivider} />
+
         {/* Recent updates */}
         {recent.length > 0 && (
-          <>
+          <View style={styles.section}>
             <Text style={styles.sectionTitle}>Recent updates</Text>
-            {recent.map((group) => (
-              <TouchableOpacity
-                key={group.userId}
-                style={styles.statusRow}
-                onPress={() => openStatusViewer(group.userId)}
-                activeOpacity={0.7}
-              >
-                <StatusRing hasStatus viewed={false}>
-                  <Avatar
-                    name={group.profile?.display_name ?? 'Unknown'}
-                    color={group.profile?.avatar_color ?? COLORS.violet}
-                    avatarUrl={group.profile?.avatar_url ?? null}
-                    size={64}
-                  />
-                </StatusRing>
-                <View style={styles.statusInfo}>
-                  <View style={styles.statusNameRow}>
-                    <Text style={styles.statusName} numberOfLines={1}>
-                      {group.profile?.display_name ?? 'Unknown'}
+            {recent.map((group, index) => (
+              <View key={group.userId}>
+                <TouchableOpacity
+                  style={styles.statusRow}
+                  onPress={() => openStatusViewer(group.userId)}
+                  activeOpacity={0.7}
+                >
+                  <StatusRing hasStatus viewed={false}>
+                    <Avatar
+                      name={group.profile?.display_name ?? 'Unknown'}
+                      color={group.profile?.avatar_color ?? COLORS.violet}
+                      avatarUrl={group.profile?.avatar_url ?? null}
+                      size={64}
+                    />
+                  </StatusRing>
+                  <View style={styles.statusInfo}>
+                    <View style={styles.statusNameRow}>
+                      <Text style={styles.statusName} numberOfLines={1}>
+                        {group.profile?.display_name ?? 'Unknown'}
+                      </Text>
+                      {group.profile?.verified && (
+                        <VerifiedBadge size={14} />
+                      )}
+                    </View>
+                    <Text style={styles.statusTime}>
+                      {group.statuses.length > 1
+                        ? `${group.statuses.length} updates · `
+                        : ''}
+                      {formatTime(group.latestAt)}
                     </Text>
-                    {group.profile?.verified && (
-                      <VerifiedBadge size={14} />
-                    )}
                   </View>
-                  <Text style={styles.statusTime}>
-                    {group.statuses.length > 1
-                      ? `${group.statuses.length} updates · `
-                      : ''}
-                    {formatTime(group.latestAt)}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+                </TouchableOpacity>
+                {index < recent.length - 1 && (
+                  <View style={styles.separator} />
+                )}
+              </View>
             ))}
-          </>
+          </View>
         )}
 
         {/* Viewed updates */}
         {viewed.length > 0 && (
-          <>
+          <View style={styles.section}>
             <Text style={styles.sectionTitle}>Viewed updates</Text>
-            {viewed.map((group) => (
-              <TouchableOpacity
-                key={group.userId}
-                style={styles.statusRow}
-                onPress={() => openStatusViewer(group.userId)}
-                activeOpacity={0.7}
-              >
-                <StatusRing hasStatus viewed={true}>
-                  <Avatar
-                    name={group.profile?.display_name ?? 'Unknown'}
-                    color={group.profile?.avatar_color ?? COLORS.violet}
-                    avatarUrl={group.profile?.avatar_url ?? null}
-                    size={64}
-                  />
-                </StatusRing>
-                <View style={styles.statusInfo}>
-                  <View style={styles.statusNameRow}>
-                    <Text
-                      style={[styles.statusName, styles.statusNameViewed]}
-                      numberOfLines={1}
-                    >
-                      {group.profile?.display_name ?? 'Unknown'}
+            {viewed.map((group, index) => (
+              <View key={group.userId}>
+                <TouchableOpacity
+                  style={styles.statusRow}
+                  onPress={() => openStatusViewer(group.userId)}
+                  activeOpacity={0.7}
+                >
+                  <StatusRing hasStatus viewed={true}>
+                    <Avatar
+                      name={group.profile?.display_name ?? 'Unknown'}
+                      color={group.profile?.avatar_color ?? COLORS.violet}
+                      avatarUrl={group.profile?.avatar_url ?? null}
+                      size={64}
+                    />
+                  </StatusRing>
+                  <View style={styles.statusInfo}>
+                    <View style={styles.statusNameRow}>
+                      <Text
+                        style={[styles.statusName, styles.statusNameViewed]}
+                        numberOfLines={1}
+                      >
+                        {group.profile?.display_name ?? 'Unknown'}
+                      </Text>
+                      {group.profile?.verified && (
+                        <VerifiedBadge size={14} />
+                      )}
+                    </View>
+                    <Text style={styles.statusTime}>
+                      {group.statuses.length > 1
+                        ? `${group.statuses.length} updates · `
+                        : ''}
+                      {formatTime(group.latestAt)}
                     </Text>
-                    {group.profile?.verified && (
-                      <VerifiedBadge size={14} />
-                    )}
                   </View>
-                  <Text style={styles.statusTime}>
-                    {group.statuses.length > 1
-                      ? `${group.statuses.length} updates · `
-                      : ''}
-                    {formatTime(group.latestAt)}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+                </TouchableOpacity>
+                {index < viewed.length - 1 && (
+                  <View style={styles.separator} />
+                )}
+              </View>
             ))}
-          </>
+          </View>
         )}
 
         {/* Empty */}
@@ -428,6 +439,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
+  // My Status row
   myStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -470,6 +483,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(124, 92, 255, 0.1)',
   },
+
+  // ✅ Thick divider after My Status
+  thickDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginHorizontal: SPACING.lg,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+
+  // ✅ Section wrapper
+  section: {
+    marginTop: SPACING.sm,
+  },
   sectionTitle: {
     fontSize: 11,
     fontFamily: FONTS.bodySemiBold,
@@ -477,16 +504,17 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.lg,
     paddingBottom: SPACING.sm,
     opacity: 0.7,
   },
+
+  // ✅ Status row with proper spacing
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.sm,
+    paddingVertical: 12,
   },
   statusInfo: { flex: 1, minWidth: 0 },
   statusNameRow: { flexDirection: 'row', alignItems: 'center' },
@@ -503,6 +531,15 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     marginTop: 2,
   },
+
+  // ✅ Separator between rows
+  separator: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginLeft: 96, // avatar width (64) + padding (SPACING.lg=24) + gap (8)
+    marginRight: SPACING.lg,
+  },
+
   loadingWrap: {
     flex: 1,
     alignItems: 'center',
