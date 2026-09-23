@@ -118,10 +118,7 @@ export default function HomeScreen() {
 
       {/* Header — brand left, bell right */}
       <View style={styles.header}>
-        <Text style={styles.brandText}>
-          Aira
-          <Text style={styles.brandGradient}>Think!</Text>
-        </Text>
+        <Text style={styles.brandText}>Airalance!</Text>
 
         <TouchableOpacity
           style={styles.bellBtn}
@@ -358,11 +355,6 @@ export default function HomeScreen() {
             </>
           )}
         </View>
-
-        {/* Footer */}
-        <Text style={styles.footer}>
-          Copyright © 2026 by AiraThink! · All rights reserved.
-        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -392,13 +384,10 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.md,
   },
   brandText: {
-    fontSize: 26,
+    fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    letterSpacing: -0.3,
-  },
-  brandGradient: {
-    color: COLORS.violetLight,
+    letterSpacing: -0.5,
   },
   bellBtn: {
     width: 42,
@@ -673,14 +662,5 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     fontSize: 11,
     fontFamily: FONTS.body,
-  },
-
-  footer: {
-    marginTop: SPACING.xxl,
-    textAlign: 'center',
-    color: COLORS.mist,
-    fontSize: 10,
-    fontFamily: FONTS.body,
-    opacity: 0.5,
   },
 });
