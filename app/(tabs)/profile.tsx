@@ -11,7 +11,6 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -29,6 +28,7 @@ import {
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
+import VerifiedBadge from '../../components/VerifiedBadge';
 
 type Profile = {
   id: string;
@@ -147,7 +147,6 @@ export default function ProfileScreen() {
     setUploading(true);
 
     try {
-      // Fetch file as arrayBuffer for Supabase upload
       const response = await fetch(asset.uri);
       const arrayBuffer = await response.arrayBuffer();
       const ext =
@@ -191,8 +190,7 @@ export default function ProfileScreen() {
     const trimmedName = nameDraft.trim();
     const trimmedBio = bioDraft.trim();
 
-    const nameChanged =
-      trimmedName && trimmedName !== profile.display_name;
+    const nameChanged = trimmedName && trimmedName !== profile.display_name;
     const bioChanged = trimmedBio !== (profile.bio ?? '');
 
     if (!nameChanged && !bioChanged) return;
@@ -280,7 +278,6 @@ export default function ProfileScreen() {
       >
         {/* Top row: avatar + stats */}
         <View style={styles.topRow}>
-          {/* Avatar + edit badge */}
           <TouchableOpacity
             onPress={pickAvatar}
             disabled={uploading}
@@ -302,7 +299,6 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* Stats */}
           <View style={styles.statsWrap}>
             <StatItem
               label="status"
@@ -312,16 +308,12 @@ export default function ProfileScreen() {
             <StatItem
               label="followers"
               value={initialsForCounts.followers}
-              onPress={() => {
-                // TODO: followers sheet
-              }}
+              onPress={() => {}}
             />
             <StatItem
               label="following"
               value={initialsForCounts.following}
-              onPress={() => {
-                // TODO: following sheet
-              }}
+              onPress={() => {}}
             />
           </View>
         </View>
@@ -332,14 +324,7 @@ export default function ProfileScreen() {
             <Text style={styles.displayName} numberOfLines={1}>
               {profile.display_name}
             </Text>
-            {verified && (
-              <Ionicons
-                name="checkmark-circle"
-                size={18}
-                color={COLORS.violetLight}
-                style={{ marginLeft: 4 }}
-              />
-            )}
+            {verified && <VerifiedBadge size={18} />}
           </View>
           <Text style={styles.username}>@{profile.username}</Text>
           {profile.bio ? (
@@ -378,14 +363,7 @@ export default function ProfileScreen() {
             <Text style={styles.infoLabel}>Username</Text>
             <View style={styles.usernameRow}>
               <Text style={styles.infoValue}>@{profile.username}</Text>
-              {verified && (
-                <Ionicons
-                  name="checkmark-circle"
-                  size={14}
-                  color={COLORS.violetLight}
-                  style={{ marginLeft: 4 }}
-                />
-              )}
+              {verified && <VerifiedBadge size={14} />}
             </View>
           </View>
 
