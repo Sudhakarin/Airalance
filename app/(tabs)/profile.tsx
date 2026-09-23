@@ -795,7 +795,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   displayName: {
-    fontSize: 17,          // ← Chhoti kar di
+    fontSize: 17,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     flexShrink: 1,
@@ -804,15 +804,15 @@ const styles = StyleSheet.create({
   statsWrap: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingRight: 8,
+    justifyContent: 'flex-start',
+    gap: 28,
   },
   statItem: {
     alignItems: 'flex-start',
     gap: 2,
   },
   statValue: {
-    fontSize: 18,          // ← Chhota kiya
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     lineHeight: 22,
@@ -831,7 +831,7 @@ const styles = StyleSheet.create({
   },
   username: {
     fontSize: 15,
-    fontFamily: FONTS.bodySemiBold,  // ← Bold username
+    fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     marginTop: 1,
   },
