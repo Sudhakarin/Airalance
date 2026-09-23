@@ -580,8 +580,6 @@ export default function ChatScreen() {
           data={messages}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
-          // ✅ FIXED: guaranteed gap between every bubble, chipakna band
-          ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
           onContentSizeChange={() =>
             flatListRef.current?.scrollToEnd({ animated: false })
           }
