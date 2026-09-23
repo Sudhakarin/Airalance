@@ -90,7 +90,6 @@ export default function ProfileScreen() {
       setNameDraft((data as Profile).display_name ?? '');
       setBioDraft((data as Profile).bio ?? '');
 
-      // Load counts in parallel
       const [f1, f2, statusRes, followingRes] = await Promise.all([
         supabase
           .from('follows')
@@ -120,7 +119,6 @@ export default function ProfileScreen() {
           : liveCount
       );
 
-      // Cache my following ids for follow-button state
       const ids = new Set<string>(
         (followingRes.data ?? []).map((r: any) => r.followed_id)
       );
@@ -142,7 +140,7 @@ export default function ProfileScreen() {
     }, [loadProfile])
   );
 
-  // === Load follow list (followers / following) ===
+  // Load follow list
   const loadFollowList = useCallback(
     async (tab: ListTab) => {
       if (!profile) return;
@@ -179,7 +177,7 @@ export default function ProfileScreen() {
     [profile]
   );
 
-  // === Toggle follow from list ===
+  // Toggle follow from list
   async function toggleFollowFromList(targetId: string) {
     if (!profile || toggleLoadingId) return;
     if (targetId === profile.id) return;
@@ -285,7 +283,7 @@ export default function ProfileScreen() {
     }
   }
 
-  // Save name + bio
+  // Save
   async function saveChanges() {
     if (!profile || saving) return;
     const trimmedName = nameDraft.trim();
@@ -337,8 +335,6 @@ export default function ProfileScreen() {
     ]);
   }
 
-  // ---- RENDER ----
-
   if (loading || !profile) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -377,7 +373,6 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Top row: avatar + stats */}
         <View style={styles.topRow}>
           <TouchableOpacity
             onPress={pickAvatar}
@@ -419,7 +414,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Name + username + bio */}
         <View style={styles.bioBlock}>
           <View style={styles.nameRow}>
             <Text style={styles.displayName} numberOfLines={1}>
@@ -509,7 +503,7 @@ export default function ProfileScreen() {
           />
         </View>
 
-        {/* Save button */}
+        {/* Save */}
         <TouchableOpacity
           style={[
             styles.saveBtn,
@@ -542,7 +536,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ===== Follow list modal ===== */}
+      {/* ===== Follow list modal — website design ===== */}
       {listTab && (
         <Modal
           visible
@@ -552,22 +546,25 @@ export default function ProfileScreen() {
         >
           <View style={styles.listModalWrap}>
             <View style={styles.listModal}>
-              {/* Header with close */}
+              {/* Header: back + @username + verified */}
               <View style={styles.listHeader}>
                 <TouchableOpacity
                   onPress={() => setListTab(null)}
                   style={styles.listHeaderBtn}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="close" size={22} color="#FFFFFF" />
+                  <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
                 </TouchableOpacity>
-                <Text style={styles.listHeaderTitle}>
-                  {listTab === 'followers' ? 'Followers' : 'Following'}
-                </Text>
+                <View style={styles.listHeaderCenter}>
+                  <Text style={styles.listHeaderUsername} numberOfLines={1}>
+                    {profile.username}
+                  </Text>
+                  {verified && <VerifiedBadge size={14} />}
+                </View>
                 <View style={styles.listHeaderBtn} />
               </View>
 
-              {/* Tabs */}
+              {/* Tabs: text + underline (website style) */}
               <View style={styles.listTabsRow}>
                 <TouchableOpacity
                   onPress={() => loadFollowList('followers')}
@@ -580,7 +577,7 @@ export default function ProfileScreen() {
                       listTab === 'followers' && styles.listTabTextActive,
                     ]}
                   >
-                    Followers
+                    {followersCount === null ? '' : `${followersCount} `}followers
                   </Text>
                   {listTab === 'followers' && (
                     <View style={styles.listTabUnderline} />
@@ -597,7 +594,7 @@ export default function ProfileScreen() {
                       listTab === 'following' && styles.listTabTextActive,
                     ]}
                   >
-                    Following
+                    {followingCount === null ? '' : `${followingCount} `}following
                   </Text>
                   {listTab === 'following' && (
                     <View style={styles.listTabUnderline} />
@@ -659,7 +656,7 @@ export default function ProfileScreen() {
                             style={styles.personUsername}
                             numberOfLines={1}
                           >
-                            @{item.username}
+                            {item.username}
                           </Text>
                         </View>
 
@@ -667,7 +664,7 @@ export default function ProfileScreen() {
                           <TouchableOpacity
                             style={[
                               styles.followBtnSmall,
-                              isFollowing && styles.followBtnSmallActive,
+                              isFollowing && styles.followBtnSmallFollowing,
                             ]}
                             onPress={() => toggleFollowFromList(item.id)}
                             disabled={busy}
@@ -683,10 +680,10 @@ export default function ProfileScreen() {
                                 style={[
                                   styles.followBtnSmallText,
                                   isFollowing &&
-                                    styles.followBtnSmallTextActive,
+                                    styles.followBtnSmallTextFollowing,
                                 ]}
                               >
-                                {isFollowing ? 'Following' : 'Follow'}
+                                {isFollowing ? 'Following' : 'Follow back'}
                               </Text>
                             )}
                           </TouchableOpacity>
@@ -704,7 +701,6 @@ export default function ProfileScreen() {
   );
 }
 
-// --- Small stat component ---
 function StatItem({
   label,
   value,
@@ -742,7 +738,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(124, 92, 255, 0.10)',
   },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -765,7 +760,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Top row
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -773,9 +767,7 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.md,
     gap: SPACING.lg,
   },
-  avatarWrap: {
-    position: 'relative',
-  },
+  avatarWrap: { position: 'relative' },
   cameraBadge: {
     position: 'absolute',
     bottom: 0,
@@ -813,16 +805,12 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
   },
 
-  // Bio block
   bioBlock: {
     paddingHorizontal: SPACING.lg,
     paddingBottom: SPACING.lg,
     gap: 3,
   },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  nameRow: { flexDirection: 'row', alignItems: 'center' },
   displayName: {
     fontSize: 20,
     fontFamily: FONTS.displayBold,
@@ -849,7 +837,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // Card
   card: {
     marginHorizontal: SPACING.lg,
     marginBottom: SPACING.md,
@@ -910,7 +897,6 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
   },
 
-  // Bio card
   bioHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -942,16 +928,13 @@ const styles = StyleSheet.create({
     boxShadow: 'none',
   } as any,
 
-  // Save button
   saveBtn: {
     marginHorizontal: SPACING.lg,
     marginTop: SPACING.md,
     borderRadius: RADII.full,
     overflow: 'hidden',
   },
-  saveBtnDisabled: {
-    opacity: 0.4,
-  },
+  saveBtnDisabled: { opacity: 0.4 },
   saveBtnGradient: {
     paddingVertical: 15,
     alignItems: 'center',
@@ -964,34 +947,28 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  // Loading
   loadingWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  // ===== Follow list modal =====
+  // ===== Follow list modal — website design =====
   listModalWrap: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'flex-end',
+    backgroundColor: COLORS.ink900,
   },
   listModal: {
+    flex: 1,
     backgroundColor: COLORS.ink900,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '85%',
-    borderTopWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
   },
   listHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.sm,
     paddingTop: SPACING.md,
-    paddingBottom: 4,
+    paddingBottom: SPACING.sm,
   },
   listHeaderBtn: {
     width: 40,
@@ -999,37 +976,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  listHeaderTitle: {
+  listHeaderCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  listHeaderUsername: {
     fontSize: 16,
-    fontFamily: FONTS.bodySemiBold,
+    fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   listTabsRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 40,
-    paddingVertical: SPACING.sm,
+    justifyContent: 'space-around',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: 'rgba(255,255,255,0.08)',
   },
   listTabBtn: {
-    paddingVertical: 8,
+    flex: 1,
+    paddingVertical: 14,
     alignItems: 'center',
     position: 'relative',
   },
   listTabText: {
     fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
-    color: COLORS.mist,
+    color: 'rgba(255,255,255,0.45)',
   },
   listTabTextActive: { color: '#FFFFFF' },
   listTabUnderline: {
     position: 'absolute',
-    bottom: 0,
-    height: 2,
-    width: 60,
-    borderRadius: 2,
-    backgroundColor: COLORS.violetLight,
+    bottom: -1,
+    height: 1.5,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
   },
   listLoading: {
     flex: 1,
@@ -1056,9 +1037,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.sm,
-    borderRadius: RADII.lg,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
   },
   personInfo: { flex: 1, minWidth: 0 },
   personNameRow: { flexDirection: 'row', alignItems: 'center' },
@@ -1075,27 +1055,27 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  // Small follow button in list
+  // Website colours: Follow back = #E54E60 (coral), Following = #2E2E2E (dark grey)
   followBtnSmall: {
-    minWidth: 88,
+    minWidth: 100,
     height: 34,
     paddingHorizontal: 14,
     borderRadius: RADII.full,
-    backgroundColor: COLORS.violet,
+    backgroundColor: '#E54E60',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  followBtnSmallActive: {
-    backgroundColor: 'transparent',
+  followBtnSmallFollowing: {
+    backgroundColor: '#2E2E2E',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   followBtnSmallText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 13.5,
     fontFamily: FONTS.bodySemiBold,
   },
-  followBtnSmallTextActive: {
-    color: COLORS.mistLight,
+  followBtnSmallTextFollowing: {
+    color: '#FFFFFF',
   },
 });
