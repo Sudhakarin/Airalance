@@ -23,15 +23,12 @@ import {
 import { COLORS } from '../constants/theme';
 import { supabase } from '../lib/supabase';
 
-// Prevent splash from auto-hiding
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [authReady, setAuthReady] = useState(false);
-  const [session, setSession] = useState<any>(null);
 
-  // Load fonts
   useEffect(() => {
     async function loadFonts() {
       try {
@@ -53,37 +50,26 @@ export default function RootLayout() {
     loadFonts();
   }, []);
 
-  // Check auth session
   useEffect(() => {
     let mounted = true;
-
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session);
-      setAuthReady(true);
+    supabase.auth.getSession().then(() => {
+      if (mounted) setAuthReady(true);
     });
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event, newSession) => {
-        if (!mounted) return;
-        setSession(newSession);
-      }
-    );
-
+    const { data: listener } = supabase.auth.onAuthStateChange(() => {
+      if (mounted) setAuthReady(true);
+    });
     return () => {
       mounted = false;
-      authListener.subscription.unsubscribe();
+      listener.subscription.unsubscribe();
     };
   }, []);
 
-  // Hide splash when ready
   useEffect(() => {
     if (fontsLoaded && authReady) {
       SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, authReady]);
 
-  // Loading screen while fonts + auth are loading
   if (!fontsLoaded || !authReady) {
     return (
       <View style={styles.loadingContainer}>
@@ -134,6 +120,10 @@ export default function RootLayout() {
           <Stack.Screen
             name="notifications"
             options={{ animation: 'slide_from_right' }}
+          />
+          <Stack.Screen
+            name="call/[id]"
+            options={{ animation: 'fade', presentation: 'modal' }}
           />
         </Stack>
       </SafeAreaProvider>
