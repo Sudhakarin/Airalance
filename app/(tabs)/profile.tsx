@@ -60,7 +60,6 @@ export default function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
-  // Follow lists
   const [listTab, setListTab] = useState<ListTab | null>(null);
   const [listUsers, setListUsers] = useState<Profile[]>([]);
   const [listLoading, setListLoading] = useState(false);
@@ -72,7 +71,6 @@ export default function ProfileScreen() {
     (!!p.verified ||
       VERIFIED_USERNAMES.includes(p.username?.toLowerCase() ?? ''));
 
-  // Load profile
   const loadProfile = useCallback(async () => {
     try {
       const { data: authData } = await supabase.auth.getUser();
@@ -140,7 +138,6 @@ export default function ProfileScreen() {
     }, [loadProfile])
   );
 
-  // Load follow list
   const loadFollowList = useCallback(
     async (tab: ListTab) => {
       if (!profile) return;
@@ -177,7 +174,6 @@ export default function ProfileScreen() {
     [profile]
   );
 
-  // Toggle follow from list
   async function toggleFollowFromList(targetId: string) {
     if (!profile || toggleLoadingId) return;
     if (targetId === profile.id) return;
@@ -220,7 +216,6 @@ export default function ProfileScreen() {
     }
   }
 
-  // Pick + upload avatar
   async function pickAvatar() {
     if (!profile || uploading) return;
 
@@ -283,7 +278,6 @@ export default function ProfileScreen() {
     }
   }
 
-  // Save
   async function saveChanges() {
     if (!profile || saving) return;
     const trimmedName = nameDraft.trim();
@@ -319,7 +313,6 @@ export default function ProfileScreen() {
     }
   }
 
-  // Logout
   async function handleLogout() {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -356,7 +349,6 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
 
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Profile</Text>
         <TouchableOpacity
@@ -373,7 +365,8 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.topRow}>
+        {/* ✅ Top section: Avatar (left) + Name & Stats (right) */}
+        <View style={styles.topSection}>
           <TouchableOpacity
             onPress={pickAvatar}
             disabled={uploading}
@@ -384,7 +377,7 @@ export default function ProfileScreen() {
               name={profile.display_name}
               color={profile.avatar_color}
               avatarUrl={profile.avatar_url}
-              size={82}
+              size={84}
             />
             <View style={styles.cameraBadge}>
               {uploading ? (
@@ -395,33 +388,39 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
 
-          <View style={styles.statsWrap}>
-            <StatItem
-              label="status"
-              value={initialsForCounts.status}
-              onPress={() => router.push('/(tabs)/status')}
-            />
-            <StatItem
-              label="followers"
-              value={initialsForCounts.followers}
-              onPress={() => loadFollowList('followers')}
-            />
-            <StatItem
-              label="following"
-              value={initialsForCounts.following}
-              onPress={() => loadFollowList('following')}
-            />
+          <View style={styles.rightCol}>
+            {/* ✅ Name on TOP */}
+            <View style={styles.nameRow}>
+              <Text style={styles.displayName} numberOfLines={1}>
+                {profile.display_name}
+              </Text>
+              {verified && <VerifiedBadge size={16} />}
+            </View>
+
+            {/* ✅ Stats BELOW name */}
+            <View style={styles.statsWrap}>
+              <StatItem
+                label="status"
+                value={initialsForCounts.status}
+                onPress={() => router.push('/(tabs)/status')}
+              />
+              <StatItem
+                label="followers"
+                value={initialsForCounts.followers}
+                onPress={() => loadFollowList('followers')}
+              />
+              <StatItem
+                label="following"
+                value={initialsForCounts.following}
+                onPress={() => loadFollowList('following')}
+              />
+            </View>
           </View>
         </View>
 
+        {/* ✅ Username bold + bio (below top section) */}
         <View style={styles.bioBlock}>
-          <View style={styles.nameRow}>
-            <Text style={styles.displayName} numberOfLines={1}>
-              {profile.display_name}
-            </Text>
-            {verified && <VerifiedBadge size={18} />}
-          </View>
-          <Text style={styles.username}>@{profile.username}</Text>
+          <Text style={styles.usernameBold}>@{profile.username}</Text>
           {profile.bio ? (
             <Text style={styles.bio}>{profile.bio}</Text>
           ) : null}
@@ -503,7 +502,6 @@ export default function ProfileScreen() {
           />
         </View>
 
-        {/* Save */}
         <TouchableOpacity
           style={[
             styles.saveBtn,
@@ -536,7 +534,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ===== Follow list modal — pure black background ===== */}
+      {/* Follow list modal */}
       {listTab && (
         <Modal
           visible
@@ -546,7 +544,6 @@ export default function ProfileScreen() {
         >
           <View style={styles.listModalWrap}>
             <View style={styles.listModal}>
-              {/* Header: back + @username + verified (centered) */}
               <View style={styles.listHeader}>
                 <TouchableOpacity
                   onPress={() => setListTab(null)}
@@ -564,7 +561,6 @@ export default function ProfileScreen() {
                 <View style={styles.listHeaderBtn} />
               </View>
 
-              {/* Tabs: text + full-width white underline (website style) */}
               <View style={styles.listTabsRow}>
                 <TouchableOpacity
                   onPress={() => loadFollowList('followers')}
@@ -604,7 +600,6 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               </View>
 
-              {/* List */}
               {listLoading ? (
                 <View style={styles.listLoading}>
                   <ActivityIndicator color={COLORS.violet} />
@@ -668,7 +663,7 @@ export default function ProfileScreen() {
                               styles.followBtnSmall,
                               isFollowing && styles.followBtnSmallFollowing,
                             ]}
-                            onPress={() => toggleFollowFromList(item.id)}
+                            oncenterPress={() => toggleFollowFromList(item.id)}
                             disabled={busy}
                             activeOpacity={0.85}
                           >
@@ -742,7 +737,7 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: '',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.md,
@@ -762,12 +757,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  topRow: {
+  // ✅ Top section: avatar left + name/stats right
+  topSection: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    gap: SPACING.lg,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.md,
+    gap: 16,
   },
   avatarWrap: { position: 'relative' },
   cameraBadge: {
@@ -783,17 +780,33 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#000000',
   },
-  statsWrap: {
+
+  // Right column: name top, stats below
+  rightCol: {
     flex: 1,
+    minWidth: 0,
+  },
+  nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
+    marginBottom: 12,
+  },
+  displayName: {
+    fontSize: 20,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+
+  // Stats row
+  statsWrap: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 24,
   },
   statItem: {
     alignItems: 'flex-start',
     gap: 2,
-    paddingVertical: 6,
-    paddingHorizontal: 4,
   },
   statValue: {
     fontSize: 20,
@@ -807,29 +820,23 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
   },
 
+  // ✅ Bio block below with BOLD username
   bioBlock: {
     paddingHorizontal: SPACING.lg,
     paddingBottom: SPACING.lg,
     gap: 3,
   },
-  nameRow: { flexDirection: 'row', alignItems: 'center' },
-  displayName: {
-    fontSize: 20,
-    fontFamily: FONTS.displayBold,
+  usernameBold: {
+    fontSize: 15,
+    fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
-    flexShrink: 1,
-  },
-  username: {
-    fontSize: 14,
-    fontFamily: FONTS.body,
-    color: COLORS.mist,
-    marginTop: 1,
+    marginBottom: 4,
   },
   bio: {
     fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
-    marginTop: 6,
+    marginTop: 2,
     lineHeight: 19,
   },
   bioLink: {
@@ -955,7 +962,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ===== Follow list modal — pure black background =====
+  // ===== Follow list modal =====
   listModalWrap: {
     flex: 1,
     backgroundColor: '#000000',
@@ -1057,8 +1064,6 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  // Website colours: Follow back = #E54E60 (coral), Following = #2E2E2E (dark grey)
-  // Website shape: rounded rectangle (radius ~8), NOT a full pill
   followBtnSmall: {
     minWidth: 100,
     height: 34,
