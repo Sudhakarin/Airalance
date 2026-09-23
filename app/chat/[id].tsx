@@ -605,7 +605,7 @@ export default function ChatScreen() {
           }
         />
 
-        {/* Composer — website style (one pill, everything inside) */}
+        {/* Composer — website style (single pill, everything inside) */}
         <View style={styles.inputBar}>
           {isRecording ? (
             <>
@@ -616,14 +616,14 @@ export default function ChatScreen() {
                 </Text>
               </View>
               <TouchableOpacity
-                style={styles.iconBtn}
+                style={styles.recordingIconBtn}
                 onPress={cancelRecording}
                 activeOpacity={0.7}
               >
                 <Ionicons name="close" size={20} color={COLORS.danger} />
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.sendBtn}
+                style={styles.recordingSendBtn}
                 onPress={stopAndSendRecording}
                 activeOpacity={0.85}
               >
@@ -631,7 +631,7 @@ export default function ChatScreen() {
                   colors={GRADIENTS.violet}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
-                  style={styles.sendBtnInner}
+                  style={styles.recordingSendBtnInner}
                 >
                   <Ionicons name="send" size={16} color="#FFFFFF" />
                 </LinearGradient>
@@ -664,10 +664,10 @@ export default function ChatScreen() {
                 maxLength={2000}
               />
 
-              {/* Send or mic button */}
+              {/* Send or mic inside pill */}
               {input.trim().length > 0 ? (
                 <TouchableOpacity
-                  style={styles.composerActionBtn}
+                  style={styles.composerSendBtn}
                   onPress={sendMessage}
                   disabled={sending}
                   activeOpacity={0.85}
@@ -676,7 +676,7 @@ export default function ChatScreen() {
                     colors={GRADIENTS.violet}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={styles.composerActionBtnInner}
+                    style={styles.composerSendBtnInner}
                   >
                     {sending ? (
                       <ActivityIndicator size="small" color="#FFFFFF" />
@@ -752,6 +752,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
+  // === Messages list — website jaisa dotted aur radial gradient background ===
   listContent: {
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.md,
@@ -767,21 +768,21 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     fontSize: 14,
     fontFamily: FONTS.body,
- └ },
+  },
 
-  // === Input bar (outer wrapper────────────────) ===
+  // === Input bar (outer wrapper) ===
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 10,
+    paddingHorizontal: 10,
+    paddingTop: 8,
     paddingBottom: Platform.OS === 'ios' ? 14 : 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
     backgroundColor: '#0B0D14',
   },
 
-  // === Composer pill — everything inside one rounded container ===
+  // === Composer pill — website jaisa ek hi pill ===
   composerPill: {
     flex: 1,
     flexDirection: 'row',
@@ -810,40 +811,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
-    // No border, no background — it's inside the pill
+    // No border, no background — inside the pill
   },
-  composerActionBtn: {
+  composerSendBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
     overflow: 'hidden',
   },
-  composerActionBtnInner: {
+  composerSendBtnInner: {
     width: 40,
     height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  // === Standalone icon buttons (recording mode) ===
-  iconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 6,
-  },
-  sendBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    overflow: 'hidden',
-    marginLeft: 6,
-  },
-  sendBtnInner: {
-    width: 42,
-    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -871,5 +849,26 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
     fontSize: 14,
     fontFamily: FONTS.bodyMedium,
+  },
+  recordingIconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
+  },
+  recordingSendBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    overflow: 'hidden',
+    marginLeft: 6,
+  },
+  recordingSendBtnInner: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
