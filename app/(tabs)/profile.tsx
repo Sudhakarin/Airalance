@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-// My profile — view + edit name, bio, avatar; logout; settings; follow lists
+// My profile — layout with avatar left, name + stats right
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -349,8 +349,9 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
 
+      {/* Header — Airalance! + settings */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Profile</Text>
+        <Text style={styles.headerTitle}>Airalance!</Text>
         <TouchableOpacity
           onPress={() => router.push('/settings')}
           style={styles.headerBtn}
@@ -365,7 +366,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ✅ Top section: avatar (left) + name/stats (right, center aligned) */}
+        {/* Top section: Avatar LEFT + Name & Stats RIGHT */}
         <View style={styles.topSection}>
           <TouchableOpacity
             onPress={pickAvatar}
@@ -377,7 +378,7 @@ export default function ProfileScreen() {
               name={profile.display_name}
               color={profile.avatar_color}
               avatarUrl={profile.avatar_url}
-              size={84}
+              size={90}
             />
             <View style={styles.cameraBadge}>
               {uploading ? (
@@ -394,10 +395,10 @@ export default function ProfileScreen() {
               <Text style={styles.displayName} numberOfLines={1}>
                 {profile.display_name}
               </Text>
-              {verified && <VerifiedBadge size={16} />}
+              {verified && <VerifiedBadge size={17} />}
             </View>
 
-            {/* Stats BELOW name */}
+            {/* Stats BELOW name — spread */}
             <View style={styles.statsWrap}>
               <StatItem
                 label="status"
@@ -418,7 +419,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Username bold + bio */}
+        {/* Username BOLD + bio below */}
         <View style={styles.bioBlock}>
           <Text style={styles.usernameBold}>@{profile.username}</Text>
           {profile.bio ? (
@@ -746,7 +747,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    letterSpacing: -0.3,
+    letterSpacing: -0.5,
   },
   headerBtn: {
     width: 40,
@@ -757,14 +758,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Top section: avatar left + name/stats right, vertically centered
+  // Top section: avatar LEFT + name/stats RIGHT
   topSection: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.md,
     paddingBottom: SPACING.md,
-    gap: 20,
+    gap: 16,
   },
   avatarWrap: { position: 'relative' },
   cameraBadge: {
@@ -781,42 +782,42 @@ const styles = StyleSheet.create({
     borderColor: '#000000',
   },
 
-  // Right column: name + stats stacked, vertically centered against avatar
+  // Right column
   rightCol: {
     flex: 1,
     minWidth: 0,
-    justifyContent: 'center',
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 14,
   },
   displayName: {
-    fontSize: 20,
+    fontSize: 21,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
 
-  // Stats row
+  // Stats row — spread across
   statsWrap: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 22,
+    justifyContent: 'space-between',
+    paddingRight: 4,
   },
   statItem: {
     alignItems: 'flex-start',
     gap: 2,
   },
   statValue: {
-    fontSize: 19,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    lineHeight: 23,
+    lineHeight: 24,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
@@ -826,20 +827,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.lg,
-    gap: 3,
+    gap: 4,
   },
   usernameBold: {
     fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   bio: {
-    fontSize: 14,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
     marginTop: 2,
-    lineHeight: 19,
+    lineHeight: 20,
   },
   bioLink: {
     fontSize: 14,
@@ -964,7 +965,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Follow list modal
   listModalWrap: { flex: 1, backgroundColor: '#000000' },
   listModal: { flex: 1, backgroundColor: '#000000' },
   listHeader: {
