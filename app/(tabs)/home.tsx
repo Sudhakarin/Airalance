@@ -11,7 +11,6 @@ import {
   Image,
   ActivityIndicator,
   RefreshControl,
-  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,8 +24,6 @@ import {
   SHADOWS,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
-
-const { width } = Dimensions.get('window');
 
 type NewsArticle = {
   id: string;
