@@ -163,6 +163,7 @@ export default function SearchScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             returnKeyType="search"
+            underlineColorAndroid="transparent"
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => setQuery('')} activeOpacity={0.7}>
@@ -384,7 +385,15 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     paddingVertical: 0,
-  },
+    // ✅ Web-specific: kill default focus outline & border
+    borderWidth: 0,
+    borderColor: 'transparent',
+    backgroundColor: 'transparent',
+    outlineStyle: 'none',
+    outlineWidth: 0,
+    outlineColor: 'transparent',
+    boxShadow: 'none',
+  } as any,
 
   listContent: {
     paddingHorizontal: SPACING.md,
