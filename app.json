@@ -4,12 +4,9 @@
     "slug": "airalance-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "scheme": "airalance",
     "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
       "backgroundColor": "#0A0C12"
     },
     "assetBundlePatterns": [
@@ -17,46 +14,20 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.airalance.app",
-      "infoPlist": {
-        "UIUserInterfaceStyle": "Dark",
-        "NSMicrophoneUsageDescription": "Airalance needs microphone access to send voice messages and make calls.",
-        "NSPhotoLibraryUsageDescription": "Airalance needs photo library access to share photos.",
-        "NSCameraUsageDescription": "Airalance needs camera access to take photos."
-      }
+      "bundleIdentifier": "com.airalance.app"
     },
     "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0A0C12"
-      },
-      "package": "com.airalance.app",
-      "permissions": [
-        "RECORD_AUDIO",
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
-      ]
-    },
-    "web": {
-      "favicon": "./assets/favicon.png",
-      "bundler": "metro"
+      "package": "com.airalance.app"
     },
     "plugins": [
-      "expo-router",
-      "expo-font",
-      "expo-av",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Airalance needs access to your photos to share them.",
-          "cameraPermission": "Airalance needs camera access to take photos."
-        }
-      ]
+      "expo-router"
     ],
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "41e54f25-47ce-448a-8ef9-8ab40a68d1f6"
       }
     },
     "experiments": {
