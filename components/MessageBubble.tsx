@@ -219,9 +219,9 @@ const styles = StyleSheet.create({
   rowMine: { justifyContent: 'flex-end' },
   rowOther: { justifyContent: 'flex-start' },
 
-  // ✅ SPACING: Grouped = 2px gap, Spaced = 14px gap
-  rowGrouped: { marginTop: 2 },
-  rowSpaced: { marginTop: 14 },
+  // ✅ FIXED: har bubble ke beech visible gap — grouped messages bhi ab chipakte nahi
+  rowGrouped: { marginTop: 6 },
+  rowSpaced: { marginTop: 16 },
 
   bubbleWrap: { position: 'relative' },
 
