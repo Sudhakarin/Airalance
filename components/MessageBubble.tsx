@@ -215,4 +215,237 @@ export default function MessageBubble({
                   <Text style={styles.text}>{message.content}</Text>
                 )}
                 <View style={styles.metaRow}>
+                  <Text style={styles.time}>
+                    {formatTime(message.created_at)}
+                  </Text>
+                  {isMine && (
+                    <Ionicons
+                      name={
+                        message.read_at
+                          ? 'checkmark-done'
+                          : 'checkmark'
+                      }
+                      size={14}
+                      color={
+                        message.read_at ? '#7DD3FC' : 'rgba(255,255,255,0.7)'
+                      }
+                      style={{ marginLeft: 4 }}
+                    />
+                  )}
+                </View>
+              </LinearGradient>
+            )
+          ) : (
+            <View
+              style={[
+                styles.bubble,
+                styles.bubbleOther,
+                grouped && styles.bubbleOtherGrouped,
+                nextMessage &&
+                  nextMessage.sender_id === message.sender_id &&
+                  styles.bubbleOtherTightBottom,
+              ]}
+            >
+              {isDeleted ? (
+                <Text style={styles.deletedText}>
+                  This message was deleted
+                </Text>
+              ) : isImage ? (
+                <Image
+                  source={{ uri: message.media_url! }}
+                  style={styles.image}
+                  resizeMode="cover"
+                />
+              ) : isVoice ? (
+                <TouchableOpacity
+                  style={styles.voiceRow}
+                  onPress={toggleVoice}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={voicePlaying ? 'pause' : 'play'}
+                    size={16}
+                    color={COLORS.text}
+                  />
+                  <View style={styles.voiceBar}>
+                    <View
+                      style={[
+                        styles.voiceBarFillOther,
+                        { width: `${progress * 100}%` },
+                      ]}
+                    />
+                  </View>
                   <Text
+                    style={[styles.voiceTime, { color: COLORS.mist }]}
+                  >
+                    {formatDuration(message.media_duration ?? 0)}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.text}>{message.content}</Text>
+              )}
+              <View style={styles.metaRow}>
+                <Text style={styles.time}>
+                  {formatTime(message.created_at)}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Image time overlay */}
+          {isImage && (
+            <View style={styles.imageTimeWrap}>
+              <Text style={styles.imageTime}>
+                {formatTime(message.created_at)}
+              </Text>
+              {isMine && (
+                <Ionicons
+                  name={message.read_at ? 'checkmark-done' : 'checkmark'}
+                  size={14}
+                  color={message.read_at ? '#7DD3FC' : '#FFFFFF'}
+                  style={{ marginLeft: 4 }}
+                />
+              )}
+            </View>
+          )}
+        </View>
+      </View>
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  dayDividerWrap: {
+    alignItems: 'center',
+    marginVertical: SPACING.md,
+  },
+  dayDivider: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  dayDividerText: {
+    fontSize: 11,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.mist,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+
+  row: { flexDirection: 'row' },
+  rowMine: { justifyContent: 'flex-end' },
+  rowOther: { justifyContent: 'flex-start' },
+
+  bubbleWrap: { position: 'relative' },
+
+  bubble: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 20,
+  },
+  bubbleMine: {
+    borderBottomRightRadius: 4,
+    shadowColor: '#7C5CFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  bubbleMineGrouped: {},
+  bubbleMineTightBottom: { borderBottomRightRadius: 6 },
+  bubbleOther: {
+    backgroundColor: '#171A24',
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  bubbleOtherGrouped: {},
+  bubbleOtherTightBottom: { borderBottomLeftRadius: 6 },
+
+  text: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontFamily: FONTS.body,
+    lineHeight: 20,
+  },
+  deletedText: {
+    color: COLORS.mist,
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    fontStyle: 'italic',
+  },
+
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: 2,
+  },
+  time: {
+    fontSize: 10,
+    fontFamily: FONTS.body,
+    color: 'rgba(255,255,255,0.65)',
+  },
+
+  // Image
+  imageWrapMine: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    padding: 3,
+    backgroundColor: 'rgba(124,92,255,0.15)',
+  },
+  image: {
+    width: 220,
+    height: 220,
+    borderRadius: 16,
+  },
+  imageTimeWrap: {
+    position: 'absolute',
+    bottom: 8,
+    right: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  imageTime: {
+    fontSize: 10,
+    color: '#FFFFFF',
+    fontFamily: FONTS.body,
+  },
+
+  // Voice
+  voiceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minWidth: 180,
+  },
+  voiceBar: {
+    flex: 1,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    overflow: 'hidden',
+  },
+  voiceBarFill: {
+    height: 4,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+  },
+  voiceBarFillOther: {
+    height: 4,
+    backgroundColor: COLORS.violetLight,
+    borderRadius: 999,
+  },
+  voiceTime: {
+    fontSize: 11,
+    fontFamily: FONTS.body,
+    color: 'rgba(255,255,255,0.85)',
+    minWidth: 34,
+    textAlign: 'right',
+  },
+});
