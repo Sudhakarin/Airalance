@@ -18,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS, RADII, SPACING } from '../constants/theme';
 import { supabase } from '../lib/supabase';
 import Avatar from '../components/Avatar';
+import VerifiedBadge from '../components/VerifiedBadge';
 
 type AppNotification = {
   id: string;
@@ -330,7 +331,7 @@ export default function NotificationsScreen() {
             >
               {n.type === 'verified' ? (
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(124,92,255,0.18)' }]}>
-                  <Ionicons name="checkmark-circle" size={24} color={COLORS.violetLight} />
+                  <VerifiedBadge size={24} />
                 </View>
               ) : n.type === 'status_like' ? (
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(239,68,68,0.18)' }]}>
