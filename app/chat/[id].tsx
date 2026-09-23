@@ -605,21 +605,8 @@ export default function ChatScreen() {
           }
         />
 
-        {/* Input bar */}
+        {/* Composer (input bar) — website style */}
         <View style={styles.inputBar}>
-          <TouchableOpacity
-            style={styles.iconBtn}
-            onPress={pickImage}
-            disabled={uploading || isRecording}
-            activeOpacity={0.7}
-          >
-            {uploading ? (
-              <ActivityIndicator size="small" color={COLORS.mist} />
-            ) : (
-              <Ionicons name="image-outline" size={22} color={COLORS.mist} />
-            )}
-          </TouchableOpacity>
-
           {isRecording ? (
             <>
               <View style={styles.recordingWrap}>
@@ -633,7 +620,7 @@ export default function ChatScreen() {
                 onPress={cancelRecording}
                 activeOpacity={0.7}
               >
-                <Ionicons name="close" size={22} color={COLORS.danger} />
+                <Ionicons name="close" size={20} color={COLORS.danger} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.sendBtn}
@@ -651,19 +638,36 @@ export default function ChatScreen() {
               </TouchableOpacity>
             </>
           ) : (
-            <>
+            <View style={styles.composerWrap}>
+              {/* Image picker button (inside) */}
+              <TouchableOpacity
+                style={styles.composerIconBtn}
+                onPress={pickImage}
+                disabled={uploading}
+                activeOpacity={0.7}
+              >
+                {uploading ? (
+                  <ActivityIndicator size="small" color={COLORS.mist} />
+                ) : (
+                  <Ionicons name="image-outline" size={22} color={COLORS.mist} />
+                )}
+              </TouchableOpacity>
+
+              {/* Text input */}
               <TextInput
-                style={styles.input}
+                style={styles.composerInput}
                 value={input}
                 onChangeText={onInputChange}
                 placeholder="Message"
-                placeholderTextColor={COLORS.mist}
+                placeholderTextColor="rgba(139,143,163,0.6)"
                 multiline
                 maxLength={2000}
               />
+
+              {/* Right action button (send or mic) */}
               {input.trim().length > 0 ? (
                 <TouchableOpacity
-                  style={styles.sendBtn}
+                  style={styles.composerSendBtn}
                   onPress={sendMessage}
                   disabled={sending}
                   activeOpacity={0.85}
@@ -672,7 +676,7 @@ export default function ChatScreen() {
                     colors={GRADIENTS.violet}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={styles.sendBtnInner}
+                    style={styles.composerSendBtnInner}
                   >
                     {sending ? (
                       <ActivityIndicator size="small" color="#FFFFFF" />
@@ -683,18 +687,14 @@ export default function ChatScreen() {
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  style={styles.iconBtn}
+                  style={styles.composerIconBtn}
                   onPress={startRecording}
                   activeOpacity={0.7}
                 >
-                  <Ionicons
-                    name="mic-outline"
-                    size={22}
-                    color={COLORS.mist}
-                  />
+                  <Ionicons name="mic-outline" size={22} color={COLORS.mist} />
                 </TouchableOpacity>
               )}
-            </>
+            </View>
           )}
         </View>
       </KeyboardAvoidingView>
@@ -769,57 +769,96 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
   },
 
+  // === Input bar (outer wrapper) ===
   inputBar: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 6,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 14 : 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
-    backgroundColor: 'rgba(10,12,18,0.95)',
+    backgroundColor: 'rgba(10,12,18,0.98)',
   },
-  iconBtn: {
+
+  // === Composer pill (image + input + send together) ===
+  composerWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 26,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    minHeight: 48,
+  },
+  composerIconBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  input: {
+  composerInput: {
     flex: 1,
     minHeight: 40,
     maxHeight: 120,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     paddingVertical: 10,
     fontSize: 15,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    // No border/background — it's inside the pill
   },
-  sendBtn: {
+  composerSendBtn: {
+    width: 40,
+    height: 40,
     borderRadius: 20,
     overflow: 'hidden',
+    marginLeft: 2,
   },
-  sendBtnInner: {
+  composerSendBtnInner: {
     width: 40,
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
+  // === Standalone icon buttons (used in recording mode) ===
+  iconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
+  },
+  sendBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    overflow: 'hidden',
+    marginLeft: 6,
+  },
+  sendBtnInner: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // === Recording mode ===
   recordingWrap: {
     flex: 1,
-    height: 40,
+    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
+    gap: 10,
+    paddingHorizontal: 16,
     backgroundColor: 'rgba(239,68,68,0.10)',
-    borderRadius: 20,
+    borderRadius: 26,
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.25)',
   },
