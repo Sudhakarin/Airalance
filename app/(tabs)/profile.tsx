@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-// My profile — layout with avatar left, name + stats right
+// My profile — avatar left, name + stats evenly spread right
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -349,7 +349,6 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
 
-      {/* Header — Airalance! + settings */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Airalance!</Text>
         <TouchableOpacity
@@ -366,7 +365,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Top section: Avatar LEFT + Name & Stats RIGHT */}
+        {/* Top section: avatar LEFT + name/stats RIGHT */}
         <View style={styles.topSection}>
           <TouchableOpacity
             onPress={pickAvatar}
@@ -378,7 +377,7 @@ export default function ProfileScreen() {
               name={profile.display_name}
               color={profile.avatar_color}
               avatarUrl={profile.avatar_url}
-              size={90}
+              size={100}
             />
             <View style={styles.cameraBadge}>
               {uploading ? (
@@ -390,15 +389,15 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <View style={styles.rightCol}>
-            {/* Name on TOP */}
+            {/* Name */}
             <View style={styles.nameRow}>
               <Text style={styles.displayName} numberOfLines={1}>
                 {profile.display_name}
               </Text>
-              {verified && <VerifiedBadge size={17} />}
+              {verified && <VerifiedBadge size={18} />}
             </View>
 
-            {/* Stats BELOW name — spread */}
+            {/* Stats — evenly spread with flex: 1 each */}
             <View style={styles.statsWrap}>
               <StatItem
                 label="status"
@@ -419,7 +418,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Username BOLD + bio below */}
+        {/* Username BOLD + bio */}
         <View style={styles.bioBlock}>
           <Text style={styles.usernameBold}>@{profile.username}</Text>
           {profile.bio ? (
@@ -758,20 +757,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Top section: avatar LEFT + name/stats RIGHT
+  // Top section: avatar left + name/stats right
   topSection: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.md,
+    paddingTop: SPACING.sm,
     paddingBottom: SPACING.md,
-    gap: 16,
+    gap: 14,
   },
   avatarWrap: { position: 'relative' },
   cameraBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
+    bottom: 2,
+    right: 2,
     width: 28,
     height: 28,
     borderRadius: 14,
@@ -782,7 +781,6 @@ const styles = StyleSheet.create({
     borderColor: '#000000',
   },
 
-  // Right column
   rightCol: {
     flex: 1,
     minWidth: 0,
@@ -790,23 +788,22 @@ const styles = StyleSheet.create({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   displayName: {
-    fontSize: 21,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
 
-  // Stats row — spread across
+  // ✅ Stats — each StatItem gets flex:1 (evenly spread)
   statsWrap: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    paddingRight: 4,
   },
   statItem: {
+    flex: 1,
     alignItems: 'flex-start',
     gap: 2,
   },
@@ -817,30 +814,29 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   statLabel: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
 
-  // Bio block below
   bioBlock: {
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.lg,
-    gap: 4,
+    gap: 3,
   },
   usernameBold: {
     fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   bio: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
     marginTop: 2,
-    lineHeight: 20,
+    lineHeight: 19,
   },
   bioLink: {
     fontSize: 14,
