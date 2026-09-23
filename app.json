@@ -20,7 +20,7 @@
       "bundleIdentifier": "com.airalance.app",
       "infoPlist": {
         "UIUserInterfaceStyle": "Dark",
-        "NSMicrophoneUsageDescription": "Airalance needs microphone access to send voice messages.",
+        "NSMicrophoneUsageDescription": "Airalance needs microphone access to send voice messages and make calls.",
         "NSPhotoLibraryUsageDescription": "Airalance needs photo library access to share photos.",
         "NSCameraUsageDescription": "Airalance needs camera access to take photos."
       }
@@ -45,7 +45,6 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      "expo-image",
       "expo-av",
       [
         "expo-image-picker",
@@ -53,21 +52,11 @@
           "photosPermission": "Airalance needs access to your photos to share them.",
           "cameraPermission": "Airalance needs camera access to take photos."
         }
-      ],
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/notification-icon.png",
-          "color": "#7C5CFF"
-        }
       ]
     ],
     "extra": {
       "router": {
         "origin": false
-      },
-      "eas": {
-        "projectId": "your-eas-project-id"
       }
     },
     "experiments": {
