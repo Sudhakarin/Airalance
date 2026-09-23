@@ -70,14 +70,30 @@ export default function MessageBubble({
     prevMessage &&
     dayLabel(prevMessage.created_at) === dayLabel(message.created_at);
 
+  // Time gap check — agar 2 min se zyada gap ho to naya group
+  const timeGapMs = prevMessage
+    ? new Date(message.created_at).getTime() -
+      new Date(prevMessage.created_at).getTime()
+    : Infinity;
+  const withinTimeGap = timeGapMs < 2 * 60 * 1000;
+
   const showDayDivider =
     !prevMessage ||
     dayLabel(prevMessage.created_at) !== dayLabel(message.created_at);
 
-  const grouped = sameSenderAsPrev && sameDayAsPrev;
+  const grouped = sameSenderAsPrev && sameDayAsPrev && withinTimeGap;
 
   const isImage = message.message_type === 'image' && message.media_url;
   const isDeleted = !!message.is_deleted;
+
+  // Next message grouping ke liye
+  const nextIsSameSender =
+    nextMessage &&
+    nextMessage.sender_id === message.sender_id &&
+    dayLabel(nextMessage.created_at) === dayLabel(message.created_at) &&
+    new Date(nextMessage.created_at).getTime() -
+      new Date(message.created_at).getTime() <
+      2 * 60 * 1000;
 
   return (
     <>
@@ -95,7 +111,8 @@ export default function MessageBubble({
         style={[
           styles.row,
           isMine ? styles.rowMine : styles.rowOther,
-          grouped ? { marginTop: 2 } : { marginTop: 10 },
+          // ✅ Spacing: grouped = chhota, alag = bada
+          grouped ? styles.rowGrouped : styles.rowSpaced,
         ]}
       >
         <View style={[styles.bubbleWrap, { maxWidth: '80%' }]}>
@@ -131,9 +148,7 @@ export default function MessageBubble({
                 style={[
                   styles.bubble,
                   styles.bubbleMine,
-                  nextMessage &&
-                    nextMessage.sender_id === message.sender_id &&
-                    styles.bubbleMineTightBottom,
+                  nextIsSameSender && styles.bubbleMineTightBottom,
                 ]}
               >
                 {isDeleted ? (
@@ -165,9 +180,7 @@ export default function MessageBubble({
               style={[
                 styles.bubble,
                 styles.bubbleOther,
-                nextMessage &&
-                  nextMessage.sender_id === message.sender_id &&
-                  styles.bubbleOtherTightBottom,
+                nextIsSameSender && styles.bubbleOtherTightBottom,
               ]}
             >
               {isDeleted ? (
@@ -206,7 +219,7 @@ export default function MessageBubble({
 }
 
 const styles = StyleSheet.create({
-   dayDividerWrap: {
+  dayDividerWrap: {
     alignItems: 'center',
     marginVertical: SPACING.md,
   },
@@ -227,6 +240,10 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row' },
   rowMine: { justifyContent: 'flex-end' },
   rowOther: { justifyContent: 'flex-start' },
+
+  // ✅ Spacing between messages
+  rowGrouped: { marginTop: 3 },   // same sender, close time — chhota gap
+  rowSpaced: { marginTop: 14 },   // different sender / time gap — bada gap
 
   bubbleWrap: { position: 'relative' },
 
@@ -285,7 +302,7 @@ const styles = StyleSheet.create({
   },
   image: {
     width: 220,
-    height:220,
+    height: 220,
     borderRadius: 16,
   },
   imageTimeWrap: {
