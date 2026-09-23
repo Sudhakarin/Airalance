@@ -662,6 +662,7 @@ export default function ChatScreen() {
                 placeholderTextColor="rgba(139,143,163,0.6)"
                 multiline
                 maxLength={2000}
+                textAlignVertical="center"
               />
 
               {/* Send or mic inside pill */}
@@ -752,7 +753,7 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  // === Messages list — website jaisa dotted aur radial gradient background ===
+  // === Messages list ===
   listContent: {
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.md,
@@ -782,36 +783,38 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B0D14',
   },
 
-  // === Composer pill — website jaisa ek hi pill ===
+  // === Composer pill — balanced ===
   composerPill: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     backgroundColor: '#171A24',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 28,
-    paddingHorizontal: 6,
-    paddingVertical: 6,
-    minHeight: 52,
+    borderRadius: 24,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    minHeight: 48,
   },
   composerIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
   composerInput: {
     flex: 1,
     minHeight: 40,
-    maxHeight: 120,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+    maxHeight: 100,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     fontSize: 15,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
-    // No border, no background — inside the pill
+    borderWidth: 0,
+    backgroundColor: 'transparent',
+    textAlignVertical: 'center',
   },
   composerSendBtn: {
     width: 40,
@@ -835,7 +838,7 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
     backgroundColor: 'rgba(239,68,68,0.10)',
-    borderRadius: 26,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.25)',
   },
