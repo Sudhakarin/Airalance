@@ -1,5 +1,5 @@
 // app/(tabs)/search.tsx
-// Search screen — find users by username + suggestions (only @airalance)
+// Search screen — find users by username + suggestions (only @airalance) + skeleton
 
 import { useEffect, useState, useRef } from 'react';
 import {
@@ -9,7 +9,7 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
-  ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -36,6 +36,80 @@ type Profile = {
   bio: string | null;
   status: string | null;
 };
+
+// ===== Skeleton (pulse animation) =====
+function SkeletonBlock({
+  width,
+  height,
+  borderRadius = 6,
+  style,
+}: {
+  width: number | string;
+  height: number;
+  borderRadius?: number;
+  style?: any;
+}) {
+  const opacity = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: 'rgba(255,255,255,0.08)',
+          opacity,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+function SearchResultsSkeleton({ count = 5 }: { count?: number }) {
+  return (
+    <View>
+      {Array.from({ length: count }).map((_, i) => (
+        <View key={i} style={styles.skeletonResultRow}>
+          <SkeletonBlock width={48} height={48} borderRadius={24} />
+          <View style={styles.skeletonResultInfo}>
+            <SkeletonBlock
+              width={`${45 + ((i * 15) % 30)}%`}
+              height={14}
+              borderRadius={5}
+            />
+            <SkeletonBlock
+              width={`${30 + ((i * 11) % 25)}%`}
+              height={11}
+              borderRadius={4}
+              style={{ marginTop: 6 }}
+            />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function SearchScreen() {
   const router = useRouter();
@@ -175,7 +249,7 @@ export default function SearchScreen() {
 
       {/* Body */}
       <FlatList
-        data={showResults ? results : []}
+        data={showResults && !searching ? results : []}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
@@ -250,11 +324,7 @@ export default function SearchScreen() {
             )}
 
             {/* Search results */}
-            {showResults && searching && results.length === 0 && (
-              <View style={styles.searchingWrap}>
-                <ActivityIndicator color={COLORS.violet} size="small" />
-              </View>
-            )}
+            {showResults && searching && <SearchResultsSkeleton count={5} />}
             {showResults && !searching && results.length === 0 && (
               <View style={styles.emptyWrap}>
                 <Ionicons name="person-outline" size={36} color={COLORS.mist} />
@@ -385,7 +455,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     paddingVertical: 0,
-    // ✅ Web-specific: kill default focus outline & border
     borderWidth: 0,
     borderColor: 'transparent',
     backgroundColor: 'transparent',
@@ -436,14 +505,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 8,
   },
-  suggestionInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  suggestionNameWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  suggestionInfo: { flex: 1, minWidth: 0 },
+  suggestionNameWrap: { flexDirection: 'row', alignItems: 'center' },
   suggestionName: {
     fontSize: 15.5,
     fontFamily: FONTS.bodySemiBold,
@@ -471,6 +534,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
+  // Suggestion skeleton
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -497,7 +561,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
 
-  // Result row — NO BIO
+  // Search results skeleton
+  skeletonResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.sm,
+  },
+  skeletonResultInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  // Result row
   resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -506,14 +583,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.sm,
     borderRadius: RADII.lg,
   },
-  resultInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  resultNameWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  resultInfo: { flex: 1, minWidth: 0 },
+  resultNameWrap: { flexDirection: 'row', alignItems: 'center' },
   resultName: {
     fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
@@ -525,11 +596,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginTop: 1,
-  },
-
-  searchingWrap: {
-    paddingVertical: SPACING.xl,
-    alignItems: 'center',
   },
 
   emptyWrap: {
