@@ -53,8 +53,9 @@ function SkeletonBlock({
 
   useEffect(() => {
     const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
+      Animated.sequence)
+([
+        Animated.timing(opacity,    {
           toValue: 1,
           duration: 700,
           useNativeDriver: true,
@@ -64,8 +65,7 @@ function SkeletonBlock({
           duration: 700,
           useNativeDriver: true,
         }),
-      ])
-    );
+      ] );
     loop.start();
     return () => loop.stop();
   }, [opacity]);
@@ -96,7 +96,7 @@ function ChatListSkeleton() {
 
           {/* Text placeholders */}
           <View style={styles.skeletonInfo}>
-            <View style={gresstyles.skeletonTop}>
+            <View style={styles.skeletonTop}>
               <SkeletonBlock
                 width={`${45 + ((i * 13) % 25)}%`}
                 height={16}
@@ -237,7 +237,7 @@ export default function ChatsScreen() {
         () => loadConversations()
       )
       .on(
-        'post_changes',
+        'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
         () => loadConversations()
       )
@@ -461,14 +461,14 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  // Row name — 18.5px (was 15.5)
+  // Row name — 18.5px
   rowName: {
     fontSize: 18.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
-  // Row time — 13px (was 11)
+  // Row time — 13px
   rowTime: {
     fontSize: 13,
     fontFamily: FONTS.body,
@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  // Row message — 15.5px (was 13)
+  // Row message — 15.5px
   rowMessage: {
     flex: 1,
     fontSize: 15.5,
