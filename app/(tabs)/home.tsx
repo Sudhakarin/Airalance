@@ -59,6 +59,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('For you');
+  const [notifCount, setNotifCount] = useState(0);
 
   const fetchNews = useCallback(async () => {
     try {
@@ -82,16 +83,27 @@ export default function HomeScreen() {
     }
   }, []);
 
+  const fetchNotificationCount = useCallback(async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) return;
+    const { count } = await supabase
+      .from('app_notifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', auth.user.id)
+      .eq('read', false);
+    setNotifCount(count ?? 0);
+  }, []);
+
   useEffect(() => {
     fetchNews();
-  }, [fetchNews]);
+    fetchNotificationCount();
+  }, [fetchNews, fetchNotificationCount]);
 
   async function onRefresh() {
     setRefreshing(true);
-    await fetchNews();
+    await Promise.all([fetchNews(), fetchNotificationCount()]);
   }
 
-  // Filter articles by category
   const filteredArticles =
     selectedCategory === 'For you'
       ? articles
@@ -99,16 +111,36 @@ export default function HomeScreen() {
           (a) => a.category?.toLowerCase() === selectedCategory.toLowerCase()
         );
 
-  // Split featured + rest
   const featured =
     filteredArticles.find((a) => a.is_featured) ?? filteredArticles[0];
   const rest = filteredArticles.filter((a) => a.id !== featured?.id);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* Background glows */}
       <View style={styles.glowTop} />
-      <View style={styles.glowBottom} />
+
+      {/* Header — brand left, bell right */}
+      <View style={styles.header}>
+        <Text style={styles.brandText}>
+          Aira
+          <Text style={styles.brandGradient}>Think!</Text>
+        </Text>
+
+        <TouchableOpacity
+          style={styles.bellBtn}
+          onPress={() => router.push('/notifications')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
+          {notifCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {notifCount > 9 ? '9+' : notifCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
 
       <ScrollView
         contentContainerStyle={styles.scroll}
@@ -217,7 +249,6 @@ export default function HomeScreen() {
                   onPress={() => router.push(`/news/${featured.id}`)}
                   activeOpacity={0.9}
                 >
-                  {/* Image or gradient */}
                   {featured.image_url ? (
                     <Image
                       source={{ uri: featured.image_url }}
@@ -242,13 +273,11 @@ export default function HomeScreen() {
                     </LinearGradient>
                   )}
 
-                  {/* Dark overlay */}
                   <LinearGradient
                     colors={['transparent', 'rgba(10,12,18,0.95)']}
                     style={styles.featuredOverlay}
                   />
 
-                  {/* Content */}
                   <View style={styles.featuredContent}>
                     <View style={styles.featuredBadge}>
                       <Text style={styles.featuredBadgeText}>
@@ -275,11 +304,7 @@ export default function HomeScreen() {
                   <Text style={styles.liveTitle}>Live</Text>
                 </View>
                 <View style={styles.liveBox}>
-                  <Ionicons
-                    name="radio-outline"
-                    size={42}
-                    color={COLORS.mist}
-                  />
+                  <Ionicons name="radio-outline" size={42} color={COLORS.mist} />
                   <Text style={styles.liveText}>
                     Live stream will appear here
                   </Text>
@@ -295,7 +320,6 @@ export default function HomeScreen() {
                     onPress={() => router.push(`/news/${article.id}`)}
                     activeOpacity={0.75}
                   >
-                    {/* Thumbnail */}
                     {article.image_url ? (
                       <Image
                         source={{ uri: article.image_url }}
@@ -320,7 +344,6 @@ export default function HomeScreen() {
                       </LinearGradient>
                     )}
 
-                    {/* Info */}
                     <View style={styles.articleInfo}>
                       <Text style={styles.articleCategory}>
                         {article.category?.toUpperCase()}
@@ -352,7 +375,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.ink900 },
   scroll: { paddingBottom: 40 },
 
-  // Background glows
   glowTop: {
     position: 'absolute',
     top: -200,
@@ -362,21 +384,60 @@ const styles = StyleSheet.create({
     borderRadius: 250,
     backgroundColor: 'rgba(124, 92, 255, 0.12)',
   },
-  glowBottom: {
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.md,
+  },
+  brandText: {
+    fontSize: 26,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  brandGradient: {
+    color: COLORS.violetLight,
+  },
+  bellBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  badge: {
     position: 'absolute',
-    bottom: -200,
-    right: -100,
-    width: 460,
-    height: 460,
-    borderRadius: 230,
-    backgroundColor: 'rgba(34, 211, 184, 0.06)',
+    top: 4,
+    right: 4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: COLORS.ink900,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontFamily: FONTS.bodySemiBold,
+    lineHeight: 12,
   },
 
   // Welcome card
   welcomeCard: {
     alignItems: 'center',
     paddingHorizontal: SPACING.xl,
-    paddingTop: SPACING.xxxl,
+    paddingTop: SPACING.xl,
     paddingBottom: SPACING.xl,
   },
   welcomeIcon: {
@@ -422,11 +483,8 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // News section
-  newsSection: {
-    paddingHorizontal: SPACING.lg,
-    marginTop: SPACING.md,
-  },
+  // News
+  newsSection: { paddingHorizontal: SPACING.lg, marginTop: SPACING.md },
   newsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -441,14 +499,8 @@ const styles = StyleSheet.create({
   },
 
   // Categories
-  categoriesRow: {
-    gap: 8,
-    paddingRight: SPACING.lg,
-    paddingBottom: SPACING.md,
-  },
-  categoryWrap: {
-    marginRight: 8,
-  },
+  categoriesRow: { gap: 8, paddingRight: SPACING.lg, paddingBottom: SPACING.md },
+  categoryWrap: { marginRight: 8 },
   categoryPill: {
     paddingHorizontal: 14,
     paddingVertical: 7,
@@ -473,35 +525,19 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Loading + empty
-  loadingWrap: {
-    paddingVertical: 60,
-    alignItems: 'center',
-    gap: 12,
-  },
-  loadingText: {
-    color: COLORS.mist,
-    fontSize: 13,
-    fontFamily: FONTS.body,
-  },
-  emptyWrap: {
-    paddingVertical: 60,
-    alignItems: 'center',
-    gap: 10,
-  },
+  // Loading / empty
+  loadingWrap: { paddingVertical: 60, alignItems: 'center', gap: 12 },
+  loadingText: { color: COLORS.mist, fontSize: 13, fontFamily: FONTS.body },
+  emptyWrap: { paddingVertical: 60, alignItems: 'center', gap: 10 },
   emptyText: {
     color: COLORS.text,
     fontSize: 14,
     fontFamily: FONTS.bodyMedium,
     textAlign: 'center',
   },
-  emptySubtext: {
-    color: COLORS.mist,
-    fontSize: 12,
-    fontFamily: FONTS.body,
-  },
+  emptySubtext: { color: COLORS.mist, fontSize: 12, fontFamily: FONTS.body },
 
-  // Featured card
+  // Featured
   featuredCard: {
     height: 200,
     borderRadius: RADII.xl,
@@ -521,10 +557,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  featuredEmoji: {
-    fontSize: 56,
-    opacity: 0.85,
-  },
+  featuredEmoji: { fontSize: 56, opacity: 0.85 },
   featuredOverlay: {
     position: 'absolute',
     left: 0,
@@ -559,19 +592,15 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.displayBold,
     lineHeight: 20,
   },
-  featuredMeta: {
-    marginTop: 6,
-  },
+  featuredMeta: { marginTop: 6 },
   featuredMetaText: {
     color: 'rgba(255,255,255,0.75)',
     fontSize: 11,
     fontFamily: FONTS.body,
   },
 
-  // Live section
-  liveSection: {
-    marginBottom: SPACING.lg,
-  },
+  // Live
+  liveSection: { marginBottom: SPACING.lg },
   liveHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -608,16 +637,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  liveText: {
-    color: COLORS.mist,
-    fontSize: 12,
-    fontFamily: FONTS.body,
-  },
+  liveText: { color: COLORS.mist, fontSize: 12, fontFamily: FONTS.body },
 
   // Article list
-  listSection: {
-    gap: 4,
-  },
+  listSection: { gap: 4 },
   articleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -633,13 +656,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  articleEmoji: {
-    fontSize: 28,
-    opacity: 0.9,
-  },
-  articleInfo: {
-    flex: 1,
-  },
+  articleEmoji: { fontSize: 28, opacity: 0.9 },
+  articleInfo: { flex: 1 },
   articleCategory: {
     color: COLORS.teal,
     fontSize: 9.5,
@@ -660,7 +678,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
   },
 
-  // Footer
   footer: {
     marginTop: SPACING.xxl,
     textAlign: 'center',
