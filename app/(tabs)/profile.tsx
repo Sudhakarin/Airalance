@@ -365,7 +365,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* ✅ Top section: Avatar (left) + Name & Stats (right) */}
+        {/* ✅ Top section: avatar (left) + name/stats (right, center aligned) */}
         <View style={styles.topSection}>
           <TouchableOpacity
             onPress={pickAvatar}
@@ -389,7 +389,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <View style={styles.rightCol}>
-            {/* ✅ Name on TOP */}
+            {/* Name on TOP */}
             <View style={styles.nameRow}>
               <Text style={styles.displayName} numberOfLines={1}>
                 {profile.display_name}
@@ -397,7 +397,7 @@ export default function ProfileScreen() {
               {verified && <VerifiedBadge size={16} />}
             </View>
 
-            {/* ✅ Stats BELOW name */}
+            {/* Stats BELOW name */}
             <View style={styles.statsWrap}>
               <StatItem
                 label="status"
@@ -418,7 +418,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* ✅ Username bold + bio (below top section) */}
+        {/* Username bold + bio */}
         <View style={styles.bioBlock}>
           <Text style={styles.usernameBold}>@{profile.username}</Text>
           {profile.bio ? (
@@ -663,7 +663,7 @@ export default function ProfileScreen() {
                               styles.followBtnSmall,
                               isFollowing && styles.followBtnSmallFollowing,
                             ]}
-                            oncenterPress={() => toggleFollowFromList(item.id)}
+                            onPress={() => toggleFollowFromList(item.id)}
                             disabled={busy}
                             activeOpacity={0.85}
                           >
@@ -737,7 +737,7 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row',
-    alignItems: '',
+    alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.md,
@@ -757,14 +757,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ✅ Top section: avatar left + name/stats right
+  // Top section: avatar left + name/stats right, vertically centered
   topSection: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.sm,
+    paddingTop: SPACING.md,
     paddingBottom: SPACING.md,
-    gap: 16,
+    gap: 20,
   },
   avatarWrap: { position: 'relative' },
   cameraBadge: {
@@ -781,15 +781,16 @@ const styles = StyleSheet.create({
     borderColor: '#000000',
   },
 
-  // Right column: name top, stats below
+  // Right column: name + stats stacked, vertically centered against avatar
   rightCol: {
     flex: 1,
     minWidth: 0,
+    justifyContent: 'center',
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   displayName: {
     fontSize: 20,
@@ -802,17 +803,17 @@ const styles = StyleSheet.create({
   statsWrap: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 24,
+    gap: 22,
   },
   statItem: {
     alignItems: 'flex-start',
     gap: 2,
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 19,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    lineHeight: 24,
+    lineHeight: 23,
   },
   statLabel: {
     fontSize: 12,
@@ -820,9 +821,10 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
   },
 
-  // ✅ Bio block below with BOLD username
+  // Bio block below
   bioBlock: {
     paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.sm,
     paddingBottom: SPACING.lg,
     gap: 3,
   },
@@ -830,7 +832,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   bio: {
     fontSize: 14,
@@ -962,15 +964,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ===== Follow list modal =====
-  listModalWrap: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  listModal: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
+  // Follow list modal
+  listModalWrap: { flex: 1, backgroundColor: '#000000' },
+  listModal: { flex: 1, backgroundColor: '#000000' },
   listHeader: {
     flexDirection: 'row',
     alignItems: 'center',
