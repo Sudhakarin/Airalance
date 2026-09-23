@@ -81,7 +81,6 @@ export default function SettingsScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerBtn}
@@ -98,7 +97,6 @@ export default function SettingsScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* User card */}
         {profile && (
           <View style={styles.userCard}>
             <Avatar
@@ -126,7 +124,6 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* Section: How you use Airalance */}
         <SectionTitle>How you use Airalance</SectionTitle>
         <SettingsGroup>
           <SettingsRow
@@ -146,13 +143,12 @@ export default function SettingsScreen() {
           />
         </SettingsGroup>
 
-        {/* Section: Privacy */}
         <SectionTitle>Privacy</SectionTitle>
         <SettingsGroup>
           <SettingsRow
             icon="at-outline"
             tint="#B79CFF"
-            title="Tag & mention"
+            title="Tag and mention"
             subtitle="Choose who can tag or mention you"
             onPress={() => {}}
           />
@@ -161,12 +157,11 @@ export default function SettingsScreen() {
             icon="ban-outline"
             tint="#FF8A8A"
             title="Blocked"
-            subtitle="Accounts you've blocked"
+            subtitle="Accounts you have blocked"
             onPress={() => {}}
           />
         </SettingsGroup>
 
-        {/* Section: Account */}
         <SectionTitle>Account</SectionTitle>
         <SettingsGroup>
           <SettingsRow
@@ -181,7 +176,7 @@ export default function SettingsScreen() {
             icon="shield-checkmark-outline"
             tint="#4ADE9A"
             title="Account status"
-            subtitle="Check your account's standing"
+            subtitle="Check your account standing"
             onPress={() => {}}
           />
           <Divider />
@@ -194,12 +189,8 @@ export default function SettingsScreen() {
           />
         </SettingsGroup>
 
-        {/* Section: Subscription */}
         <SectionTitle>Subscription</SectionTitle>
-        <TouchableOpacity
-          style={styles.premiumCard}
-          activeOpacity={0.85}
-        >
+        <TouchableOpacity style={styles.premiumCard} activeOpacity={0.85}>
           <LinearGradient
             colors={['rgba(167,139,250,0.20)', 'rgba(244,96,122,0.10)']}
             start={{ x: 0, y: 0 }}
@@ -221,7 +212,6 @@ export default function SettingsScreen() {
           </LinearGradient>
         </TouchableOpacity>
 
-        {/* Log out */}
         <TouchableOpacity
           style={styles.logoutBtn}
           onPress={handleLogout}
@@ -235,13 +225,11 @@ export default function SettingsScreen() {
           )}
         </TouchableOpacity>
 
-        <Text style={styles.version}>Airalance · v1.0.0</Text>
+        <Text style={styles.version}>Airalance v1.0.0</Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
-
-// ---- Small helper components ----
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <Text style={styles.sectionTitle}>{children}</Text>;
@@ -427,15 +415,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  premium',
-Title: {
-    fontSize:    16,
+  premiumTitle: {
+    fontSize: 16,
     fontFamily: FONTS.displayBold,
-    justifyContent color: '#FFFFFF',
+    color: '#FFFFFF',
   },
-  premiumSub:: {
+  premiumSub: {
     fontSize: 12,
-    fontFamily ': FONTS.body,
+    fontFamily: FONTS.body,
     color: COLORS.mist,
     marginTop: 2,
   },
@@ -447,7 +434,8 @@ Title: {
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.3)',
     backgroundColor: 'rgba(239,68,68,0.08)',
-    alignItems: 'centercenter',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   logoutText: {
     color: COLORS.danger,
