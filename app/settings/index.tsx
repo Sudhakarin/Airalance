@@ -88,10 +88,10 @@ export default function SettingsScreen() {
           onPress={() => router.back()}
           activeOpacity={0.7}
         >
-          <Ionicons name="chevron-back" size={22} color={COLORS.text} />
+          <Ionicons name="chevron-back" size={26} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
-        <View style={{ width: 40 }} />
+        <View style={{ width: 46 }} />
       </View>
 
       <ScrollView
@@ -104,14 +104,14 @@ export default function SettingsScreen() {
               name={profile.display_name}
               color={profile.avatar_color}
               avatarUrl={profile.avatar_url}
-              size={56}
+              size={68}
             />
             <View style={styles.userInfo}>
               <View style={styles.userNameRow}>
                 <Text style={styles.userName} numberOfLines={1}>
                   {profile.display_name}
                 </Text>
-                {profile.verified && <VerifiedBadge size={15} />}
+                {profile.verified && <VerifiedBadge size={18} />}
               </View>
               <Text style={styles.userUsername}>@{profile.username}</Text>
             </View>
@@ -192,7 +192,7 @@ export default function SettingsScreen() {
             style={styles.premiumCardInner}
           >
             <View style={styles.premiumIcon}>
-              <Ionicons name="sparkles" size={20} color="#FFFFFF" />
+              <Ionicons name="sparkles" size={24} color="#FFFFFF" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.premiumTitle}>Aira One</Text>
@@ -200,7 +200,7 @@ export default function SettingsScreen() {
             </View>
             <Ionicons
               name="chevron-forward"
-              size={18}
+              size={22}
               color="rgba(255,255,255,0.5)"
             />
           </LinearGradient>
@@ -257,7 +257,7 @@ function SettingsRow({
       activeOpacity={0.7}
     >
       <View style={[styles.rowIcon, { backgroundColor: tint }]}>
-        <Ionicons name={icon} size={18} color="#FFFFFF" />
+        <Ionicons name={icon} size={22} color="#FFFFFF" />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={styles.rowTitle}>{title}</Text>
@@ -269,7 +269,7 @@ function SettingsRow({
       </View>
       <Ionicons
         name="chevron-forward"
-        size={18}
+        size={22}
         color="rgba(255,255,255,0.3)"
       />
     </TouchableOpacity>
@@ -277,8 +277,8 @@ function SettingsRow({
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.ink900 },
-  scroll: { paddingBottom: SPACING.xxl, paddingHorizontal: SPACING.md },
+  safe: { flex: 1, backgroundColor: '#000000' },
+  scroll: { paddingBottom: SPACING.xxl, paddingHorizontal: 18 },
   loadingWrap: {
     flex: 1,
     alignItems: 'center',
@@ -298,56 +298,62 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
   },
+  // Header button — 46 (was 40)
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Header title — 22 (was 17)
   headerTitle: {
-    fontSize: 17,
+    fontSize: 22,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
 
+  // User card — bigger padding
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.md,
-    padding: SPACING.md,
+    gap: 14,
+    padding: 18,
     borderRadius: RADII.xl,
     backgroundColor: 'rgba(124,92,255,0.10)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
-    marginTop: SPACING.md,
+    marginTop: 16,
   },
   userInfo: { flex: 1, minWidth: 0 },
   userNameRow: { flexDirection: 'row', alignItems: 'center' },
+  // User name — 19 (was 16)
   userName: {
-    fontSize: 16,
+    fontSize: 19,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
+  // Username — 15.5 (was 13)
   userUsername: {
-    fontSize: 13,
+    fontSize: 15.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 2,
+    marginTop: 3,
   },
 
+  // Section title — 13.5 (was 11)
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 13.5,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mist,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginTop: SPACING.xl,
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.md,
     paddingHorizontal: 4,
     opacity: 0.75,
   },
@@ -358,35 +364,39 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
     overflow: 'hidden',
   },
+  // Row — bigger padding
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.md,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 14,
+    gap: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
   },
+  // Row icon — 46 (was 36)
   rowIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 46,
+    height: 46,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Row title — 18 (was 15)
   rowTitle: {
-    fontSize: 15,
+    fontSize: 18,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
   },
+  // Row subtitle — 14.5 (was 12)
   rowSubtitle: {
-    fontSize: 12,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 2,
+    marginTop: 3,
   },
   divider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: 60,
+    marginLeft: 78,
   },
 
   premiumCard: {
@@ -398,32 +408,35 @@ const styles = StyleSheet.create({
   premiumCardInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.md,
-    padding: SPACING.md,
+    gap: 14,
+    padding: 18,
   },
+  // Premium icon — 54 (was 44)
   premiumIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 54,
+    height: 54,
+    borderRadius: 14,
     backgroundColor: 'rgba(244,96,122,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Premium title — 20 (was 16)
   premiumTitle: {
-    fontSize: 16,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
+  // Premium sub — 14.5 (was 12)
   premiumSub: {
-    fontSize: 12,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 2,
+    marginTop: 3,
   },
 
   logoutBtn: {
     marginTop: SPACING.xl,
-    paddingVertical: 16,
+    paddingVertical: 19,
     borderRadius: RADII.xl,
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.3)',
@@ -431,16 +444,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Logout text — 18 (was 15)
   logoutText: {
     color: COLORS.danger,
-    fontSize: 15,
+    fontSize: 18,
     fontFamily: FONTS.bodySemiBold,
   },
 
+  // Version — 13 (was 11)
   version: {
     textAlign: 'center',
     color: COLORS.mist,
-    fontSize: 11,
+    fontSize: 13,
     fontFamily: FONTS.body,
     marginTop: SPACING.xl,
     opacity: 0.5,
