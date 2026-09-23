@@ -1,7 +1,7 @@
 // app/(tabs)/search.tsx
 // Search screen — find users by username + suggestions
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -24,6 +24,7 @@ import {
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
+import VerifiedBadge from '../../components/VerifiedBadge';
 
 type Profile = {
   id: string;
@@ -255,14 +256,7 @@ export default function SearchScreen() {
                 <Text style={styles.rowName} numberOfLines={1}>
                   {item.display_name}
                 </Text>
-                {item.verified && (
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={14}
-                    color={COLORS.violetLight}
-                    style={{ marginLeft: 4 }}
-                  />
-                )}
+                {item.verified && <VerifiedBadge size={14} />}
               </View>
               <Text style={styles.rowUsername} numberOfLines={1}>
                 @{item.username}
