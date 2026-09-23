@@ -605,7 +605,7 @@ export default function ChatScreen() {
           }
         />
 
-        {/* Composer — website style (single pill, everything inside) */}
+        {/* Composer */}
         <View style={styles.inputBar}>
           {isRecording ? (
             <>
@@ -639,7 +639,6 @@ export default function ChatScreen() {
             </>
           ) : (
             <View style={styles.composerPill}>
-              {/* Image picker inside pill */}
               <TouchableOpacity
                 style={styles.composerIconBtn}
                 onPress={pickImage}
@@ -653,7 +652,6 @@ export default function ChatScreen() {
                 )}
               </TouchableOpacity>
 
-              {/* Text input — web outline fix */}
               <TextInput
                 style={styles.composerInput}
                 value={input}
@@ -667,7 +665,6 @@ export default function ChatScreen() {
                 selectionColor={COLORS.violet}
               />
 
-              {/* Send or mic inside pill */}
               {input.trim().length > 0 ? (
                 <TouchableOpacity
                   style={styles.composerSendBtn}
@@ -773,7 +770,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
   },
 
-  // === Input bar (outer wrapper) ===
+  // === Input bar ===
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -785,7 +782,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B0D14',
   },
 
-  // === Composer pill ===
+  // === Composer pill — SAME AS BEFORE ===
   composerPill: {
     flex: 1,
     flexDirection: 'row',
@@ -805,26 +802,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // ✅ FIXED: web outline removed
+  // ✅ FIXED: text bada kiya, baaki sab same
   composerInput: {
     flex: 1,
     minHeight: 40,
     maxHeight: 100,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    fontSize: 15,
+    fontSize: 16,                       // ← 15 → 16 (bada text)
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     borderWidth: 0,
     borderColor: 'transparent',
     backgroundColor: 'transparent',
     textAlignVertical: 'center',
-    // Web-only overrides (React Native Web)
     outlineStyle: 'none',
     outlineWidth: 0,
     outlineColor: 'transparent',
     boxShadow: 'none',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any,
   composerSendBtn: {
     width: 40,
