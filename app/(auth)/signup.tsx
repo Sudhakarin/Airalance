@@ -89,10 +89,8 @@ export default function SignupScreen() {
     }
 
     if (data.session) {
-      // Auto-logged in
       router.replace('/(tabs)/home');
     } else {
-      // Email confirmation needed
       setDone(true);
     }
   }
@@ -119,7 +117,7 @@ export default function SignupScreen() {
                 <View style={styles.brandIcon}>
                   <Ionicons
                     name="chatbubble"
-                    size={16}
+                    size={22}
                     color="#FFFFFF"
                   />
                 </View>
@@ -172,7 +170,7 @@ export default function SignupScreen() {
                     icon={
                       <Ionicons
                         name="at-outline"
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     }
@@ -198,7 +196,7 @@ export default function SignupScreen() {
                     icon={
                       <Ionicons
                         name="person-outline"
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     }
@@ -223,7 +221,7 @@ export default function SignupScreen() {
                     icon={
                       <Ionicons
                         name="mail-outline"
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     }
@@ -250,7 +248,7 @@ export default function SignupScreen() {
                     icon={
                       <Ionicons
                         name="lock-closed-outline"
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     }
@@ -280,7 +278,7 @@ export default function SignupScreen() {
                     >
                       <Ionicons
                         name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     </TouchableOpacity>
@@ -300,7 +298,7 @@ export default function SignupScreen() {
                       {agreedToPolicy && (
                         <Ionicons
                           name="checkmark"
-                          size={14}
+                          size={18}
                           color="#FFFFFF"
                         />
                       )}
@@ -364,15 +362,14 @@ export default function SignupScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.ink900 },
+  safe: { flex: 1, backgroundColor: '#000000' },
   scroll: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: SPACING.xl,
+    paddingHorizontal: 24,
     paddingVertical: SPACING.xxl,
   },
 
-  // Background glows
   glowTop: {
     position: 'absolute',
     top: -150,
@@ -392,26 +389,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(34,211,184,0.12)',
   },
 
-  // Card
   card: {
     backgroundColor: 'rgba(16,19,28,0.85)',
-    borderRadius: 28,
+    borderRadius: 32,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
-    padding: SPACING.xl,
+    padding: 28,
     ...SHADOWS.card,
   },
 
-  // Brand
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
+  // Brand icon — 46 (was 36)
   brandIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 14,
+    width: 46,
+    height: 46,
+    borderRadius: 16,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
@@ -421,8 +417,9 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
+  // Brand text — 24 (was 18)
   brandText: {
-    fontSize: 18,
+    fontSize: 24,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
@@ -430,60 +427,63 @@ const styles = StyleSheet.create({
     color: COLORS.violetLight,
   },
 
-  // Headings
+  // H1 — 32 (was 24)
   h1: {
     marginTop: SPACING.xxl,
-    fontSize: 24,
+    fontSize: 32,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
+  // Subtitle — 17 (was 14)
   subtitle: {
-    marginTop: 6,
-    fontSize: 14,
+    marginTop: 8,
+    fontSize: 17,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    lineHeight: 19,
+    lineHeight: 23,
   },
 
-  // Inputs
+  // Input — 18 (was 15)
   input: {
     width: '100%',
     backgroundColor: COLORS.ink800,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     borderRadius: RADII.xl,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
+    paddingHorizontal: 18,
+    paddingVertical: 17,
+    fontSize: 18,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
   },
+  // Icon padding — 54 (was 44)
   inputWithIcon: {
-    paddingLeft: 44,
+    paddingLeft: 54,
   },
   inputWithIconRight: {
-    paddingRight: 44,
+    paddingRight: 54,
   },
   eyeBtn: {
     position: 'absolute',
-    right: 14,
+    right: 16,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
   },
 
-  // Checkbox
+  // Checkbox — bigger
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
+    gap: 12,
     marginTop: SPACING.sm,
     marginBottom: SPACING.md,
   },
+  // Checkbox — 24 (was 18)
   checkbox: {
-    width: 18,
-    height: 18,
-    borderRadius: 5,
+    width: 24,
+    height: 24,
+    borderRadius: 7,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.25)',
     backgroundColor: COLORS.ink800,
@@ -495,29 +495,31 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.violet,
     borderColor: COLORS.violet,
   },
+  // Checkbox text — 15 (was 12)
   checkboxText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    lineHeight: 17,
+    lineHeight: 21,
   },
 
-  // Error
+  // Error box
   errorBox: {
     backgroundColor: 'rgba(239,68,68,0.10)',
     borderRadius: RADII.md,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     marginBottom: SPACING.md,
   },
+  // Error text — 15.5 (was 12.5)
   errorText: {
     color: '#FCA5A5',
-    fontSize: 12.5,
+    fontSize: 15.5,
     fontFamily: FONTS.bodyMedium,
   },
 
-  // Primary button
+  // Primary btn — bigger
   primaryBtn: {
     borderRadius: RADII.xl,
     overflow: 'hidden',
@@ -528,14 +530,16 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
+  // Primary button inner — 19 pv (was 15)
   primaryBtnInner: {
-    paddingVertical: 15,
+    paddingVertical: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Primary btn text — 18 (was 15)
   primaryBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 18,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
   },
@@ -545,15 +549,17 @@ const styles = StyleSheet.create({
     color: COLORS.violetLight,
     fontFamily: FONTS.bodyMedium,
   },
+  // Link text bold — 17 (was 14)
   linkTextBold: {
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.violetLight,
   },
+  // Footer — 16.5 (was 14)
   footerText: {
     marginTop: SPACING.xxl,
     textAlign: 'center',
-    fontSize: 14,
+    fontSize: 16.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
