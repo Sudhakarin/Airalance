@@ -2,9 +2,8 @@
 // Bottom tab navigator — 5 tabs matching website's mobile layout
 
 import { Tabs } from 'expo-router';
-import { View, Text, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import { COLORS, FONTS } from '../../constants/theme';
 
 export default function TabsLayout() {
@@ -100,9 +99,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     elevation: 0,
   },
-  tabItem: {
-    paddingVertical: 4,
-  },
+  tabItem: { paddingVertical: 4 },
   tabLabel: {
     fontSize: 10,
     fontFamily: FONTS.bodySemiBold,
