@@ -69,7 +69,6 @@ export default function UserProfileScreen() {
   const [sendingRequest, setSendingRequest] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Follow lists
   const [listTab, setListTab] = useState<ListTab | null>(null);
   const [followers, setFollowers] = useState<Profile[]>([]);
   const [following, setFollowing] = useState<Profile[]>([]);
@@ -80,7 +79,6 @@ export default function UserProfileScreen() {
     (!!p.verified ||
       VERIFIED_USERNAMES.includes(p.username?.toLowerCase() ?? ''));
 
-  // === Load profile ===
   const loadProfile = useCallback(async () => {
     if (!userId) return;
     try {
@@ -128,7 +126,6 @@ export default function UserProfileScreen() {
         return;
       }
 
-      // Follow?
       const { data: followRow } = await supabase
         .from('follows')
         .select('follower_id')
@@ -137,7 +134,6 @@ export default function UserProfileScreen() {
         .maybeSingle();
       setIsFollowing(!!followRow);
 
-      // Block?
       const { data: blockRow } = await supabase
         .from('blocked_users')
         .select('blocker_id')
@@ -146,7 +142,6 @@ export default function UserProfileScreen() {
         .maybeSingle();
       setIsBlocked(!!blockRow);
 
-      // Connection?
       const { data: mine } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
@@ -194,7 +189,6 @@ export default function UserProfileScreen() {
     loadProfile();
   }, [loadProfile]);
 
-  // === Load follow lists ===
   async function loadFollowLists(tab: ListTab) {
     if (!userId) return;
     setListTab(tab);
@@ -230,7 +224,6 @@ export default function UserProfileScreen() {
     }
   }
 
-  // === Toggle follow ===
   async function toggleFollow() {
     if (!myId || !userId || followToggling) return;
     setFollowToggling(true);
@@ -261,7 +254,6 @@ export default function UserProfileScreen() {
     }
   }
 
-  // === Connect ===
   async function confirmConnect() {
     if (!myId || !userId || sendingRequest) return;
     setSendingRequest(true);
@@ -297,7 +289,6 @@ export default function UserProfileScreen() {
     }
   }
 
-  // === Open chat ===
   async function openChat() {
     if (!myId || !userId) return;
     if (convoId) {
@@ -343,7 +334,6 @@ export default function UserProfileScreen() {
     }
   }
 
-  // === Block ===
   async function toggleBlock() {
     if (!myId || !userId || blocking) return;
     setMenuOpen(false);
@@ -389,7 +379,6 @@ export default function UserProfileScreen() {
     return `Last seen ${Math.floor(diffHr / 24)}d ago`;
   }
 
-  // === Render ===
   if (loading || !profile) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -414,7 +403,7 @@ export default function UserProfileScreen() {
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="chevron-back" size={22} color={COLORS.text} />
+          <Ionicons name="chevron-back" size={26} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerUsername} numberOfLines={1}>
           @{profile.username}
@@ -426,7 +415,7 @@ export default function UserProfileScreen() {
         >
           <Ionicons
             name="ellipsis-horizontal"
-            size={20}
+            size={24}
             color={COLORS.text}
           />
         </TouchableOpacity>
@@ -442,7 +431,7 @@ export default function UserProfileScreen() {
               name={profile.display_name}
               color={profile.avatar_color}
               avatarUrl={profile.avatar_url}
-              size={104}
+              size={122}
             />
           </View>
         </View>
@@ -452,7 +441,7 @@ export default function UserProfileScreen() {
             <Text style={styles.displayName} numberOfLines={2}>
               {profile.display_name}
             </Text>
-            {verified && <VerifiedBadge size={18} />}
+            {verified && <VerifiedBadge size={22} />}
           </View>
           <Text style={styles.username}>@{profile.username}</Text>
 
@@ -527,7 +516,7 @@ export default function UserProfileScreen() {
             >
               <Ionicons
                 name="person-add-outline"
-                size={20}
+                size={24}
                 color="#FFFFFF"
               />
             </TouchableOpacity>
@@ -539,7 +528,7 @@ export default function UserProfileScreen() {
               onPress={() => setConnectPopup('pending')}
               activeOpacity={0.85}
             >
-              <Ionicons name="time-outline" size={20} color="#FFFFFF" />
+              <Ionicons name="time-outline" size={24} color="#FFFFFF" />
             </TouchableOpacity>
           )}
 
@@ -551,7 +540,7 @@ export default function UserProfileScreen() {
             >
               <Ionicons
                 name="close-circle-outline"
-                size={20}
+                size={24}
                 color={COLORS.danger}
               />
             </TouchableOpacity>
@@ -565,7 +554,7 @@ export default function UserProfileScreen() {
             >
               <Ionicons
                 name="chatbubble-outline"
-                size={20}
+                size={24}
                 color="#FFFFFF"
               />
             </TouchableOpacity>
@@ -576,7 +565,7 @@ export default function UserProfileScreen() {
             onPress={() => setMenuOpen(true)}
             activeOpacity={0.85}
           >
-            <Ionicons name="ellipsis-vertical" size={18} color="#FFFFFF" />
+            <Ionicons name="ellipsis-vertical" size={22} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
@@ -600,7 +589,7 @@ export default function UserProfileScreen() {
                 name={profile.display_name}
                 color={profile.avatar_color}
                 avatarUrl={profile.avatar_url}
-                size={72}
+                size={84}
               />
               <Text style={styles.modalName}>{profile.display_name}</Text>
               <Text style={styles.modalUsername}>@{profile.username}</Text>
@@ -705,7 +694,7 @@ export default function UserProfileScreen() {
               >
                 <Ionicons
                   name="ban-outline"
-                  size={20}
+                  size={24}
                   color={COLORS.danger}
                 />
                 <Text style={styles.menuItemText}>
@@ -739,14 +728,13 @@ export default function UserProfileScreen() {
         >
           <View style={styles.listModalWrap}>
             <View style={styles.listModal}>
-              {/* Header */}
               <View style={styles.listHeader}>
                 <TouchableOpacity
                   onPress={() => setListTab(null)}
                   style={styles.listHeaderBtn}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="close" size={22} color="#FFFFFF" />
+                  <Ionicons name="close" size={26} color="#FFFFFF" />
                 </TouchableOpacity>
                 <View style={styles.listTabs}>
                   <TouchableOpacity
@@ -787,7 +775,6 @@ export default function UserProfileScreen() {
                 <View style={styles.listHeaderBtn} />
               </View>
 
-              {/* List */}
               {listLoading ? (
                 <View style={styles.listLoading}>
                   <ActivityIndicator color={COLORS.violet} />
@@ -796,7 +783,7 @@ export default function UserProfileScreen() {
                 <View style={styles.listEmpty}>
                   <Ionicons
                     name="people-outline"
-                    size={36}
+                    size={44}
                     color={COLORS.mist}
                   />
                   <Text style={styles.listEmptyText}>
@@ -823,7 +810,7 @@ export default function UserProfileScreen() {
                         name={item.display_name}
                         color={item.avatar_color}
                         avatarUrl={item.avatar_url}
-                        size={48}
+                        size={56}
                       />
                       <View style={styles.personInfo}>
                         <View style={styles.personNameRow}>
@@ -833,7 +820,7 @@ export default function UserProfileScreen() {
                           >
                             {item.display_name}
                           </Text>
-                          {isVerified(item) && <VerifiedBadge size={13} />}
+                          {isVerified(item) && <VerifiedBadge size={15} />}
                         </View>
                         <Text
                           style={styles.personUsername}
@@ -886,7 +873,7 @@ function StatItem({
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.ink900 },
+  safe: { flex: 1, backgroundColor: '#000000' },
   scroll: { paddingBottom: SPACING.xxl },
 
   glowTop: {
@@ -903,70 +890,76 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     gap: SPACING.sm,
   },
+  // Header button — 46 (was 40)
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Header username — 17 (was 14)
   headerUsername: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mistLight,
   },
 
-  avatarWrap: { alignItems: 'center', marginTop: SPACING.md },
+  avatarWrap: { alignItems: 'center', marginTop: 16 },
   avatarInner: {
     borderRadius: 999,
-    padding: 3,
+    padding: 4,
     backgroundColor: 'rgba(255,255,255,0.10)',
   },
 
   nameBlock: {
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
-    marginTop: SPACING.md,
+    marginTop: 16,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Display name — 26 (was 22)
   displayName: {
-    fontSize: 22,
+    fontSize: 26,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     textAlign: 'center',
   },
+  // Username — 17 (was 14)
   username: {
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 2,
+    marginTop: 4,
   },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    gap: 8,
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  // Status dot — 10 (was 8)
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  // Status text — 15 (was 12)
   statusText: {
-    fontSize: 12,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
   },
@@ -977,23 +970,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: SPACING.lg,
   },
-  statItem: { alignItems: 'center', paddingHorizontal: SPACING.lg },
+  // Stat item — bigger padding
+  statItem: { alignItems: 'center', paddingHorizontal: 28 },
+  // Stat value — 22 (was 18)
   statValue: {
-    fontSize: 18,
+    fontSize: 22,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
+  // Stat label — 13 (was 11)
   statLabel: {
-    fontSize: 11,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
-    marginTop: 3,
+    marginTop: 4,
   },
+  // Stat divider — 40 (was 32)
   statDivider: {
     width: 1,
-    height: 32,
+    height: 40,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
 
@@ -1001,13 +998,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 12,
     paddingHorizontal: SPACING.lg,
     marginTop: SPACING.xl,
   },
+  // Follow button — 54 height, minWidth 190 (was 46/170)
   followBtn: {
-    minWidth: 170,
-    height: 46,
+    minWidth: 190,
+    height: 54,
     borderRadius: RADII.lg,
     backgroundColor: '#E54E60',
     alignItems: 'center',
@@ -1018,14 +1016,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
+  // Follow btn text — 17 (was 15)
   followBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 17,
     fontFamily: FONTS.bodySemiBold,
   },
+  // Icon buttons — 54 (was 46)
   iconBtn: {
-    width: 46,
-    height: 46,
+    width: 54,
+    height: 54,
     borderRadius: RADII.lg,
     backgroundColor: '#2E2E2E',
     alignItems: 'center',
@@ -1034,26 +1034,28 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
   },
   iconBtnLoading: {
-    width: 46,
-    height: 46,
+    width: 54,
+    height: 54,
     borderRadius: RADII.lg,
     backgroundColor: '#2E2E2E',
     opacity: 0.5,
   },
 
+  // Bio — 17 (was 14), lineHeight 23
   bio: {
     paddingHorizontal: SPACING.xl,
     marginTop: SPACING.xl,
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
     textAlign: 'center',
-    lineHeight: 19,
+    lineHeight: 23,
   },
+  // Bio link — 16 (was 13)
   bioLink: {
     paddingHorizontal: SPACING.xl,
-    marginTop: 8,
-    fontSize: 13,
+    marginTop: 10,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.teal,
     textAlign: 'center',
@@ -1070,7 +1072,7 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     width: '100%',
-    maxWidth: 360,
+    maxWidth: 380,
     backgroundColor: COLORS.ink800,
     borderRadius: RADII.xxl,
     padding: SPACING.xl,
@@ -1078,18 +1080,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
+  // Modal name — 21 (was 18)
   modalName: {
-    fontSize: 18,
+    fontSize: 21,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     marginTop: SPACING.md,
     textAlign: 'center',
   },
+  // Modal username — 15 (was 13)
   modalUsername: {
-    fontSize: 13,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 2,
+    marginTop: 3,
   },
   modalDivider: {
     height: 1,
@@ -1097,27 +1101,30 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     marginVertical: SPACING.lg,
   },
+  // Modal message — 17 (was 14)
   modalMessage: {
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 23,
     marginBottom: SPACING.lg,
   },
-  modalRow: { flexDirection: 'row', gap: 10, width: '100%' },
+  modalRow: { flexDirection: 'row', gap: 12, width: '100%' },
+  // Modal cancel — 54 (was 46)
   modalCancel: {
     flex: 1,
-    height: 46,
+    height: 54,
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Modal cancel text — 17 (was 14)
   modalCancelText: {
     color: COLORS.mistLight,
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.bodySemiBold,
   },
   modalPrimary: {
@@ -1126,18 +1133,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   modalPrimaryGradient: {
-    height: 46,
+    height: 54,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Modal primary text — 17 (was 14)
   modalPrimaryText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.bodySemiBold,
   },
   modalFull: {
     width: '100%',
-    height: 46,
+    height: 54,
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
@@ -1159,24 +1167,26 @@ const styles = StyleSheet.create({
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingVertical: 14,
+    gap: 14,
+    paddingVertical: 18,
     paddingHorizontal: SPACING.md,
   },
+  // Menu item text — 17 (was 15)
   menuItemText: {
-    fontSize: 15,
+    fontSize: 17,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.danger,
   },
   menuCancel: {
     marginTop: 6,
-    paddingVertical: 14,
+    paddingVertical: 18,
     alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
   },
+  // Menu cancel text — 17 (was 14)
   menuCancelText: {
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mistLight,
   },
@@ -1188,10 +1198,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   listModal: {
-    backgroundColor: COLORS.ink900,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '80%',
+    backgroundColor: '#000000',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    height: '85%',
     borderTopWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
@@ -1200,11 +1210,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: SPACING.md,
     paddingTop: SPACING.md,
-    paddingBottom: 8,
+    paddingBottom: 10,
   },
+  // List header btn — 46 (was 40)
   listHeaderBtn: {
-    width: 40,
-    height: 40,
+    width: 46,
+    height: 46,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1212,24 +1223,26 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 24,
+    gap: 32,
   },
   listTabBtn: {
-    paddingVertical: 8,
+    paddingVertical: 10,
     alignItems: 'center',
     position: 'relative',
   },
+  // List tab text — 18 (was 15)
   listTabText: {
-    fontSize: 15,
+    fontSize: 18,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mist,
   },
   listTabTextActive: { color: '#FFFFFF' },
+  // Underline — bigger
   listTabUnderline: {
     position: 'absolute',
     bottom: 0,
-    height: 2,
-    width: 40,
+    height: 2.5,
+    width: 50,
     borderRadius: 2,
     backgroundColor: COLORS.violetLight,
   },
@@ -1242,11 +1255,12 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 14,
   },
+  // List empty text — 17.5 (was 14)
   listEmptyText: {
     color: COLORS.mist,
-    fontSize: 14,
+    fontSize: 17.5,
     fontFamily: FONTS.body,
   },
   listContent: {
@@ -1254,26 +1268,29 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.xxl,
   },
+  // Person row — bigger
   personRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
-    paddingVertical: SPACING.sm,
+    paddingVertical: 14,
     paddingHorizontal: SPACING.sm,
     borderRadius: RADII.lg,
   },
   personInfo: { flex: 1, minWidth: 0 },
   personNameRow: { flexDirection: 'row', alignItems: 'center' },
+  // Person name — 17.5 (was 15)
   personName: {
-    fontSize: 15,
+    fontSize: 17.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
+  // Person username — 15 (was 13)
   personUsername: {
-    fontSize: 13,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 1,
+    marginTop: 3,
   },
 });
