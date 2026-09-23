@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-// My profile — matches website layout (avatar left, name top, stats in grid-cols-3)
+// My profile — EXACT match to website (status ring, precise spacing)
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -31,6 +31,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
+import StatusRing from '../../components/StatusRing';
 
 type Profile = {
   id: string;
@@ -45,6 +46,16 @@ type Profile = {
 };
 
 type ListTab = 'followers' | 'following';
+
+function formatCount(n: number): string {
+  if (n < 1000) return String(n);
+  const fmt = (v: number, unit: string) =>
+    `${(v < 10 ? Math.round(v * 10) / 10 : Math.round(v))
+      .toString()
+      .replace(/\.0$/, '')}${unit}`;
+  if (n < 1_000_000) return fmt(n / 1000, 'K');
+  return fmt(n / 1_000_000, 'M');
+}
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -339,11 +350,9 @@ export default function ProfileScreen() {
   }
 
   const verified = isVerified(profile);
-  const initialsForCounts = {
-    followers: followersCount,
-    following: followingCount,
-    status: statusCount,
-  };
+  const ownActiveStatusCount = statusCount ?? 0;
+  const statusShown =
+    statusCount === null ? null : Math.max(statusCount, ownActiveStatusCount);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -365,7 +374,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Top section: avatar LEFT + name & stats RIGHT (website layout) */}
+        {/* Top section — avatar (with status ring) + name/stats */}
         <View style={styles.topSection}>
           <TouchableOpacity
             onPress={pickAvatar}
@@ -373,12 +382,20 @@ export default function ProfileScreen() {
             activeOpacity={0.85}
             style={styles.avatarWrap}
           >
-            <Avatar
-              name={profile.display_name}
-              color={profile.avatar_color}
-              avatarUrl={profile.avatar_url}
-              size={82}
-            />
+            {/* Status ring around avatar — same as website */}
+            <StatusRing
+              hasStatus={ownActiveStatusCount > 0}
+              viewed={true}
+            >
+              <Avatar
+                name={profile.display_name}
+                color={profile.avatar_color}
+                avatarUrl={profile.avatar_url}
+                size={82}
+              />
+            </StatusRing>
+
+            {/* Camera badge — bottom-0.5 right-0.5 tight corner */}
             <View style={styles.cameraBadge}>
               {uploading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
@@ -389,7 +406,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <View style={styles.rightCol}>
-            {/* Name — 20px bold */}
+            {/* Name — 20px bold, single line with truncate */}
             <View style={styles.nameRow}>
               <Text style={styles.displayName} numberOfLines={1}>
                 {profile.display_name}
@@ -397,30 +414,30 @@ export default function ProfileScreen() {
               {verified && <VerifiedBadge size={18} />}
             </View>
 
-            {/* Stats — grid-cols-3 equivalent (each 1/3, evenly spread) */}
-            <View style={styles.statsWrap}>
+            {/* Stats — grid-cols-3, each 1/3 width */}
+            <View style={styles.statsGrid}>
               <StatItem
                 label="status"
-                value={initialsForCounts.status}
+                value={statusShown}
                 onPress={() => router.push('/(tabs)/status')}
               />
               <StatItem
                 label="followers"
-                value={initialsForCounts.followers}
+                value={followersCount}
                 onPress={() => loadFollowList('followers')}
               />
               <StatItem
                 label="following"
-                value={initialsForCounts.following}
+                value={followingCount}
                 onPress={() => loadFollowList('following')}
               />
             </View>
           </View>
         </View>
 
-        {/* Username BOLD + bio */}
+        {/* Username + bio — mb-1 mt-3 */}
         <View style={styles.bioBlock}>
-          <Text style={styles.usernameBold}>@{profile.username}</Text>
+          <Text style={styles.username}>@{profile.username}</Text>
           {profile.bio ? (
             <Text style={styles.bio}>{profile.bio}</Text>
           ) : null}
@@ -711,10 +728,10 @@ function StatItem({
     <TouchableOpacity
       style={styles.statItem}
       onPress={onPress}
-      activeOpacity={0.7}
+      activeOpacity={0.6}
     >
       <Text style={styles.statValue}>
-        {value === null ? '—' : value}
+        {value === null ? '—' : formatCount(value)}
       </Text>
       <Text style={styles.statLabel}>{label}</Text>
     </TouchableOpacity>
@@ -723,6 +740,7 @@ function StatItem({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
+  // Website: px-5 py-6 = padding 20 horiz, 24 vertical
   scroll: { paddingBottom: SPACING.xxl },
 
   glowTop: {
@@ -739,7 +757,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: 20,
     paddingVertical: SPACING.md,
   },
   headerTitle: {
@@ -757,20 +775,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Website layout: gap-5 = 20px between avatar and right col
+  // Website: flex items-center gap-5
   topSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.sm,
+    paddingHorizontal: 20,   // px-5
+    paddingTop: 8,
     paddingBottom: SPACING.md,
     gap: 20,
   },
   avatarWrap: { position: 'relative' },
+  // Camera badge: bottom-0.5 right-0.5 (tight corner), h-7 w-7, border-2
   cameraBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
+    bottom: 2,
+    right: 2,
     width: 28,
     height: 28,
     borderRadius: 14,
@@ -781,17 +800,20 @@ const styles = StyleSheet.create({
     borderColor: '#000000',
   },
 
-  // Right col: gap-3 = 12px between name and stats
+  // Website: flex min-w-0 flex-1 flex-col justify-center gap-3
   rightCol: {
     flex: 1,
     minWidth: 0,
     justifyContent: 'center',
     gap: 12,
   },
+
+  // Website: flex min-w-0 items-center (name row)
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
+  // Website: text-[20px] font-bold leading-none
   displayName: {
     fontSize: 20,
     fontFamily: FONTS.displayBold,
@@ -799,40 +821,43 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
 
-  // Website: grid grid-cols-3 — each stat 1/3 width
-  statsWrap: {
+  // Website: grid grid-cols-3 text-left
+  statsGrid: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
   },
+  // Website stat button: flex flex-col items-start gap-0.5
   statItem: {
-    flex: 1,
+    flex: 1,                 // 1/3 width (grid-cols-3 equivalent)
     alignItems: 'flex-start',
     gap: 2,
   },
+  // Website: flex h-6 items-center text-[18px] font-bold tabular-nums
   statValue: {
     fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     lineHeight: 22,
   },
+  // Website: text-[13px] leading-tight text-white/70
   statLabel: {
     fontSize: 13,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.7)',
   },
 
-  // Username bold + bio (website mt-3 = 12px)
+  // Website: mb-1 mt-3 (mt-3 = 12, mb-1 = 4)
   bioBlock: {
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: SPACING.lg,
-    gap: 4,
   },
-  usernameBold: {
+  // Website: text-[14.5px] font-semibold leading-tight
+  username: {
     fontSize: 14.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
   },
+  // Website: mt-1 text-[14px] leading-snug text-white/85
   bio: {
     fontSize: 14,
     fontFamily: FONTS.body,
@@ -848,7 +873,7 @@ const styles = StyleSheet.create({
   },
 
   card: {
-    marginHorizontal: SPACING.lg,
+    marginHorizontal: 20,
     marginBottom: SPACING.md,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
@@ -860,7 +885,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: 20,
     paddingVertical: 14,
     gap: SPACING.md,
   },
@@ -899,7 +924,7 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: SPACING.lg,
+    marginLeft: 20,
   },
   logoutText: {
     fontSize: 14,
@@ -911,7 +936,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: 20,
     paddingTop: 14,
     paddingBottom: 6,
   },
@@ -922,7 +947,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   bioInput: {
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: 20,
     paddingBottom: 14,
     fontSize: 14,
     fontFamily: FONTS.body,
@@ -939,7 +964,7 @@ const styles = StyleSheet.create({
   } as any,
 
   saveBtn: {
-    marginHorizontal: SPACING.lg,
+    marginHorizontal: 20,
     marginTop: SPACING.md,
     borderRadius: RADII.full,
     overflow: 'hidden',
