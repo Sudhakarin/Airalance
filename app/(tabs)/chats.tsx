@@ -1,15 +1,15 @@
 // app/(tabs)/chats.tsx
-// Chats list — shows all conversations with last message + unread count
+// Chats list — shows all conversations with last message + unread count + skeleton
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -36,6 +36,86 @@ type Conversation = {
   last_at: string;
   unread_count: number;
 };
+
+// ===== Skeleton component (pulse effect) =====
+function SkeletonBlock({
+  width,
+  height,
+  borderRadius = 6,
+  style,
+}: {
+  width: number | string;
+  height: number;
+  borderRadius?: number;
+  style?: any;
+}) {
+  const opacity = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: 'rgba(255,255,255,0.08)',
+          opacity,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+function ChatListSkeleton() {
+  return (
+    <View style={styles.skeletonWrap}>
+      {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+        <View key={i} style={styles.skeletonRow}>
+          {/* Avatar circle */}
+          <SkeletonBlock width={56} height={56} borderRadius={28} />
+
+          {/* Text placeholders */}
+          <View style={styles.skeletonInfo}>
+            <View style={styles.skeletonTop}>
+              <SkeletonBlock
+                width={`${45 + ((i * 13) % 25)}%`}
+                height={14}
+                borderRadius={5}
+              />
+              <SkeletonBlock width={30} height={10} borderRadius={4} />
+            </View>
+            <SkeletonBlock
+              width={`${55 + ((i * 17) % 30)}%`}
+              height={12}
+              borderRadius={4}
+              style={{ marginTop: 8 }}
+            />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function ChatsScreen() {
   const router = useRouter();
@@ -192,20 +272,6 @@ export default function ChatsScreen() {
     router.push(`/chat/${convoId}`);
   }
 
-  if (loading && conversations.length === 0) {
-    return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Chats</Text>
-        </View>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator color={COLORS.violet} />
-          <Text style={styles.loadingText}>Loading chats…</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
@@ -221,109 +287,120 @@ export default function ChatsScreen() {
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={conversations}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={COLORS.violet}
-            colors={[COLORS.violet]}
-          />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyWrap}>
-            <View style={styles.emptyIconWrap}>
-              <Ionicons name="chatbubbles-outline" size={44} color={COLORS.mist} />
-            </View>
-            <Text style={styles.emptyTitle}>No conversations yet</Text>
-            <Text style={styles.emptySubtitle}>
-              Tap Search to find people and start chatting
-            </Text>
-            <TouchableOpacity
-              style={styles.emptyBtn}
-              onPress={() => router.push('/(tabs)/search')}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.emptyBtnText}>Find people</Text>
-            </TouchableOpacity>
-          </View>
-        }
-        renderItem={({ item, index }) => {
-          const displayName = item.is_group
-            ? item.name ?? 'Group'
-            : item.other_profile?.display_name ?? 'Unknown';
-          const color = item.other_profile?.avatar_color ?? COLORS.violet;
-          const hasUnread = item.unread_count > 0;
-
-          return (
-            <View>
-              <TouchableOpacity
-                style={styles.row}
-                onPress={() => openChat(item.id)}
-                activeOpacity={0.6}
-              >
-                <Avatar
-                  name={displayName}
-                  color={color}
-                  avatarUrl={item.other_profile?.avatar_url ?? null}
-                  size={56}
+      {/* Skeleton — jab tak load ho raha ho aur list khaali ho */}
+      {loading && conversations.length === 0 ? (
+        <ChatListSkeleton />
+      ) : (
+        <FlatList
+          data={conversations}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={COLORS.violet}
+              colors={[COLORS.violet]}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyWrap}>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons
+                  name="chatbubbles-outline"
+                  size={44}
+                  color={COLORS.mist}
                 />
+              </View>
+              <Text style={styles.emptyTitle}>No conversations yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Tap Search to find people and start chatting
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyBtn}
+                onPress={() => router.push('/(tabs)/search')}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.emptyBtnText}>Find people</Text>
+              </TouchableOpacity>
+            </View>
+          }
+          renderItem={({ item, index }) => {
+            const displayName = item.is_group
+              ? item.name ?? 'Group'
+              : item.other_profile?.display_name ?? 'Unknown';
+            const color = item.other_profile?.avatar_color ?? COLORS.violet;
+            const hasUnread = item.unread_count > 0;
 
-                <View style={styles.rowInfo}>
-                  <View style={styles.rowTop}>
-                    <View style={styles.rowNameWrap}>
-                      <Text style={styles.rowName} numberOfLines={1}>
-                        {displayName}
+            return (
+              <View>
+                <TouchableOpacity
+                  style={styles.row}
+                  onPress={() => openChat(item.id)}
+                  activeOpacity={0.6}
+                >
+                  <Avatar
+                    name={displayName}
+                    color={color}
+                    avatarUrl={item.other_profile?.avatar_url ?? null}
+                    size={56}
+                  />
+
+                  <View style={styles.rowInfo}>
+                    <View style={styles.rowTop}>
+                      <View style={styles.rowNameWrap}>
+                        <Text style={styles.rowName} numberOfLines={1}>
+                          {displayName}
+                        </Text>
+                        {item.other_profile?.verified && (
+                          <VerifiedBadge size={14} />
+                        )}
+                      </View>
+                      <Text
+                        style={[
+                          styles.rowTime,
+                          hasUnread && styles.rowTimeUnread,
+                        ]}
+                      >
+                        {formatTime(item.last_at)}
                       </Text>
-                      {item.other_profile?.verified && (
-                        <VerifiedBadge size={14} />
+                    </View>
+
+                    <View style={styles.rowBottom}>
+                      <Text
+                        style={[
+                          styles.rowMessage,
+                          hasUnread && styles.rowMessageUnread,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {item.last_message}
+                      </Text>
+
+                      {hasUnread && (
+                        <View style={styles.unreadBadge}>
+                          <Text style={styles.unreadText}>
+                            {item.unread_count > 99 ? '99+' : item.unread_count}
+                          </Text>
+                        </View>
                       )}
                     </View>
-                    <Text
-                      style={[styles.rowTime, hasUnread && styles.rowTimeUnread]}
-                    >
-                      {formatTime(item.last_at)}
-                    </Text>
                   </View>
+                </TouchableOpacity>
 
-                  <View style={styles.rowBottom}>
-                    <Text
-                      style={[
-                        styles.rowMessage,
-                        hasUnread && styles.rowMessageUnread,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item.last_message}
-                    </Text>
-
-                    {hasUnread && (
-                      <View style={styles.unreadBadge}>
-                        <Text style={styles.unreadText}>
-                          {item.unread_count > 99 ? '99+' : item.unread_count}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              </TouchableOpacity>
-
-              {index < conversations.length - 1 && (
-                <View style={styles.separator} />
-              )}
-            </View>
-          );
-        }}
-      />
+                {index < conversations.length - 1 && (
+                  <View style={styles.separator} />
+                )}
+              </View>
+            );
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  // ✅ Background pure black
   safe: { flex: 1, backgroundColor: '#000000' },
 
   glowTop: {
@@ -440,16 +517,26 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
 
-  loadingWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
+  // ===== Skeleton =====
+  skeletonWrap: {
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.sm,
   },
-  loadingText: {
-    color: COLORS.mist,
-    fontSize: 13,
-    fontFamily: FONTS.body,
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingVertical: 14,
+    paddingHorizontal: SPACING.sm,
+  },
+  skeletonInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  skeletonTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
 
   emptyWrap: {
