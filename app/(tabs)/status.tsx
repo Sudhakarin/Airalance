@@ -1,16 +1,639 @@
 // app/(tabs)/status.tsx
-import { View, Text, StyleSheet } from 'react-native';
-import { COLORS, FONTS } from '../../constants/theme';
+// Status tab — shows status list grouped by user with story rings
+
+import { useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
+import { supabase } from '../../lib/supabase';
+import Avatar from '../../components/Avatar';
+import StatusRing from '../../components/StatusRing';
+
+type Profile = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_color: string;
+  avatar_url: string | null;
+  verified: boolean | null;
+};
+
+type Status = {
+  id: string;
+  user_id: string;
+  media_url: string | null;
+  media_type: 'image' | 'video' | 'text' | null;
+  text_content: string | null;
+  bg_color: string | null;
+  created_at: string;
+  expires_at: string;
+  profile: Profile | null;
+};
+
+type UserStatusGroup = {
+  userId: string;
+  profile: Profile | null;
+  statuses: Status[];
+  latestAt: string;
+  allViewed: boolean;
+};
 
 export default function StatusScreen() {
+  const router = useRouter();
+  const [myStatuses, setMyStatuses] = useState<Status[]>([]);
+  const [otherGroups, setOtherGroups] = useState<UserStatusGroup[]>([]);
+  const [viewedIds, setViewedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [myId, setMyId] = useState<string | null>(null);
+  const [myProfile, setMyProfile] = useState<Profile | null>(null);
+
+  // Get current user
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        setMyId(data.user.id);
+        // Load my profile
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .single()
+          .then(({ data: p }) => {
+            if (p) setMyProfile(p as Profile);
+          });
+      }
+    });
+  }, []);
+
+  // Load statuses
+  const loadStatuses = useCallback(async () => {
+    if (!myId) return;
+
+    try {
+      // 1. Get all non-expired statuses with profiles
+      const { data: statusData, error } = await supabase
+        .from('statuses')
+        .select('*, profile:profiles(*)')
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      const allStatuses = (statusData ?? []) as Status[];
+
+      // 2. Split my statuses vs others
+      const mine = allStatuses.filter((s) => s.user_id === myId);
+      const others = allStatuses.filter((s) => s.user_id !== myId);
+
+      // 3. Group others by user
+      const grouped: Record<string, UserStatusGroup> = {};
+      others.forEach((s) => {
+        if (!grouped[s.user_id]) {
+          grouped[s.user_id] = {
+            userId: s.user_id,
+            profile: s.profile,
+            statuses: [],
+            latestAt: s.created_at,
+            allViewed: true,
+          };
+        }
+        grouped[s.user_id].statuses.push(s);
+        if (s.created_at > grouped[s.user_id].latestAt) {
+          grouped[s.user_id].latestAt = s.created_at;
+        }
+      });
+
+      setMyStatuses(mine);
+      setOtherGroups(Object.values(grouped));
+
+      // 4. Get my viewed status IDs
+      const { data: views } = await supabase
+        .from('status_views')
+        .select('status_id')
+        .eq('viewer_id', myId);
+
+      const viewedSet = new Set<string>(
+        (views ?? []).map((v: any) => v.status_id)
+      );
+      setViewedIds(viewedSet);
+    } catch (err) {
+      console.warn('Load statuses error:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [myId]);
+
+  useEffect(() => {
+    loadStatuses();
+  }, [loadStatuses]);
+
+  // Realtime subscription
+  useEffect(() => {
+    if (!myId) return;
+
+    const channel = supabase
+      .channel('statuses-tab-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'statuses' },
+        () => loadStatuses()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [myId, loadStatuses]);
+
+  // Reload on focus
+  useFocusEffect(
+    useCallback(() => {
+      if (myId) loadStatuses();
+    }, [myId, loadStatuses])
+  );
+
+  async function onRefresh() {
+    setRefreshing(true);
+    await loadStatuses();
+  }
+
+  // Check if all statuses in a group are viewed
+  function isGroupViewed(group: UserStatusGroup): boolean {
+    return group.statuses.every((s) => viewedIds.has(s.id));
+  }
+
+  // Format timestamp
+  function formatTime(iso: string) {
+    if (!iso) return '';
+    const date = new Date(iso);
+    const now = new Date();
+    const diffMin = Math.floor((now.getTime() - date.getTime()) / 60000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDay = Math.floor(diffHr / 24);
+    return `${diffDay}d ago`;
+  }
+
+  // Open status viewer
+  function openStatusViewer(userId: string) {
+    router.push(`/status/${userId}`);
+  }
+
+  // Open create status
+  function openCreateStatus() {
+    router.push('/status/create');
+  }
+
+  // Split groups into recent (unviewed) and viewed
+  const recent = otherGroups.filter((g) => !isGroupViewed(g));
+  const viewed = otherGroups.filter((g) => isGroupViewed(g));
+
+  // Sort recent by latestAt desc
+  recent.sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));
+  viewed.sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));
+
+  const myAllViewed = myStatuses.every((s) => viewedIds.has(s.id));
+
+  // ---- RENDER ----
+
+  if (loading && myStatuses.length === 0 && otherGroups.length === 0) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Status</Text>
+        </View>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={COLORS.violet} />
+          <Text style={styles.loadingText}>Loading status…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.text}>Status — Coming Soon</Text>
-    </View>
+    <SafeAreaView style={styles.safe} edges={['top']}>
+      <View style={styles.glowTop} />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Status</Text>
+        <TouchableOpacity
+          onPress={openCreateStatus}
+          style={styles.headerBtn}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="add" size={24} color={COLORS.text} />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={COLORS.violet}
+            colors={[COLORS.violet]}
+          />
+        }
+      >
+        {/* My Status */}
+        <TouchableOpacity
+          style={styles.myStatusRow}
+          onPress={() =>
+            myStatuses.length > 0 ? openStatusViewer(myId!) : openCreateStatus()
+          }
+          activeOpacity={0.7}
+        >
+          <View style={styles.myStatusAvatarWrap}>
+            <StatusRing hasStatus={myStatuses.length > 0} viewed={myAllViewed}>
+              {myProfile && (
+                <Avatar
+                  name={myProfile.display_name}
+                  color={myProfile.avatar_color}
+                  avatarUrl={myProfile.avatar_url}
+                  size={64}
+                />
+              )}
+            </StatusRing>
+            {myStatuses.length === 0 && (
+              <TouchableOpacity
+                style={styles.addBadge}
+                onPress={openCreateStatus}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="add" size={14} color="#FFFFFF" />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={styles.myStatusInfo}>
+            <Text style={styles.myStatusTitle}>My Status</Text>
+            <Text style={styles.myStatusSubtitle}>
+              {myStatuses.length > 0
+                ? `Tap to view · ${myStatuses.length} update${myStatuses.length > 1 ? 's' : ''}`
+                : 'Tap to add a status update'}
+            </Text>
+          </View>
+
+          <View style={styles.myStatusIcons}>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={openCreateStatus}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="musical-notes-outline"
+                size={18}
+                color={COLORS.violetLight}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={openCreateStatus}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="at-outline"
+                size={18}
+                color={COLORS.violetLight}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={openCreateStatus}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="text-outline"
+                size={18}
+                color={COLORS.violetLight}
+              />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+
+        {/* Recent Updates */}
+        {recent.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Recent updates</Text>
+            {recent.map((group) => (
+              <TouchableOpacity
+                key={group.userId}
+                style={styles.statusRow}
+                onPress={() => openStatusViewer(group.userId)}
+                activeOpacity={0.7}
+              >
+                <StatusRing hasStatus viewed={false}>
+                  <Avatar
+                    name={group.profile?.display_name ?? 'Unknown'}
+                    color={group.profile?.avatar_color ?? COLORS.violet}
+                    avatarUrl={group.profile?.avatar_url ?? null}
+                    size={64}
+                  />
+                </StatusRing>
+                <View style={styles.statusInfo}>
+                  <View style={styles.statusNameRow}>
+                    <Text style={styles.statusName} numberOfLines={1}>
+                      {group.profile?.display_name ?? 'Unknown'}
+                    </Text>
+                    {group.profile?.verified && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={14}
+                        color={COLORS.violetLight}
+                        style={{ marginLeft: 4 }}
+                      />
+                    )}
+                  </View>
+                  <Text style={styles.statusTime}>
+                    {group.statuses.length > 1
+                      ? `${group.statuses.length} updates · `
+                      : ''}
+                    {formatTime(group.latestAt)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </>
+        )}
+
+        {/* Viewed Updates */}
+        {viewed.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Viewed updates</Text>
+            {viewed.map((group) => (
+              <TouchableOpacity
+                key={group.userId}
+                style={styles.statusRow}
+                onPress={() => openStatusViewer(group.userId)}
+                activeOpacity={0.7}
+              >
+                <StatusRing hasStatus viewed={true}>
+                  <Avatar
+                    name={group.profile?.display_name ?? 'Unknown'}
+                    color={group.profile?.avatar_color ?? COLORS.violet}
+                    avatarUrl={group.profile?.avatar_url ?? null}
+                    size={64}
+                  />
+                </StatusRing>
+                <View style={styles.statusInfo}>
+                  <View style={styles.statusNameRow}>
+                    <Text
+                      style={[styles.statusName, styles.statusNameViewed]}
+                      numberOfLines={1}
+                    >
+                      {group.profile?.display_name ?? 'Unknown'}
+                    </Text>
+                    {group.profile?.verified && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={14}
+                        color={COLORS.mist}
+                        style={{ marginLeft: 4 }}
+                      />
+                    )}
+                  </View>
+                  <Text style={styles.statusTime}>
+                    {group.statuses.length > 1
+                      ? `${group.statuses.length} updates · `
+                      : ''}
+                    {formatTime(group.latestAt)}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </>
+        )}
+
+        {/* Empty state */}
+        {recent.length === 0 && viewed.length === 0 && myStatuses.length === 0 && (
+          <View style={styles.emptyWrap}>
+            <View style={styles.emptyIconWrap}>
+              <Ionicons
+                name="ellipse-outline"
+                size={44}
+                color={COLORS.mist}
+              />
+            </View>
+            <Text style={styles.emptyTitle}>No status updates</Text>
+            <Text style={styles.emptySubtitle}>
+              When your connections post a status, it will appear here.
+            </Text>
+            <TouchableOpacity
+              style={styles.emptyBtn}
+              onPress={openCreateStatus}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.emptyBtnText}>Add your status</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.ink900, alignItems: 'center', justifyContent: 'center' },
-  text: { color: COLORS.text, fontSize: 16, fontFamily: FONTS.body },
+  safe: { flex: 1, backgroundColor: COLORS.ink900 },
+  scroll: { paddingBottom: SPACING.xxl },
+
+  glowTop: {
+    position: 'absolute',
+    top: -200,
+    left: -100,
+    width: 500,
+    height: 500,
+    borderRadius: 250,
+    backgroundColor: 'rgba(124, 92, 255, 0.10)',
+  },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    letterSpacing: -0.3,
+  },
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // My Status
+  myStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+  },
+  myStatusAvatarWrap: {
+    position: 'relative',
+  },
+  addBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: COLORS.violet,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.ink900,
+  },
+  myStatusInfo: {
+    flex: 1,
+  },
+  myStatusTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    marginBottom: 3,
+  },
+  myStatusSubtitle: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+  },
+  myStatusIcons: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(124, 92, 255, 0.1)',
+  },
+
+  // Section title
+  sectionTitle: {
+    fontSize: 11,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.mist,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.sm,
+    opacity: 0.7,
+  },
+
+  // Status row
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+  },
+  statusInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  statusNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusName: {
+    fontSize: 16,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+  statusNameViewed: {
+    color: COLORS.mistLight,
+  },
+  statusTime: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+    marginTop: 2,
+  },
+
+  // Loading
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    color: COLORS.mist,
+    fontSize: 13,
+    fontFamily: FONTS.body,
+  },
+
+  // Empty
+  emptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+    paddingTop: 60,
+    gap: 12,
+  },
+  emptyIconWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  emptyBtn: {
+    marginTop: SPACING.md,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: RADII.full,
+    backgroundColor: COLORS.violet,
+  },
+  emptyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontFamily: FONTS.bodySemiBold,
+  },
 });
