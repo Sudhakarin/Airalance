@@ -1,12 +1,7 @@
 // components/MessageBubble.tsx
-// Message bubble — text + image (voice removed for stability)
+// Message bubble — text + image with proper spacing
 
-import {
-  View,
-  Text,
-  Image,
-  StyleSheet,
-} from 'react-native';
+import { View, Text, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS, FONTS, GRADIENTS, SPACING } from '../constants/theme';
@@ -45,17 +40,11 @@ function dayLabel(iso: string) {
   const now = new Date();
   const startOf = (x: Date) =>
     new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const diffDays = Math.round(
-    (startOf(now) - startOf(d)) / 86400000
-  );
+  const diffDays = Math.round((startOf(now) - startOf(d)) / 86400000);
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7)
-    return d.toLocaleDateString([], { weekday: 'long' });
-  return d.toLocaleDateString([], {
-    day: 'numeric',
-    month: 'short',
-  });
+  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'long' });
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
 export default function MessageBubble({
@@ -65,12 +54,11 @@ export default function MessageBubble({
   nextMessage,
 }: Props) {
   const sameSenderAsPrev =
-    prevMessage && prevMessage.sender_id === message.sender_id;
+    !!prevMessage && prevMessage.sender_id === message.sender_id;
   const sameDayAsPrev =
-    prevMessage &&
+    !!prevMessage &&
     dayLabel(prevMessage.created_at) === dayLabel(message.created_at);
 
-  // Time gap check — agar 2 min se zyada gap ho to naya group
   const timeGapMs = prevMessage
     ? new Date(message.created_at).getTime() -
       new Date(prevMessage.created_at).getTime()
@@ -83,17 +71,16 @@ export default function MessageBubble({
 
   const grouped = sameSenderAsPrev && sameDayAsPrev && withinTimeGap;
 
-  const isImage = message.message_type === 'image' && message.media_url;
-  const isDeleted = !!message.is_deleted;
-
-  // Next message grouping ke liye
   const nextIsSameSender =
-    nextMessage &&
+    !!nextMessage &&
     nextMessage.sender_id === message.sender_id &&
     dayLabel(nextMessage.created_at) === dayLabel(message.created_at) &&
     new Date(nextMessage.created_at).getTime() -
       new Date(message.created_at).getTime() <
       2 * 60 * 1000;
+
+  const isImage = message.message_type === 'image' && !!message.media_url;
+  const isDeleted = !!message.is_deleted;
 
   return (
     <>
@@ -111,7 +98,6 @@ export default function MessageBubble({
         style={[
           styles.row,
           isMine ? styles.rowMine : styles.rowOther,
-          // ✅ Spacing: grouped = chhota, alag = bada
           grouped ? styles.rowGrouped : styles.rowSpaced,
         ]}
       >
@@ -128,16 +114,12 @@ export default function MessageBubble({
                   <Text style={styles.imageTime}>
                     {formatTime(message.created_at)}
                   </Text>
-                  {isMine && (
-                    <Ionicons
-                      name={
-                        message.read_at ? 'checkmark-done' : 'checkmark'
-                      }
-                      size={14}
-                      color={message.read_at ? '#7DD3FC' : '#FFFFFF'}
-                      style={{ marginLeft: 4 }}
-                    />
-                  )}
+                  <Ionicons
+                    name={message.read_at ? 'checkmark-done' : 'checkmark'}
+                    size={14}
+                    color={message.read_at ? '#7DD3FC' : '#FFFFFF'}
+                    style={{ marginLeft: 4 }}
+                  />
                 </View>
               </View>
             ) : (
@@ -163,13 +145,9 @@ export default function MessageBubble({
                     {formatTime(message.created_at)}
                   </Text>
                   <Ionicons
-                    name={
-                      message.read_at ? 'checkmark-done' : 'checkmark'
-                    }
+                    name={message.read_at ? 'checkmark-done' : 'checkmark'}
                     size={14}
-                    color={
-                      message.read_at ? '#7DD3FC' : 'rgba(255,255,255,0.7)'
-                    }
+                    color={message.read_at ? '#7DD3FC' : 'rgba(255,255,255,0.7)'}
                     style={{ marginLeft: 4 }}
                   />
                 </View>
@@ -241,9 +219,9 @@ const styles = StyleSheet.create({
   rowMine: { justifyContent: 'flex-end' },
   rowOther: { justifyContent: 'flex-start' },
 
-  // ✅ Spacing between messages
-  rowGrouped: { marginTop: 3 },   // same sender, close time — chhota gap
-  rowSpaced: { marginTop: 14 },   // different sender / time gap — bada gap
+  // ✅ SPACING: Grouped = 2px gap, Spaced = 14px gap
+  rowGrouped: { marginTop: 2 },
+  rowSpaced: { marginTop: 14 },
 
   bubbleWrap: { position: 'relative' },
 
