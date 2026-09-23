@@ -345,6 +345,7 @@ export default function ProfileScreen() {
               onChangeText={setNameDraft}
               placeholder="Your name"
               placeholderTextColor={COLORS.mist}
+              underlineColorAndroid="transparent"
             />
           </View>
 
@@ -403,6 +404,7 @@ export default function ProfileScreen() {
             multiline
             numberOfLines={3}
             textAlignVertical="top"
+            underlineColorAndroid="transparent"
           />
         </View>
 
@@ -618,6 +620,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     textAlign: 'right',
   },
+  // ✅ FIXED: web outline removed
   infoInput: {
     flex: 1,
     fontSize: 14,
@@ -625,7 +628,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     textAlign: 'right',
     paddingVertical: 0,
-  },
+    borderWidth: 0,
+    borderColor: 'transparent',
+    backgroundColor: 'transparent',
+    outlineStyle: 'none',
+    outlineWidth: 0,
+    outlineColor: 'transparent',
+    boxShadow: 'none',
+  } as any,
   usernameRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -656,6 +666,7 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     opacity: 0.7,
   },
+  // ✅ FIXED: web outline removed
   bioInput: {
     paddingHorizontal: SPACING.lg,
     paddingBottom: 14,
@@ -664,7 +675,14 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     minHeight: 70,
     lineHeight: 19,
-  },
+    borderWidth: 0,
+    borderColor: 'transparent',
+    backgroundColor: 'transparent',
+    outlineStyle: 'none',
+    outlineWidth: 0,
+    outlineColor: 'transparent',
+    boxShadow: 'none',
+  } as any,
 
   // Save button
   saveBtn: {
