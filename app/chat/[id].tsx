@@ -605,7 +605,7 @@ export default function ChatScreen() {
           }
         />
 
-        {/* Composer (input bar) — website style */}
+        {/* Composer — website style (one pill, everything inside) */}
         <View style={styles.inputBar}>
           {isRecording ? (
             <>
@@ -638,8 +638,8 @@ export default function ChatScreen() {
               </TouchableOpacity>
             </>
           ) : (
-            <View style={styles.composerWrap}>
-              {/* Image picker button (inside) */}
+            <View style={styles.composerPill}>
+              {/* Image picker inside pill */}
               <TouchableOpacity
                 style={styles.composerIconBtn}
                 onPress={pickImage}
@@ -664,10 +664,10 @@ export default function ChatScreen() {
                 maxLength={2000}
               />
 
-              {/* Right action button (send or mic) */}
+              {/* Send or mic button */}
               {input.trim().length > 0 ? (
                 <TouchableOpacity
-                  style={styles.composerSendBtn}
+                  style={styles.composerActionBtn}
                   onPress={sendMessage}
                   disabled={sending}
                   activeOpacity={0.85}
@@ -676,7 +676,7 @@ export default function ChatScreen() {
                     colors={GRADIENTS.violet}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={styles.composerSendBtnInner}
+                    style={styles.composerActionBtnInner}
                   >
                     {sending ? (
                       <ActivityIndicator size="small" color="#FFFFFF" />
@@ -767,32 +767,32 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     fontSize: 14,
     fontFamily: FONTS.body,
-  },
+ └ },
 
-  // === Input bar (outer wrapper) ===
+  // === Input bar (outer wrapper────────────────) ===
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingTop: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 14 : 10,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
-    backgroundColor: 'rgba(10,12,18,0.98)',
+    backgroundColor: '#0B0D14',
   },
 
-  // === Composer pill (image + input + send together) ===
-  composerWrap: {
+  // === Composer pill — everything inside one rounded container ===
+  composerPill: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: '#171A24',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 26,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-    minHeight: 48,
+    borderRadius: 28,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    minHeight: 52,
   },
   composerIconBtn: {
     width: 40,
@@ -805,28 +805,27 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 40,
     maxHeight: 120,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 10,
     fontSize: 15,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
-    // No border/background — it's inside the pill
+    // No border, no background — it's inside the pill
   },
-  composerSendBtn: {
+  composerActionBtn: {
     width: 40,
     height: 40,
     borderRadius: 20,
     overflow: 'hidden',
-    marginLeft: 2,
   },
-  composerSendBtnInner: {
+  composerActionBtnInner: {
     width: 40,
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  // === Standalone icon buttons (used in recording mode) ===
+  // === Standalone icon buttons (recording mode) ===
   iconBtn: {
     width: 42,
     height: 42,
