@@ -56,7 +56,6 @@ export default function ChatsScreen() {
     if (!myId) return;
 
     try {
-      // 1. Get my conversations
       const { data: participantRows, error: pError } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
@@ -72,27 +71,23 @@ export default function ChatsScreen() {
         return;
       }
 
-      // 2. Get conversation details
       const { data: convos } = await supabase
         .from('conversations')
         .select('id, is_group, name')
         .in('id', convoIds);
 
-      // 3. Get other participants with their profiles
       const { data: otherParticipants } = await supabase
         .from('conversation_participants')
         .select('conversation_id, user_id, profiles(*)')
         .in('conversation_id', convoIds)
         .neq('user_id', myId);
 
-      // 4. Get last messages
       const { data: lastMessages } = await supabase
         .from('messages')
         .select('conversation_id, content, message_type, created_at, is_deleted')
         .in('conversation_id', convoIds)
         .order('created_at', { ascending: false });
 
-      // 5. Get unread counts
       const { data: unreadRows } = await supabase
         .from('messages')
         .select('id, conversation_id')
@@ -106,7 +101,6 @@ export default function ChatsScreen() {
           (unreadCounts[m.conversation_id] || 0) + 1;
       });
 
-      // 6. Build rows
       const rows: Conversation[] = (convos ?? []).map((c) => {
         const other = (otherParticipants ?? []).find(
           (p: any) => p.conversation_id === c.id
@@ -134,7 +128,6 @@ export default function ChatsScreen() {
         };
       });
 
-      // Sort by last message time
       rows.sort((a, b) => (a.last_at < b.last_at ? 1 : -1));
       setConversations(rows);
     } catch (err) {
@@ -145,19 +138,16 @@ export default function ChatsScreen() {
     }
   }, [myId]);
 
-  // Load on mount
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
 
-  // Reload when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       if (myId) loadConversations();
     }, [myId, loadConversations])
   );
 
-  // Realtime subscription for new messages
   useEffect(() => {
     if (!myId) return;
 
@@ -166,16 +156,12 @@ export default function ChatsScreen() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
-        () => {
-          loadConversations();
-        }
+        () => loadConversations()
       )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
-        () => {
-          loadConversations();
-        }
+        () => loadConversations()
       )
       .subscribe();
 
@@ -226,10 +212,8 @@ export default function ChatsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* Background glows */}
       <View style={styles.glowTop} />
 
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Chats</Text>
         <TouchableOpacity
@@ -241,7 +225,6 @@ export default function ChatsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* List */}
       <FlatList
         data={conversations}
         keyExtractor={(item) => item.id}
@@ -257,11 +240,7 @@ export default function ChatsScreen() {
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <View style={styles.emptyIconWrap}>
-              <Ionicons
-                name="chatbubbles-outline"
-                size={44}
-                color={COLORS.mist}
-              />
+              <Ionicons name="chatbubbles-outline" size={44} color={COLORS.mist} />
             </View>
             <Text style={styles.emptyTitle}>No conversations yet</Text>
             <Text style={styles.emptySubtitle}>
@@ -276,72 +255,71 @@ export default function ChatsScreen() {
             </TouchableOpacity>
           </View>
         }
-        renderItem={({ item }) => {
+        renderItem={({ item, index }) => {
           const displayName = item.is_group
             ? item.name ?? 'Group'
             : item.other_profile?.display_name ?? 'Unknown';
-          const username = item.other_profile?.username ?? '';
           const color = item.other_profile?.avatar_color ?? COLORS.violet;
           const hasUnread = item.unread_count > 0;
 
           return (
-            <TouchableOpacity
-              style={styles.row}
-              onPress={() => openChat(item.id)}
-              activeOpacity={0.7}
-            >
-              {/* Avatar */}
-              <Avatar
-                name={displayName}
-                color={color}
-                avatarUrl={item.other_profile?.avatar_url ?? null}
-                size={56}
-              />
+            <View>
+              <TouchableOpacity
+                style={styles.row}
+                onPress={() => openChat(item.id)}
+                activeOpacity={0.6}
+              >
+                <Avatar
+                  name={displayName}
+                  color={color}
+                  avatarUrl={item.other_profile?.avatar_url ?? null}
+                  size={56}
+                />
 
-              {/* Info */}
-              <View style={styles.rowInfo}>
-                <View style={styles.rowTop}>
-                  <View style={styles.rowNameWrap}>
-                    <Text style={styles.rowName} numberOfLines={1}>
-                      {displayName}
+                <View style={styles.rowInfo}>
+                  <View style={styles.rowTop}>
+                    <View style={styles.rowNameWrap}>
+                      <Text style={styles.rowName} numberOfLines={1}>
+                        {displayName}
+                      </Text>
+                      {item.other_profile?.verified && (
+                        <VerifiedBadge size={14} />
+                      )}
+                    </View>
+                    <Text
+                      style={[styles.rowTime, hasUnread && styles.rowTimeUnread]}
+                    >
+                      {formatTime(item.last_at)}
                     </Text>
-                    {item.other_profile?.verified && (
-                      <VerifiedBadge size={14} />
+                  </View>
+
+                  <View style={styles.rowBottom}>
+                    <Text
+                      style={[
+                        styles.rowMessage,
+                        hasUnread && styles.rowMessageUnread,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {item.last_message}
+                    </Text>
+
+                    {hasUnread && (
+                      <View style={styles.unreadBadge}>
+                        <Text style={styles.unreadText}>
+                          {item.unread_count > 99 ? '99+' : item.unread_count}
+                        </Text>
+                      </View>
                     )}
                   </View>
-                  <Text
-                    style={[
-                      styles.rowTime,
-                      hasUnread && styles.rowTimeUnread,
-                    ]}
-                  >
-                    {formatTime(item.last_at)}
-                  </Text>
                 </View>
+              </TouchableOpacity>
 
-                <View style={styles.rowBottom}>
-                  <Text
-                    style={[
-                      styles.rowMessage,
-                      hasUnread && styles.rowMessageUnread,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {item.last_message}
-                  </Text>
-
-                  {hasUnread && (
-                    <View style={styles.unreadBadge}>
-                      <Text style={styles.unreadText}>
-                        {item.unread_count > 99
-                          ? '99+'
-                          : item.unread_count}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            </TouchableOpacity>
+              {/* Separator line — between rows, not after last */}
+              {index < conversations.length - 1 && (
+                <View style={styles.separator} />
+              )}
+            </View>
           );
         }}
       />
@@ -362,7 +340,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(124, 92, 255, 0.10)',
   },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -397,9 +374,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
-    paddingVertical: SPACING.md,
+    paddingVertical: 14,
     paddingHorizontal: SPACING.sm,
-    borderRadius: RADII.lg,
   },
   rowInfo: {
     flex: 1,
@@ -409,7 +385,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 5,
   },
   rowNameWrap: {
     flexDirection: 'row',
@@ -418,7 +394,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   rowName: {
-    fontSize: 15,
+    fontSize: 15.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
@@ -449,6 +425,15 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontFamily: FONTS.bodyMedium,
   },
+
+  // Separator line between rows
+  separator: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginLeft: 80, // indent to align with name (avatar width + gap)
+    marginRight: 0,
+  },
+
   unreadBadge: {
     minWidth: 22,
     height: 22,
