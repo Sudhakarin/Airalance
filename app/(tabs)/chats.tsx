@@ -92,23 +92,23 @@ function ChatListSkeleton() {
       {[0, 1, 2, 3, 4, 5, 6].map((i) => (
         <View key={i} style={styles.skeletonRow}>
           {/* Avatar circle */}
-          <SkeletonBlock width={56} height={56} borderRadius={28} />
+          <SkeletonBlock width={64} height={64} borderRadius={32} />
 
           {/* Text placeholders */}
           <View style={styles.skeletonInfo}>
-            <View style={styles.skeletonTop}>
+            <View style={gresstyles.skeletonTop}>
               <SkeletonBlock
                 width={`${45 + ((i * 13) % 25)}%`}
-                height={14}
+                height={16}
                 borderRadius={5}
               />
-              <SkeletonBlock width={30} height={10} borderRadius={4} />
+              <SkeletonBlock width={36} height={12} borderRadius={4} />
             </View>
             <SkeletonBlock
               width={`${55 + ((i * 17) % 30)}%`}
-              height={12}
+              height={14}
               borderRadius={4}
-              style={{ marginTop: 8 }}
+              style={{ marginTop: 10 }}
             />
           </View>
         </View>
@@ -237,7 +237,7 @@ export default function ChatsScreen() {
         () => loadConversations()
       )
       .on(
-        'postgres_changes',
+        'post_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
         () => loadConversations()
       )
@@ -283,7 +283,7 @@ export default function ChatsScreen() {
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="create-outline" size={22} color={COLORS.text} />
+          <Ionicons name="create-outline" size={24} color={COLORS.text} />
         </TouchableOpacity>
       </View>
 
@@ -308,7 +308,7 @@ export default function ChatsScreen() {
               <View style={styles.emptyIconWrap}>
                 <Ionicons
                   name="chatbubbles-outline"
-                  size={44}
+                  size={52}
                   color={COLORS.mist}
                 />
               </View>
@@ -343,7 +343,7 @@ export default function ChatsScreen() {
                     name={displayName}
                     color={color}
                     avatarUrl={item.other_profile?.avatar_url ?? null}
-                    size={56}
+                    size={64}
                   />
 
                   <View style={styles.rowInfo}>
@@ -353,7 +353,7 @@ export default function ChatsScreen() {
                           {displayName}
                         </Text>
                         {item.other_profile?.verified && (
-                          <VerifiedBadge size={14} />
+                          <VerifiedBadge size={16} />
                         )}
                       </View>
                       <Text
@@ -417,19 +417,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
+    paddingHorizontal: 24,
+    paddingVertical: 18,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 34,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    letterSpacing: -0.3,
+    letterSpacing: -0.5,
   },
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -445,7 +445,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: SPACING.sm,
   },
   rowInfo: { flex: 1, minWidth: 0 },
@@ -453,7 +453,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 5,
+    marginBottom: 6,
   },
   rowNameWrap: {
     flexDirection: 'row',
@@ -461,14 +461,16 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  // Row name — 18.5px (was 15.5)
   rowName: {
-    fontSize: 15.5,
+    fontSize: 18.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
+  // Row time — 13px (was 11)
   rowTime: {
-    fontSize: 11,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginLeft: 8,
@@ -482,12 +484,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  // Row message — 15.5px (was 13)
   rowMessage: {
     flex: 1,
-    fontSize: 13,
+    fontSize: 15.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginRight: 8,
+    marginRight: 10,
   },
   rowMessageUnread: {
     color: COLORS.text,
@@ -497,24 +500,25 @@ const styles = StyleSheet.create({
   separator: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: 80,
+    marginLeft: 96,
     marginRight: 0,
   },
 
+  // Unread badge — bigger
   unreadBadge: {
-    minWidth: 22,
-    height: 22,
-    paddingHorizontal: 6,
-    borderRadius: 11,
+    minWidth: 26,
+    height: 26,
+    paddingHorizontal: 8,
+    borderRadius: 13,
     backgroundColor: COLORS.teal,
     alignItems: 'center',
     justifyContent: 'center',
   },
   unreadText: {
     color: '#0A0C12',
-    fontSize: 11,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 14,
+    lineHeight: 16,
   },
 
   // ===== Skeleton =====
@@ -526,7 +530,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
-    paddingVertical: 14,
+    paddingVertical: 16,
     paddingHorizontal: SPACING.sm,
   },
   skeletonInfo: {
@@ -545,39 +549,39 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 40,
     paddingTop: 80,
-    gap: 12,
+    gap: 14,
   },
   emptyIconWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: 'rgba(255,255,255,0.04)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   emptyTitle: {
-    fontSize: 17,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   emptySubtitle: {
-    fontSize: 13,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 21,
   },
   emptyBtn: {
     marginTop: SPACING.md,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
     borderRadius: RADII.full,
     backgroundColor: COLORS.violet,
   },
   emptyBtnText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 15.5,
     fontFamily: FONTS.bodySemiBold,
   },
 });
