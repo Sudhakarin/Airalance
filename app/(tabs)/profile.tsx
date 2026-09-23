@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-// My profile — EXACT match to website (status ring, precise spacing)
+// My profile — slightly bigger fonts + spacing throughout
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -365,7 +365,7 @@ export default function ProfileScreen() {
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="settings-outline" size={20} color={COLORS.text} />
+          <Ionicons name="settings-outline" size={22} color={COLORS.text} />
         </TouchableOpacity>
       </View>
 
@@ -374,7 +374,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Top section — avatar (with status ring) + name/stats */}
+        {/* Top section */}
         <View style={styles.topSection}>
           <TouchableOpacity
             onPress={pickAvatar}
@@ -382,7 +382,6 @@ export default function ProfileScreen() {
             activeOpacity={0.85}
             style={styles.avatarWrap}
           >
-            {/* Status ring around avatar — same as website */}
             <StatusRing
               hasStatus={ownActiveStatusCount > 0}
               viewed={true}
@@ -391,30 +390,27 @@ export default function ProfileScreen() {
                 name={profile.display_name}
                 color={profile.avatar_color}
                 avatarUrl={profile.avatar_url}
-                size={82}
+                size={96}
               />
             </StatusRing>
 
-            {/* Camera badge — bottom-0.5 right-0.5 tight corner */}
             <View style={styles.cameraBadge}>
               {uploading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Ionicons name="camera" size={13} color="#FFFFFF" />
+                <Ionicons name="camera" size={14} color="#FFFFFF" />
               )}
             </View>
           </TouchableOpacity>
 
           <View style={styles.rightCol}>
-            {/* Name — 20px bold, single line with truncate */}
             <View style={styles.nameRow}>
               <Text style={styles.displayName} numberOfLines={1}>
                 {profile.display_name}
               </Text>
-              {verified && <VerifiedBadge size={18} />}
+              {verified && <VerifiedBadge size={20} />}
             </View>
 
-            {/* Stats — grid-cols-3, each 1/3 width */}
             <View style={styles.statsGrid}>
               <StatItem
                 label="status"
@@ -435,7 +431,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Username + bio — mb-1 mt-3 */}
+        {/* Username + bio */}
         <View style={styles.bioBlock}>
           <Text style={styles.username}>@{profile.username}</Text>
           {profile.bio ? (
@@ -475,7 +471,7 @@ export default function ProfileScreen() {
             <Text style={styles.infoLabel}>Username</Text>
             <View style={styles.usernameRow}>
               <Text style={styles.infoValue}>@{profile.username}</Text>
-              {verified && <VerifiedBadge size={14} />}
+              {verified && <VerifiedBadge size={15} />}
             </View>
           </View>
 
@@ -567,13 +563,13 @@ export default function ProfileScreen() {
                   style={styles.listHeaderBtn}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
+                  <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
                 <View style={styles.listHeaderCenter}>
                   <Text style={styles.listHeaderUsername} numberOfLines={1}>
                     {profile.username}
                   </Text>
-                  {verified && <VerifiedBadge size={14} />}
+                  {verified && <VerifiedBadge size={15} />}
                 </View>
                 <View style={styles.listHeaderBtn} />
               </View>
@@ -625,7 +621,7 @@ export default function ProfileScreen() {
                 <View style={styles.listEmpty}>
                   <Ionicons
                     name="people-outline"
-                    size={36}
+                    size={40}
                     color={COLORS.mist}
                   />
                   <Text style={styles.listEmptyText}>
@@ -657,14 +653,14 @@ export default function ProfileScreen() {
                           name={item.display_name}
                           color={item.avatar_color}
                           avatarUrl={item.avatar_url}
-                          size={48}
+                          size={52}
                         />
                         <View style={styles.personInfo}>
                           <View style={styles.personNameRow}>
                             <Text style={styles.personName} numberOfLines={1}>
                               {item.display_name}
                             </Text>
-                            {isVerified(item) && <VerifiedBadge size={13} />}
+                            {isVerified(item) && <VerifiedBadge size={14} />}
                           </View>
                           <Text
                             style={styles.personUsername}
@@ -740,7 +736,6 @@ function StatItem({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
-  // Website: px-5 py-6 = padding 20 horiz, 24 vertical
   scroll: { paddingBottom: SPACING.xxl },
 
   glowTop: {
@@ -757,123 +752,118 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    paddingHorizontal: 22,
     paddingVertical: SPACING.md,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 30,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  // Website: flex items-center gap-5
+  // Top section — bigger gap + padding
   topSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,   // px-5
-    paddingTop: 8,
-    paddingBottom: SPACING.md,
-    gap: 20,
+    paddingHorizontal: 22,
+    paddingTop: 12,
+    paddingBottom: 20,
+    gap: 22,
   },
   avatarWrap: { position: 'relative' },
-  // Camera badge: bottom-0.5 right-0.5 (tight corner), h-7 w-7, border-2
   cameraBadge: {
     position: 'absolute',
     bottom: 2,
     right: 2,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
+    borderWidth: 2.5,
     borderColor: '#000000',
   },
 
-  // Website: flex min-w-0 flex-1 flex-col justify-center gap-3
   rightCol: {
     flex: 1,
     minWidth: 0,
     justifyContent: 'center',
-    gap: 12,
+    gap: 14,
   },
 
-  // Website: flex min-w-0 items-center (name row)
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  // Website: text-[20px] font-bold leading-none
+  // Name — 22px (was 20)
   displayName: {
-    fontSize: 20,
+    fontSize: 22,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
 
-  // Website: grid grid-cols-3 text-left
   statsGrid: {
     flexDirection: 'row',
   },
-  // Website stat button: flex flex-col items-start gap-0.5
   statItem: {
-    flex: 1,                 // 1/3 width (grid-cols-3 equivalent)
+    flex: 1,
     alignItems: 'flex-start',
-    gap: 2,
+    gap: 3,
   },
-  // Website: flex h-6 items-center text-[18px] font-bold tabular-nums
+  // Stat value — 20px (was 18)
   statValue: {
-    fontSize: 18,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    lineHeight: 22,
+    lineHeight: 24,
   },
-  // Website: text-[13px] leading-tight text-white/70
+  // Stat label — 14px (was 13)
   statLabel: {
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.7)',
   },
 
-  // Website: mb-1 mt-3 (mt-3 = 12, mb-1 = 4)
+  // Bio block — more padding
   bioBlock: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: SPACING.lg,
+    paddingHorizontal: 22,
+    paddingTop: 14,
+    paddingBottom: 24,
   },
-  // Website: text-[14.5px] font-semibold leading-tight
+  // Username — 16px (was 14.5)
   username: {
-    fontSize: 14.5,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
   },
-  // Website: mt-1 text-[14px] leading-snug text-white/85
+  // Bio — 15px (was 14)
   bio: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.85)',
-    marginTop: 4,
-    lineHeight: 19,
+    marginTop: 6,
+    lineHeight: 21,
   },
   bioLink: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.teal,
-    marginTop: 4,
+    marginTop: 6,
   },
 
   card: {
-    marginHorizontal: 20,
+    marginHorizontal: 22,
     marginBottom: SPACING.md,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
@@ -885,18 +875,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 22,
+    paddingVertical: 16,
     gap: SPACING.md,
   },
+  // Info label — 14px (was 12)
   infoLabel: {
-    fontSize: 12,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     letterSpacing: 0.2,
   },
+  // Info value — 16px (was 14)
   infoValue: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
     flexShrink: 1,
@@ -904,7 +896,7 @@ const styles = StyleSheet.create({
   },
   infoInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     textAlign: 'right',
@@ -924,10 +916,11 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: 20,
+    marginLeft: 22,
   },
+  // Logout — 16px (was 14)
   logoutText: {
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.danger,
   },
@@ -936,24 +929,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 6,
+    paddingHorizontal: 22,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   bioCounter: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     opacity: 0.7,
   },
   bioInput: {
-    paddingHorizontal: 20,
-    paddingBottom: 14,
-    fontSize: 14,
+    paddingHorizontal: 22,
+    paddingBottom: 16,
+    fontSize: 16,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
-    minHeight: 70,
-    lineHeight: 19,
+    minHeight: 80,
+    lineHeight: 22,
     borderWidth: 0,
     borderColor: 'transparent',
     backgroundColor: 'transparent',
@@ -964,20 +957,21 @@ const styles = StyleSheet.create({
   } as any,
 
   saveBtn: {
-    marginHorizontal: 20,
+    marginHorizontal: 22,
     marginTop: SPACING.md,
     borderRadius: RADII.full,
     overflow: 'hidden',
   },
   saveBtnDisabled: { opacity: 0.4 },
   saveBtnGradient: {
-    paddingVertical: 15,
+    paddingVertical: 17,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Save button — 16px (was 15)
   saveBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.3,
   },
@@ -988,6 +982,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // ===== Follow list modal =====
   listModalWrap: { flex: 1, backgroundColor: '#000000' },
   listModal: { flex: 1, backgroundColor: '#000000' },
   listHeader: {
@@ -999,8 +994,8 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.sm,
   },
   listHeaderBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1010,8 +1005,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  // Header username — 18px (was 16)
   listHeaderUsername: {
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
@@ -1023,12 +1019,13 @@ const styles = StyleSheet.create({
   },
   listTabBtn: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 16,
     alignItems: 'center',
     position: 'relative',
   },
+  // Tab text — 15.5px (was 14)
   listTabText: {
-    fontSize: 14,
+    fontSize: 15.5,
     fontFamily: FONTS.bodySemiBold,
     color: 'rgba(255,255,255,0.45)',
   },
@@ -1049,11 +1046,11 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 12,
   },
   listEmptyText: {
     color: COLORS.mist,
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: FONTS.body,
   },
   listContent: {
@@ -1065,28 +1062,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 4,
   },
   personInfo: { flex: 1, minWidth: 0 },
   personNameRow: { flexDirection: 'row', alignItems: 'center' },
+  // Person name — 16px (was 15)
   personName: {
-    fontSize: 15,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
+  // Person username — 14px (was 13)
   personUsername: {
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 1,
+    marginTop: 2,
   },
 
   followBtnSmall: {
-    minWidth: 100,
-    height: 34,
-    paddingHorizontal: 14,
+    minWidth: 108,
+    height: 38,
+    paddingHorizontal: 16,
     borderRadius: 8,
     backgroundColor: '#E54E60',
     alignItems: 'center',
@@ -1097,9 +1096,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
+  // Follow btn text — 14.5px (was 13.5)
   followBtnSmallText: {
     color: '#FFFFFF',
-    fontSize: 13.5,
+    fontSize: 14.5,
     fontFamily: FONTS.bodySemiBold,
   },
   followBtnSmallTextFollowing: {
