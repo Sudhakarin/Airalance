@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images (voice removed for stability)
+// Chat screen — messages, realtime, send, typing, images, voice (expo-audio)
 
 import { useEffect, useState, useRef } from 'react';
 import {
@@ -19,6 +19,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  RecordingPresets,
+  AudioModule,
+  setAudioModeAsync,
+} from 'expo-audio';
 import {
   COLORS,
   FONTS,
@@ -74,6 +81,11 @@ export default function ChatScreen() {
   const channelRef = useRef<any>(null);
   const typingTimeoutRef = useRef<any>(null);
   const lastTypingSentRef = useRef(0);
+
+  // === Voice recording ===
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(audioRecorder, 100);
+  const [isRecording, setIsRecording] = useState(false);
 
   // === Bootstrap ===
   useEffect(() => {
@@ -387,6 +399,97 @@ export default function ChatScreen() {
     }
   }
 
+  // === Voice recording ===
+  async function startRecording() {
+    if (isRecording) return;
+    try {
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permission needed', 'Please allow microphone access.');
+        return;
+      }
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      setIsRecording(true);
+    } catch (err) {
+      console.warn('Recording start error:', err);
+      Alert.alert('Cannot record', 'Please check microphone permission.');
+    }
+  }
+
+  async function stopAndSendRecording() {
+    if (!audioRecorder || !myId || !convoId) return;
+    const durationMs = recorderState.durationMillis ?? 0;
+    try {
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
+      setIsRecording(false);
+
+      if (!uri || durationMs < 1000) return;
+
+      setUploading(true);
+      const response = await fetch(uri);
+      const arrayBuffer = await response.arrayBuffer();
+      const path = `${convoId}/${myId}-${Date.now()}.m4a`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(CONSTANTS.CHAT_MEDIA_BUCKET)
+        .upload(path, arrayBuffer, {
+          contentType: 'audio/m4a',
+        });
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from(CONSTANTS.CHAT_MEDIA_BUCKET)
+        .getPublicUrl(path);
+
+      const { data: inserted, error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: convoId,
+          sender_id: myId,
+          content: '',
+          message_type: 'voice',
+          media_url: urlData.publicUrl,
+          media_duration: Math.round(durationMs / 1000),
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      if (inserted) {
+        setMessages((prev) =>
+          prev.some((m) => m.id === (inserted as Message).id)
+            ? prev
+            : [...prev, inserted as Message]
+        );
+      }
+    } catch (err: any) {
+      console.warn('Voice send error:', err);
+      Alert.alert('Upload failed', 'Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function cancelRecording() {
+    if (!audioRecorder || !isRecording) return;
+    try {
+      await audioRecorder.stop();
+    } catch {}
+    setIsRecording(false);
+  }
+
+  function formatDuration(total: number) {
+    const m = Math.floor(total / 60).toString().padStart(2, '0');
+    const s = (total % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
   function formatLastSeen(iso: string | null | undefined) {
     if (!iso) return 'Offline';
     const diff = Date.now() - new Date(iso).getTime();
@@ -397,6 +500,8 @@ export default function ChatScreen() {
     if (hr < 24) return `Last seen ${hr}h ago`;
     return `Last seen ${Math.floor(hr / 24)}d ago`;
   }
+
+  const recordSeconds = Math.floor((recorderState.durationMillis ?? 0) / 1000);
 
   // === Render ===
   if (loading || !myId) {
@@ -511,7 +616,7 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={styles.iconBtn}
             onPress={pickImage}
-            disabled={uploading}
+            disabled={uploading || isRecording}
             activeOpacity={0.7}
           >
             {uploading ? (
@@ -521,38 +626,81 @@ export default function ChatScreen() {
             )}
           </TouchableOpacity>
 
-          <TextInput
-            style={styles.input}
-            value={input}
-            onChangeText={onInputChange}
-            placeholder="Message"
-            placeholderTextColor={COLORS.mist}
-            multiline
-            maxLength={2000}
-          />
-
-          {input.trim().length > 0 ? (
-            <TouchableOpacity
-              style={styles.sendBtn}
-              onPress={sendMessage}
-              disabled={sending}
-              activeOpacity={0.85}
-            >
-              <LinearGradient
-                colors={GRADIENTS.violet}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.sendBtnInner}
+          {isRecording ? (
+            <>
+              <View style={styles.recordingWrap}>
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingText}>
+                  Recording {formatDuration(recordSeconds)}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={cancelRecording}
+                activeOpacity={0.7}
               >
-                {sending ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
+                <Ionicons name="close" size={22} color={COLORS.danger} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.sendBtn}
+                onPress={stopAndSendRecording}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={GRADIENTS.violet}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.sendBtnInner}
+                >
                   <Ionicons name="send" size={16} color="#FFFFFF" />
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
+                </LinearGradient>
+              </TouchableOpacity>
+            </>
           ) : (
-            <View style={styles.iconBtn} />
+            <>
+              <TextInput
+                style={styles.input}
+                value={input}
+                onChangeText={onInputChange}
+                placeholder="Message"
+                placeholderTextColor={COLORS.mist}
+                multiline
+                maxLength={2000}
+              />
+              {input.trim().length > 0 ? (
+                <TouchableOpacity
+                  style={styles.sendBtn}
+                  onPress={sendMessage}
+                  disabled={sending}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient
+                    colors={GRADIENTS.violet}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.sendBtnInner}
+                  >
+                    {sending ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Ionicons name="send" size={16} color="#FFFFFF" />
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.iconBtn}
+                  onPress={startRecording}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name="mic-outline"
+                    size={22}
+                    color={COLORS.mist}
+                  />
+                </TouchableOpacity>
+              )}
+            </>
           )}
         </View>
       </KeyboardAvoidingView>
@@ -667,5 +815,29 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  recordingWrap: {
+    flex: 1,
+    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(239,68,68,0.10)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.25)',
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.danger,
+  },
+  recordingText: {
+    color: COLORS.danger,
+    fontSize: 14,
+    fontFamily: FONTS.bodyMedium,
   },
 });
