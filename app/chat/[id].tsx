@@ -253,15 +253,12 @@ export default function ChatScreen() {
   }, [messages.length]);
 
   // === Web: composer auto-height ===
-  // react-native-web multiline TextInput default me 2 rows ka hota hai, isliye text
-  // upar chipak jaata tha. Yahan height content ke hisaab se set hoti hai (1 line = 44px+,
-  // zyada text pe max 110px tak badhti hai) — isse single-line text bilkul bich me rehta hai.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const el: any = inputRef.current;
     if (!el || !el.style) return;
     el.style.height = 'auto';
-    const next = Math.min(Math.max(el.scrollHeight, 46), 110);
+    const next = Math.min(Math.max(el.scrollHeight, 52), 130);
     el.style.height = `${next}px`;
   }, [input, isRecording]);
 
@@ -542,7 +539,7 @@ export default function ChatScreen() {
             onPress={() => router.back()}
             activeOpacity={0.7}
           >
-            <Ionicons name="chevron-back" size={22} color={COLORS.text} />
+            <Ionicons name="chevron-back" size={28} color={COLORS.text} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -554,14 +551,14 @@ export default function ChatScreen() {
               name={other?.display_name ?? 'Unknown'}
               color={other?.avatar_color ?? COLORS.violet}
               avatarUrl={other?.avatar_url ?? null}
-              size={38}
+              size={46}
             />
-            <View style={{ marginLeft: 10, flex: 1 }}>
+            <View style={{ marginLeft: 12, flex: 1 }}>
               <View style={styles.headerNameRow}>
                 <Text style={styles.headerName} numberOfLines={1}>
                   {other?.display_name ?? 'Unknown'}
                 </Text>
-                {other?.verified && <VerifiedBadge size={14} />}
+                {other?.verified && <VerifiedBadge size={17} />}
               </View>
               <Text style={styles.headerSub} numberOfLines={1}>
                 {peerTyping ? (
@@ -582,7 +579,7 @@ export default function ChatScreen() {
           >
             <Ionicons
               name="information-circle-outline"
-              size={22}
+              size={28}
               color={COLORS.text}
             />
           </TouchableOpacity>
@@ -634,7 +631,7 @@ export default function ChatScreen() {
                 onPress={cancelRecording}
                 activeOpacity={0.7}
               >
-                <Ionicons name="close" size={20} color={COLORS.danger} />
+                <Ionicons name="close" size={24} color={COLORS.danger} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.recordingSendBtn}
@@ -647,7 +644,7 @@ export default function ChatScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.recordingSendBtnInner}
                 >
-                  <Ionicons name="send" size={16} color="#FFFFFF" />
+                  <Ionicons name="send" size={20} color="#FFFFFF" />
                 </LinearGradient>
               </TouchableOpacity>
             </>
@@ -662,7 +659,7 @@ export default function ChatScreen() {
                 {uploading ? (
                   <ActivityIndicator size="small" color={COLORS.mist} />
                 ) : (
-                  <Ionicons name="image-outline" size={22} color={COLORS.mist} />
+                  <Ionicons name="image-outline" size={26} color={COLORS.mist} />
                 )}
               </TouchableOpacity>
 
@@ -697,7 +694,7 @@ export default function ChatScreen() {
                     {sending ? (
                       <ActivityIndicator size="small" color="#FFFFFF" />
                     ) : (
-                      <Ionicons name="send" size={16} color="#FFFFFF" />
+                      <Ionicons name="send" size={20} color="#FFFFFF" />
                     )}
                   </LinearGradient>
                 </TouchableOpacity>
@@ -707,7 +704,7 @@ export default function ChatScreen() {
                   onPress={startRecording}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="mic-outline" size={22} color={COLORS.mist} />
+                  <Ionicons name="mic-outline" size={26} color={COLORS.mist} />
                 </TouchableOpacity>
               )}
             </View>
@@ -731,15 +728,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
     backgroundColor: 'rgba(10,12,18,0.95)',
   },
+  // Back button — 48 (was 40)
   backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -755,17 +753,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  // Header name — 20 (was 15)
   headerName: {
-    fontSize: 15,
+    fontSize: 20,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
+  // Header sub — 15 (was 12)
   headerSub: {
-    fontSize: 12,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 1,
+    marginTop: 2,
   },
 
   // === Messages list ===
@@ -780,9 +780,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: 80,
   },
+  // Empty text — 17.5 (was 14)
   emptyText: {
     color: COLORS.mist,
-    fontSize: 14,
+    fontSize: 17.5,
     fontFamily: FONTS.body,
   },
 
@@ -790,15 +791,15 @@ const styles = StyleSheet.create({
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 14 : 10,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 16 : 12,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
     backgroundColor: '#0B0D14',
   },
 
-  // === Composer pill ===
+  // === Composer pill — bigger ===
   composerPill: {
     flex: 1,
     flexDirection: 'row',
@@ -806,30 +807,29 @@ const styles = StyleSheet.create({
     backgroundColor: '#171A24',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 26,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-    minHeight: 52,
+    borderRadius: 30,
+    paddingHorizontal: 5,
+    paddingVertical: 5,
+    minHeight: 62,
   },
+  // Icon buttons — 52 (was 44)
   composerIconBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // ✅ FIXED: text ab composer ke bich (vertical center) me aata hai
-  // minHeight 46 = paddingTop 9 + lineHeight 28 + paddingBottom 9 (symmetric)
-  // iOS/web multiline me textAlignVertical kaam nahi karta, isliye padding se center kiya
+  // Input — fontSize 19 (was 22 but felt huge vs rest), lineHeight 26, symmetric padding
   composerInput: {
     flex: 1,
-    minHeight: 46,
-    maxHeight: 110,
-    paddingHorizontal: 8,
-    paddingTop: 9,
-    paddingBottom: 9,
-    fontSize: 22,
-    lineHeight: 28,
+    minHeight: 52,
+    maxHeight: 130,
+    paddingHorizontal: 10,
+    paddingTop: 13,
+    paddingBottom: 13,
+    fontSize: 19,
+    lineHeight: 26,
     includeFontPadding: false,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
@@ -842,61 +842,66 @@ const styles = StyleSheet.create({
     outlineColor: 'transparent',
     boxShadow: 'none',
   } as any,
+  // Send button — 50 (was 42)
   composerSendBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     overflow: 'hidden',
   },
   composerSendBtnInner: {
-    width: 42,
-    height: 42,
+    width: 50,
+    height: 50,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   // === Recording mode ===
+  // Height 62 to match pill
   recordingWrap: {
     flex: 1,
-    height: 52,
+    height: 62,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
+    gap: 12,
+    paddingHorizontal: 20,
     backgroundColor: 'rgba(239,68,68,0.10)',
-    borderRadius: 26,
+    borderRadius: 30,
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.25)',
   },
+  // Dot — 10 (was 8)
   recordingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: COLORS.danger,
   },
+  // Text — 17 (was 14)
   recordingText: {
     color: COLORS.danger,
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.bodyMedium,
   },
+  // Buttons — 50 (was 42)
   recordingIconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 6,
+    marginLeft: 8,
   },
   recordingSendBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     overflow: 'hidden',
-    marginLeft: 6,
+    marginLeft: 8,
   },
   recordingSendBtnInner: {
-    width: 42,
-    height: 42,
+    width: 50,
+    height: 50,
     alignItems: 'center',
     justifyContent: 'center',
   },
