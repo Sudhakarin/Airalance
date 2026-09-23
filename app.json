@@ -6,9 +6,6 @@
     "orientation": "portrait",
     "scheme": "airalance",
     "userInterfaceStyle": "dark",
-    "splash": {
-      "backgroundColor": "#0A0C12"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -25,6 +22,9 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "41e54f25-47ce-448a-8ef9-8ab40a68d1f6"
       }
     },
     "experiments": {
