@@ -27,6 +27,7 @@ import {
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
+import VerifiedBadge from '../../components/VerifiedBadge';
 
 type Profile = {
   id: string;
@@ -356,23 +357,19 @@ export default function UserProfileScreen() {
           .eq('blocked_id', userId);
         if (!error) setIsBlocked(false);
       } else {
-        Alert.alert(
-          'Block user',
-          `Block @${profile?.username}?`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Block',
-              style: 'destructive',
-              onPress: async () => {
-                const { error } = await supabase
-                  .from('blocked_users')
-                  .insert({ blocker_id: myId, blocked_id: userId });
-                if (!error) setIsBlocked(true);
-              },
+        Alert.alert('Block user', `Block @${profile?.username}?`, [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Block',
+            style: 'destructive',
+            onPress: async () => {
+              const { error } = await supabase
+                .from('blocked_users')
+                .insert({ blocker_id: myId, blocked_id: userId });
+              if (!error) setIsBlocked(true);
             },
-          ]
-        );
+          },
+        ]);
       }
     } catch (err) {
       console.warn('Block error:', err);
@@ -455,14 +452,7 @@ export default function UserProfileScreen() {
             <Text style={styles.displayName} numberOfLines={2}>
               {profile.display_name}
             </Text>
-            {verified && (
-              <Ionicons
-                name="checkmark-circle"
-                size={18}
-                color={COLORS.violetLight}
-                style={{ marginLeft: 4 }}
-              />
-            )}
+            {verified && <VerifiedBadge size={18} />}
           </View>
           <Text style={styles.username}>@{profile.username}</Text>
 
@@ -843,14 +833,7 @@ export default function UserProfileScreen() {
                           >
                             {item.display_name}
                           </Text>
-                          {isVerified(item) && (
-                            <Ionicons
-                              name="checkmark-circle"
-                              size={13}
-                              color={COLORS.violetLight}
-                              style={{ marginLeft: 4 }}
-                            />
-                          )}
+                          {isVerified(item) && <VerifiedBadge size={13} />}
                         </View>
                         <Text
                           style={styles.personUsername}
