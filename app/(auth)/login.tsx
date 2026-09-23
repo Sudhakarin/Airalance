@@ -67,7 +67,6 @@ export default function LoginScreen() {
     else if (mode === 'forgot-newpass') setMode('forgot-otp');
   }
 
-  // === Password login ===
   async function handlePasswordLogin() {
     if (!email.trim() || !password.trim()) {
       setError('Please enter email and password.');
@@ -87,7 +86,6 @@ export default function LoginScreen() {
     }
   }
 
-  // === Send OTP (login) ===
   async function handleSendOtp() {
     if (!email.trim()) {
       setError('Please enter your email.');
@@ -108,7 +106,6 @@ export default function LoginScreen() {
     }
   }
 
-  // === Verify OTP (login) ===
   async function handleVerifyOtp() {
     if (otp.length !== 6) return;
     setLoading(true);
@@ -126,7 +123,6 @@ export default function LoginScreen() {
     }
   }
 
-  // === Forgot — send OTP ===
   async function handleForgotSendOtp() {
     if (!email.trim()) {
       setError('Please enter your email.');
@@ -147,7 +143,6 @@ export default function LoginScreen() {
     }
   }
 
-  // === Forgot — verify OTP ===
   async function handleForgotVerifyOtp() {
     if (otp.length !== 6) return;
     setLoading(true);
@@ -166,7 +161,6 @@ export default function LoginScreen() {
     }
   }
 
-  // === Forgot — set new password ===
   async function handleSetNewPassword() {
     if (newPassword !== confirmPassword) {
       setError('Passwords do not match.');
@@ -217,7 +211,7 @@ export default function LoginScreen() {
                 >
                   <Ionicons
                     name="chevron-back"
-                    size={18}
+                    size={24}
                     color={COLORS.mist}
                   />
                 </TouchableOpacity>
@@ -227,7 +221,7 @@ export default function LoginScreen() {
                   <View style={styles.brandIcon}>
                     <Ionicons
                       name="chatbubble"
-                      size={16}
+                      size={22}
                       color="#FFFFFF"
                     />
                   </View>
@@ -259,7 +253,7 @@ export default function LoginScreen() {
                     icon={
                       <Ionicons
                         name="mail-outline"
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     }
@@ -285,7 +279,7 @@ export default function LoginScreen() {
                     icon={
                       <Ionicons
                         name="lock-closed-outline"
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     }
@@ -327,7 +321,7 @@ export default function LoginScreen() {
                     >
                       <Ionicons
                         name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     </TouchableOpacity>
@@ -359,14 +353,12 @@ export default function LoginScreen() {
                     </LinearGradient>
                   </TouchableOpacity>
 
-                  {/* Divider */}
                   <View style={styles.divider}>
                     <View style={styles.dividerLine} />
                     <Text style={styles.dividerText}>or</Text>
                     <View style={styles.dividerLine} />
                   </View>
 
-                  {/* OTP button */}
                   <TouchableOpacity
                     style={styles.secondaryBtn}
                     onPress={() => {
@@ -377,7 +369,7 @@ export default function LoginScreen() {
                   >
                     <Ionicons
                       name="mail-outline"
-                      size={16}
+                      size={20}
                       color="#FFFFFF"
                     />
                     <Text style={styles.secondaryBtnText}>
@@ -409,7 +401,7 @@ export default function LoginScreen() {
                     icon={
                       <Ionicons
                         name="mail-outline"
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     }
@@ -520,7 +512,7 @@ export default function LoginScreen() {
                     icon={
                       <Ionicons
                         name="mail-outline"
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     }
@@ -635,7 +627,7 @@ export default function LoginScreen() {
                     icon={
                       <Ionicons
                         name="lock-closed-outline"
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     }
@@ -660,7 +652,7 @@ export default function LoginScreen() {
                     icon={
                       <Ionicons
                         name="lock-closed-outline"
-                        size={18}
+                        size={22}
                         color={COLORS.mist}
                       />
                     }
@@ -718,15 +710,14 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.ink900 },
+  safe: { flex: 1, backgroundColor: '#000000' },
   scroll: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: SPACING.xl,
+    paddingHorizontal: 24,
     paddingVertical: SPACING.xxl,
   },
 
-  // Background glows
   glowTop: {
     position: 'absolute',
     top: -150,
@@ -746,26 +737,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(156,130,255,0.15)',
   },
 
-  // Card
   card: {
     backgroundColor: 'rgba(16,19,28,0.85)',
-    borderRadius: 28,
+    borderRadius: 32,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
-    padding: SPACING.xl,
+    padding: 28,
     ...SHADOWS.card,
   },
 
-  // Header
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
+  // Back btn — 44 (was 36)
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -773,12 +763,13 @@ const styles = StyleSheet.create({
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
+  // Brand icon — 46 (was 36)
   brandIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 14,
+    width: 46,
+    height: 46,
+    borderRadius: 16,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
@@ -788,78 +779,83 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
+  // Brand text — 24 (was 18)
   brandText: {
-    fontSize: 18,
+    fontSize: 24,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   brandTextGradient: {
     color: COLORS.violetLight,
   },
+  // Tagline — 16 (was 13)
   brandTagline: {
-    marginTop: 6,
-    fontSize: 13,
+    marginTop: 8,
+    fontSize: 16,
     fontFamily: FONTS.body,
-    color: 'rgba(139,143,163,0.7)',
+    color: 'rgba(139,143,163,0.75)',
   },
 
-  // Headings
+  // H1 — 32 (was 24)
   h1: {
     marginTop: SPACING.xxl,
-    fontSize: 24,
+    fontSize: 32,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
+  // Subtitle — 17 (was 14)
   subtitle: {
-    marginTop: 6,
-    fontSize: 14,
+    marginTop: 8,
+    fontSize: 17,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    lineHeight: 19,
+    lineHeight: 23,
   },
 
-  // Inputs
+  // Input — 18 (was 15), bigger padding
   input: {
     width: '100%',
     backgroundColor: COLORS.ink800,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     borderRadius: RADII.xl,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
+    paddingHorizontal: 18,
+    paddingVertical: 17,
+    fontSize: 18,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
   },
+  // Icon padding — 54 (was 44)
   inputWithIcon: {
-    paddingLeft: 44,
+    paddingLeft: 54,
   },
   inputWithIconRight: {
-    paddingRight: 44,
+    paddingRight: 54,
   },
   eyeBtn: {
     position: 'absolute',
-    right: 14,
+    right: 16,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
   },
 
-  // Error
+  // Error box — bigger
   errorBox: {
     backgroundColor: 'rgba(239,68,68,0.10)',
     borderRadius: RADII.md,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     marginBottom: SPACING.md,
   },
+  // Error text — 15.5 (was 12.5)
   errorText: {
     color: '#FCA5A5',
-    fontSize: 12.5,
+    fontSize: 15.5,
     fontFamily: FONTS.bodyMedium,
   },
 
-  // Primary button
+  // Primary btn — bigger padding
   primaryBtn: {
     borderRadius: RADII.xl,
     overflow: 'hidden',
@@ -870,41 +866,43 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
+  // Primary button inner — 19 pv (was 15)
   primaryBtnInner: {
-    paddingVertical: 15,
+    paddingVertical: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Primary btn text — 18 (was 15)
   primaryBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 18,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
   },
 
-  // Secondary button
+  // Secondary btn — bigger
   secondaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 10,
     borderRadius: RADII.xl,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     backgroundColor: 'rgba(255,255,255,0.03)',
-    paddingVertical: 14,
+    paddingVertical: 18,
   },
+  // Secondary btn text — 17 (was 14)
   secondaryBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Divider
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 14,
     marginVertical: SPACING.lg,
   },
   dividerLine: {
@@ -912,27 +910,30 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.10)',
   },
+  // Divider text — 14.5 (was 12)
   dividerText: {
-    fontSize: 12,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
 
-  // Links
+  // Link small — 14.5 (was 12)
   linkSmall: {
-    fontSize: 12,
+    fontSize: 14.5,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.violetLight,
   },
+  // Link text — 17 (was 14)
   linkText: {
-    fontSize: 14,
+    fontSize: 17,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.violetLight,
   },
+  // Footer — 16.5 (was 14)
   footerText: {
     marginTop: SPACING.xxl,
     textAlign: 'center',
-    fontSize: 14,
+    fontSize: 16.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
