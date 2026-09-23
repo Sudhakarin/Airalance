@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -41,6 +42,7 @@ type Profile = {
 };
 
 type ConnectionStatus = 'loading' | 'none' | 'pending' | 'connected' | 'declined';
+type ListTab = 'followers' | 'following';
 
 export default function UserProfileScreen() {
   const router = useRouter();
@@ -66,12 +68,18 @@ export default function UserProfileScreen() {
   const [sendingRequest, setSendingRequest] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // Follow lists
+  const [listTab, setListTab] = useState<ListTab | null>(null);
+  const [followers, setFollowers] = useState<Profile[]>([]);
+  const [following, setFollowing] = useState<Profile[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+
   const isVerified = (p: Profile | null) =>
     !!p &&
     (!!p.verified ||
       VERIFIED_USERNAMES.includes(p.username?.toLowerCase() ?? ''));
 
-  // Load profile + counts
+  // === Load profile ===
   const loadProfile = useCallback(async () => {
     if (!userId) return;
     try {
@@ -79,7 +87,6 @@ export default function UserProfileScreen() {
       const myUid = authData.user?.id ?? null;
       setMyId(myUid);
 
-      // Profile
       const { data: p, error } = await supabase
         .from('profiles')
         .select('*')
@@ -89,7 +96,6 @@ export default function UserProfileScreen() {
       if (error) throw error;
       setProfile(p as Profile);
 
-      // Counts
       const [f1, f2, statusRes] = await Promise.all([
         supabase
           .from('follows')
@@ -121,7 +127,7 @@ export default function UserProfileScreen() {
         return;
       }
 
-      // Am I following them?
+      // Follow?
       const { data: followRow } = await supabase
         .from('follows')
         .select('follower_id')
@@ -130,7 +136,7 @@ export default function UserProfileScreen() {
         .maybeSingle();
       setIsFollowing(!!followRow);
 
-      // Am I blocking them?
+      // Block?
       const { data: blockRow } = await supabase
         .from('blocked_users')
         .select('blocker_id')
@@ -139,7 +145,7 @@ export default function UserProfileScreen() {
         .maybeSingle();
       setIsBlocked(!!blockRow);
 
-      // Connection status — shared conversation?
+      // Connection?
       const { data: mine } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
@@ -160,7 +166,6 @@ export default function UserProfileScreen() {
         }
       }
 
-      // Connection request state
       const { data: req } = await supabase
         .from('connection_requests')
         .select('*')
@@ -170,16 +175,10 @@ export default function UserProfileScreen() {
         .maybeSingle();
 
       if (req) {
-        if (req.status === 'accepted') {
-          setConnectionStatus('connected');
-          // no convo yet — will create on Message tap
-        } else if (req.status === 'pending') {
-          setConnectionStatus('pending');
-        } else if (req.status === 'declined') {
-          setConnectionStatus('declined');
-        } else {
-          setConnectionStatus('none');
-        }
+        if (req.status === 'accepted') setConnectionStatus('connected');
+        else if (req.status === 'pending') setConnectionStatus('pending');
+        else if (req.status === 'declined') setConnectionStatus('declined');
+        else setConnectionStatus('none');
       } else {
         setConnectionStatus('none');
       }
@@ -194,7 +193,43 @@ export default function UserProfileScreen() {
     loadProfile();
   }, [loadProfile]);
 
-  // Toggle follow
+  // === Load follow lists ===
+  async function loadFollowLists(tab: ListTab) {
+    if (!userId) return;
+    setListTab(tab);
+    setListLoading(true);
+    try {
+      const column = tab === 'followers' ? 'follower_id' : 'followed_id';
+      const match = tab === 'followers' ? 'followed_id' : 'follower_id';
+
+      const { data: rows } = await supabase
+        .from('follows')
+        .select(column)
+        .eq(match, userId);
+
+      const ids = (rows ?? []).map((r: any) => r[column]);
+      if (ids.length === 0) {
+        if (tab === 'followers') setFollowers([]);
+        else setFollowing([]);
+        setListLoading(false);
+        return;
+      }
+
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', ids);
+
+      if (tab === 'followers') setFollowers((profiles ?? []) as Profile[]);
+      else setFollowing((profiles ?? []) as Profile[]);
+    } catch (err) {
+      console.warn('Load follow lists error:', err);
+    } finally {
+      setListLoading(false);
+    }
+  }
+
+  // === Toggle follow ===
   async function toggleFollow() {
     if (!myId || !userId || followToggling) return;
     setFollowToggling(true);
@@ -225,7 +260,7 @@ export default function UserProfileScreen() {
     }
   }
 
-  // Confirm connect request
+  // === Connect ===
   async function confirmConnect() {
     if (!myId || !userId || sendingRequest) return;
     setSendingRequest(true);
@@ -261,7 +296,7 @@ export default function UserProfileScreen() {
     }
   }
 
-  // Open chat (or create one if connected but no convo)
+  // === Open chat ===
   async function openChat() {
     if (!myId || !userId) return;
     if (convoId) {
@@ -271,7 +306,6 @@ export default function UserProfileScreen() {
     if (connectionStatus !== 'connected') return;
 
     try {
-      // Find existing
       const { data: mine } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
@@ -308,7 +342,7 @@ export default function UserProfileScreen() {
     }
   }
 
-  // Block / unblock
+  // === Block ===
   async function toggleBlock() {
     if (!myId || !userId || blocking) return;
     setMenuOpen(false);
@@ -324,7 +358,7 @@ export default function UserProfileScreen() {
       } else {
         Alert.alert(
           'Block user',
-          `Block @${profile?.username}? They won't be able to message or see your status.`,
+          `Block @${profile?.username}?`,
           [
             { text: 'Cancel', style: 'cancel' },
             {
@@ -347,7 +381,6 @@ export default function UserProfileScreen() {
     }
   }
 
-  // Format last seen
   function formatLastSeen(iso: string | null | undefined) {
     if (!iso) return 'Offline';
     const diffMs = Date.now() - new Date(iso).getTime();
@@ -359,8 +392,7 @@ export default function UserProfileScreen() {
     return `Last seen ${Math.floor(diffHr / 24)}d ago`;
   }
 
-  // ---- RENDER ----
-
+  // === Render ===
   if (loading || !profile) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -372,14 +404,13 @@ export default function UserProfileScreen() {
   }
 
   const verified = isVerified(profile);
-  const isMe = myId === userId;
   const canOpenLists = connectionStatus === 'connected';
+  const listData = listTab === 'followers' ? followers : following;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -408,7 +439,6 @@ export default function UserProfileScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* Avatar + online */}
         <View style={styles.avatarWrap}>
           <View style={styles.avatarInner}>
             <Avatar
@@ -420,7 +450,6 @@ export default function UserProfileScreen() {
           </View>
         </View>
 
-        {/* Name + username */}
         <View style={styles.nameBlock}>
           <View style={styles.nameRow}>
             <Text style={styles.displayName} numberOfLines={2}>
@@ -457,26 +486,27 @@ export default function UserProfileScreen() {
           </View>
         </View>
 
-        {/* Stats */}
         <View style={styles.statsWrap}>
           <StatItem
             label="Followers"
             value={followersCount}
-            onPress={canOpenLists ? () => {} : undefined}
+            onPress={
+              canOpenLists ? () => loadFollowLists('followers') : undefined
+            }
           />
           <View style={styles.statDivider} />
           <StatItem
             label="Following"
             value={followingCount}
-            onPress={canOpenLists ? () => {} : undefined}
+            onPress={
+              canOpenLists ? () => loadFollowLists('following') : undefined
+            }
           />
           <View style={styles.statDivider} />
           <StatItem label="Status" value={statusCount} />
         </View>
 
-        {/* Action buttons */}
         <View style={styles.actionsRow}>
-          {/* Follow button */}
           <TouchableOpacity
             style={[
               styles.followBtn,
@@ -487,10 +517,7 @@ export default function UserProfileScreen() {
             activeOpacity={0.85}
           >
             {followToggling ? (
-              <ActivityIndicator
-                size="small"
-                color="#FFFFFF"
-              />
+              <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
               <Text style={styles.followBtnText}>
                 {isFollowing ? 'Following' : 'Follow'}
@@ -498,7 +525,6 @@ export default function UserProfileScreen() {
             )}
           </TouchableOpacity>
 
-          {/* Connection action */}
           {connectionStatus === 'loading' && (
             <View style={styles.iconBtnLoading} />
           )}
@@ -555,7 +581,6 @@ export default function UserProfileScreen() {
             </TouchableOpacity>
           )}
 
-          {/* More options */}
           <TouchableOpacity
             style={styles.iconBtn}
             onPress={() => setMenuOpen(true)}
@@ -565,10 +590,7 @@ export default function UserProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Bio */}
-        {profile.bio ? (
-          <Text style={styles.bio}>{profile.bio}</Text>
-        ) : null}
+        {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
         {profile.bio_link ? (
           <Text style={styles.bioLink}>{profile.bio_link}</Text>
         ) : null}
@@ -640,8 +662,7 @@ export default function UserProfileScreen() {
               {connectPopup === 'pending' && (
                 <>
                   <Text style={styles.modalMessage}>
-                    You've already sent a request to {profile.display_name}.
-                    Waiting for them to accept.
+                    You've already sent a request.
                   </Text>
                   <TouchableOpacity
                     style={styles.modalFull}
@@ -717,6 +738,135 @@ export default function UserProfileScreen() {
           </TouchableOpacity>
         </Modal>
       )}
+
+      {/* Follow list modal */}
+      {listTab && (
+        <Modal
+          visible
+          transparent
+          animationType="slide"
+          onRequestClose={() => setListTab(null)}
+        >
+          <View style={styles.listModalWrap}>
+            <View style={styles.listModal}>
+              {/* Header */}
+              <View style={styles.listHeader}>
+                <TouchableOpacity
+                  onPress={() => setListTab(null)}
+                  style={styles.listHeaderBtn}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={22} color="#FFFFFF" />
+                </TouchableOpacity>
+                <View style={styles.listTabs}>
+                  <TouchableOpacity
+                    onPress={() => loadFollowLists('followers')}
+                    style={styles.listTabBtn}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.listTabText,
+                        listTab === 'followers' && styles.listTabTextActive,
+                      ]}
+                    >
+                      Followers
+                    </Text>
+                    {listTab === 'followers' && (
+                      <View style={styles.listTabUnderline} />
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => loadFollowLists('following')}
+                    style={styles.listTabBtn}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.listTabText,
+                        listTab === 'following' && styles.listTabTextActive,
+                      ]}
+                    >
+                      Following
+                    </Text>
+                    {listTab === 'following' && (
+                      <View style={styles.listTabUnderline} />
+                    )}
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.listHeaderBtn} />
+              </View>
+
+              {/* List */}
+              {listLoading ? (
+                <View style={styles.listLoading}>
+                  <ActivityIndicator color={COLORS.violet} />
+                </View>
+              ) : listData.length === 0 ? (
+                <View style={styles.listEmpty}>
+                  <Ionicons
+                    name="people-outline"
+                    size={36}
+                    color={COLORS.mist}
+                  />
+                  <Text style={styles.listEmptyText}>
+                    {listTab === 'followers'
+                      ? 'No followers yet'
+                      : 'Not following anyone yet'}
+                  </Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={listData}
+                  keyExtractor={(item) => item.id}
+                  contentContainerStyle={styles.listContent}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.personRow}
+                      onPress={() => {
+                        setListTab(null);
+                        router.push(`/profile/${item.id}`);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Avatar
+                        name={item.display_name}
+                        color={item.avatar_color}
+                        avatarUrl={item.avatar_url}
+                        size={48}
+                      />
+                      <View style={styles.personInfo}>
+                        <View style={styles.personNameRow}>
+                          <Text
+                            style={styles.personName}
+                            numberOfLines={1}
+                          >
+                            {item.display_name}
+                          </Text>
+                          {isVerified(item) && (
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={13}
+                              color={COLORS.violetLight}
+                              style={{ marginLeft: 4 }}
+                            />
+                          )}
+                        </View>
+                        <Text
+                          style={styles.personUsername}
+                          numberOfLines={1}
+                        >
+                          @{item.username}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                />
+              )}
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -740,7 +890,11 @@ function StatItem({
   );
   if (onPress) {
     return (
-      <TouchableOpacity style={styles.statItem} onPress={onPress} activeOpacity={0.7}>
+      <TouchableOpacity
+        style={styles.statItem}
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
         {content}
       </TouchableOpacity>
     );
@@ -762,7 +916,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(124, 92, 255, 0.10)',
   },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -787,18 +940,13 @@ const styles = StyleSheet.create({
     color: COLORS.mistLight,
   },
 
-  // Avatar
-  avatarWrap: {
-    alignItems: 'center',
-    marginTop: SPACING.md,
-  },
+  avatarWrap: { alignItems: 'center', marginTop: SPACING.md },
   avatarInner: {
     borderRadius: 999,
     padding: 3,
     backgroundColor: 'rgba(255,255,255,0.10)',
   },
 
-  // Name
   nameBlock: {
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
@@ -833,28 +981,20 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.10)',
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusText: {
     fontSize: 12,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
   },
 
-  // Stats
   statsWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: SPACING.lg,
   },
-  statItem: {
-    alignItems: 'center',
-    paddingHorizontal: SPACING.lg,
-  },
+  statItem: { alignItems: 'center', paddingHorizontal: SPACING.lg },
   statValue: {
     fontSize: 18,
     fontFamily: FONTS.displayBold,
@@ -874,7 +1014,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
 
-  // Action buttons
   actionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -919,7 +1058,6 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 
-  // Bio
   bio: {
     paddingHorizontal: SPACING.xl,
     marginTop: SPACING.xl,
@@ -938,14 +1076,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Loading
-  loadingWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  // Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
@@ -990,11 +1122,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: SPACING.lg,
   },
-  modalRow: {
-    flexDirection: 'row',
-    gap: 10,
-    width: '100%',
-  },
+  modalRow: { flexDirection: 'row', gap: 10, width: '100%' },
   modalCancel: {
     flex: 1,
     height: 46,
@@ -1034,7 +1162,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Menu
   menuCard: {
     position: 'absolute',
     bottom: 40,
@@ -1069,5 +1196,101 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mistLight,
+  },
+
+  // Follow list modal
+  listModalWrap: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  listModal: {
+    backgroundColor: COLORS.ink900,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: '80%',
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  listHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.md,
+    paddingBottom: 8,
+  },
+  listHeaderBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listTabs: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 24,
+  },
+  listTabBtn: {
+    paddingVertical: 8,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  listTabText: {
+    fontSize: 15,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.mist,
+  },
+  listTabTextActive: { color: '#FFFFFF' },
+  listTabUnderline: {
+    position: 'absolute',
+    bottom: 0,
+    height: 2,
+    width: 40,
+    borderRadius: 2,
+    backgroundColor: COLORS.violetLight,
+  },
+  listLoading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  listEmptyText: {
+    color: COLORS.mist,
+    fontSize: 14,
+    fontFamily: FONTS.body,
+  },
+  listContent: {
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xxl,
+  },
+  personRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: RADII.lg,
+  },
+  personInfo: { flex: 1, minWidth: 0 },
+  personNameRow: { flexDirection: 'row', alignItems: 'center' },
+  personName: {
+    fontSize: 15,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+  personUsername: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+    marginTop: 1,
   },
 });
