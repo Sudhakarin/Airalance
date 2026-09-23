@@ -116,9 +116,7 @@ export default function CallScreen() {
 
           {/* Status */}
           <Text style={styles.status}>
-            {callState === 'calling'
-              ? 'Calling…'
-              : formatTime(seconds)}
+            {callState === 'calling' ? 'Calling…' : formatTime(seconds)}
           </Text>
         </View>
 
@@ -162,11 +160,11 @@ export default function CallScreen() {
           </TouchableOpacity>
         </View>
       </SafeAreaView>
-:    </View>
+    </View>
   );
 }
 
-const  styles = StyleSheet.create({
+const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#07080D',
@@ -182,7 +180,7 @@ const  styles = StyleSheet.create({
     position: 'absolute',
     top: -200,
     left: -100,
-    width500,
+    width: 500,
     height: 500,
     borderRadius: 250,
     backgroundColor: 'rgba(124,92,255,0.22)',
