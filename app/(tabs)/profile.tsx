@@ -727,7 +727,7 @@ function StatItem({
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.ink900 },
+  safe: { flex: 1, backgroundColor: '#000000' },
   scroll: { paddingBottom: SPACING.xxl },
 
   glowTop: {
@@ -781,7 +781,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: COLORS.ink900,
+    borderColor: '#000000',
   },
   statsWrap: {
     flex: 1,
