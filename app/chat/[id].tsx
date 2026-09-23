@@ -580,6 +580,8 @@ export default function ChatScreen() {
           data={messages}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
+          // ✅ FIXED: guaranteed gap between every bubble, chipakna band
+          ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
           onContentSizeChange={() =>
             flatListRef.current?.scrollToEnd({ animated: false })
           }
@@ -802,14 +804,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // ✅ FIXED: Bada text (17) + proper padding
+  // ✅ FIXED: text bada + composer ke hisaab se sahi line height
   composerInput: {
     flex: 1,
     minHeight: 44,
     maxHeight: 100,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    fontSize: 17,
+    fontSize: 19,
+    lineHeight: 24,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     borderWidth: 0,
