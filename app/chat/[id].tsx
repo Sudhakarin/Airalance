@@ -657,7 +657,7 @@ export default function ChatScreen() {
                 value={input}
                 onChangeText={onInputChange}
                 placeholder="Message"
-                placeholderTextColor="rgba(139,143,163,0.6)"
+                placeholderTextColor="rgba(139,143,163,0.7)"
                 multiline
                 maxLength={2000}
                 textAlignVertical="center"
@@ -782,7 +782,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B0D14',
   },
 
-  // === Composer pill — SAME AS BEFORE ===
+  // === Composer pill ===
   composerPill: {
     flex: 1,
     flexDirection: 'row',
@@ -790,10 +790,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#171A24',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 24,
+    borderRadius: 26,
     paddingHorizontal: 4,
     paddingVertical: 4,
-    minHeight: 48,
+    minHeight: 52,
   },
   composerIconBtn: {
     width: 44,
@@ -802,14 +802,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // ✅ FIXED: text bada kiya, baaki sab same
+  // ✅ FIXED: Bada text (17) + proper padding
   composerInput: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 44,
     maxHeight: 100,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    fontSize: 16,                       // ← 15 → 16 (bada text)
+    fontSize: 17,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     borderWidth: 0,
@@ -822,14 +822,14 @@ const styles = StyleSheet.create({
     boxShadow: 'none',
   } as any,
   composerSendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     overflow: 'hidden',
   },
   composerSendBtnInner: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -837,13 +837,13 @@ const styles = StyleSheet.create({
   // === Recording mode ===
   recordingWrap: {
     flex: 1,
-    height: 48,
+    height: 52,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 16,
     backgroundColor: 'rgba(239,68,68,0.10)',
-    borderRadius: 24,
+    borderRadius: 26,
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.25)',
   },
