@@ -119,7 +119,7 @@ export default function RootLayout() {
         <Stack
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: COLORS.ink900 },
+            contentStyle: { backgroundColor: '#000000' },
             animation: 'fade',
           }}
         >
@@ -167,18 +167,19 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: COLORS.ink900,
+    backgroundColor: '#000000',
   },
   loadingContainer: {
     flex: 1,
-    backgroundColor: COLORS.ink900,
+    backgroundColor: '#000000',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: 20,
   },
+  // Loading text — 24 (was 18)
   loadingText: {
     color: COLORS.text,
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: '600',
     letterSpacing: 0.5,
   },
