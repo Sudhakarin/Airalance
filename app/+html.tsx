@@ -1,6 +1,4 @@
 // app/+html.tsx
-// Web-only HTML shell — global CSS to kill ALL focus outlines
-
 import { ScrollViewStyleReset } from 'expo-router/html';
 import { type PropsWithChildren } from 'react';
 
@@ -19,32 +17,45 @@ export default function Root({ children }: PropsWithChildren) {
         <style
           dangerouslySetInnerHTML={{
             __html: `
-              *:focus {
+              * {
+                outline: none !important;
+                -webkit-tap-highlight-color: transparent;
+              }
+              *:focus, *:focus-visible, *:active {
                 outline: none !important;
                 outline-style: none !important;
                 outline-width: 0 !important;
                 outline-color: transparent !important;
                 box-shadow: none !important;
               }
-              input, textarea, select, button {
+              input, textarea, select {
                 outline: none !important;
                 outline-style: none !important;
                 outline-width: 0 !important;
+                outline-color: transparent !important;
                 box-shadow: none !important;
                 border: none !important;
-                -webkit-appearance: none;
-                -webkit-tap-highlight-color: transparent;
+                border-width: 0 !important;
+                background: transparent !important;
+                -webkit-appearance: none !important;
+                -moz-appearance: none !important;
+                appearance: none !important;
               }
-              input:focus, textarea:focus, select:focus, button:focus {
+              input:focus, textarea:focus, select:focus,
+              input:focus-visible, textarea:focus-visible,
+              input:active, textarea:active {
                 outline: none !important;
                 outline-style: none !important;
                 outline-width: 0 !important;
                 box-shadow: none !important;
                 border: none !important;
+                border-width: 0 !important;
+                background: transparent !important;
               }
               input::-moz-focus-inner,
               button::-moz-focus-inner {
                 border: 0 !important;
+                padding: 0 !important;
               }
             `,
           }}
