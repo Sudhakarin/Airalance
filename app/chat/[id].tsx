@@ -30,11 +30,11 @@ import {
   CONSTANTS,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
-import Avatar from '../../components/A vatar';
-import MessageBubble from display '../../components/MessageBubble';
+import Avatar from '../../components/Avatar';
+import MessageBubble from '../../components/MessageBubble';
 
-type_name Message = {
-  id: string: string;
+type Message = {
+  id: string;
   conversation_id: string;
   sender_id: string;
   content: string;
@@ -50,7 +50,7 @@ type_name Message = {
 type OtherProfile = {
   id: string;
   username: string;
-;
+  display_name: string;
   avatar_color: string;
   avatar_url: string | null;
   verified: boolean | null;
@@ -63,7 +63,6 @@ export default function ChatScreen() {
   const convoId = params.id;
 
   const [myId, setMyId] = useState<string | null>(null);
-  const [myProfile, setMyProfile] = useState<any>(null);
   const [other, setOther] = useState<OtherProfile | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -83,7 +82,7 @@ export default function ChatScreen() {
   const typingTimeoutRef = useRef<any>(null);
   const lastTypingSentRef = useRef(0);
 
-  // === Bootstrap: load profile + convo ===
+  // === Bootstrap ===
   useEffect(() => {
     let mounted = true;
 
@@ -92,15 +91,6 @@ export default function ChatScreen() {
       if (!authData.user || !mounted) return;
       setMyId(authData.user.id);
 
-      // my profile
-      const { data: me } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authData.user.id)
-        .single();
-      if (mounted) setMyProfile(me);
-
-      // other participant
       const { data: others } = await supabase
         .from('conversation_participants')
         .select('user_id, profiles(*)')
@@ -112,7 +102,6 @@ export default function ChatScreen() {
         setOther((others[0] as any).profiles);
       }
 
-      // initial messages (last 30)
       const { data: msgs } = await supabase
         .from('messages')
         .select('*')
@@ -126,12 +115,10 @@ export default function ChatScreen() {
       }
       setLoading(false);
 
-      // mark unread as read
       if (authData.user.id && msgs) {
         const unreadIds = msgs
           .filter(
-            (m: any) =>
-              m.sender_id !== authData.user!.id && !m.read_at
+            (m: any) => m.sender_id !== authData.user!.id && !m.read_at
           )
           .map((m: any) => m.id);
         if (unreadIds.length > 0) {
@@ -149,7 +136,7 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
-  // === Realtime: new messages + typing ===
+  // === Realtime ===
   useEffect(() => {
     if (!myId || !convoId) return;
 
@@ -170,7 +157,6 @@ export default function ChatScreen() {
 
           setMessages((prev) => {
             if (prev.some((m) => m.id === incoming.id)) return prev;
-            // remove matching temp
             const withoutTemp = prev.filter(
               (m) =>
                 !(
@@ -182,7 +168,6 @@ export default function ChatScreen() {
             return [...withoutTemp, incoming];
           });
 
-          // mark as read
           if (incoming.sender_id !== myId) {
             supabase
               .from('messages')
@@ -231,14 +216,10 @@ export default function ChatScreen() {
     };
   }, [myId, convoId]);
 
-  // === Presence: is other online? ===
+  // === Online status (via last_seen) ===
   useEffect(() => {
     if (!other?.id) return;
-    const channel = supabase.channel('presence:online', {
-      config: { presence: { key: other.id } },
-    });
-    // Just check via last_seen instead — simpler & reliable
-    const interval = setInterval(async () => {
+    const check = async () => {
       const { data } = await supabase
         .from('profiles')
         .select('last_seen')
@@ -249,15 +230,13 @@ export default function ChatScreen() {
         setOtherOnline(diff < 60000);
         setOther((p) => (p ? { ...p, last_seen: data.last_seen } : p));
       }
-    }, 15000);
-
-    return () => {
-      clearInterval(interval);
-      supabase.removeChannel(channel);
     };
+    check();
+    const interval = setInterval(check, 15000);
+    return () => clearInterval(interval);
   }, [other?.id]);
 
-  // === Scroll to bottom on new messages ===
+  // === Scroll to bottom ===
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => {
@@ -293,7 +272,7 @@ export default function ChatScreen() {
     }
   }
 
-  // === Send text message ===
+  // === Send text ===
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
@@ -362,19 +341,10 @@ export default function ChatScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.8,
-      allowsEditing: false,
     });
     if (result.canceled || !result.assets?.[0]) return;
 
     const asset = result.assets[0];
-    if (
-      asset.fileSize &&
-      asset.fileSize > CONSTANTS.MAX_IMAGE_BYTES
-    ) {
-      Alert.alert('Image too large', 'Maximum 8 MB.');
-      return;
-    }
-
     setUploading(true);
     try {
       const response = await fetch(asset.uri);
@@ -409,7 +379,6 @@ export default function ChatScreen() {
         .single();
 
       if (error) throw error;
-      // Realtime will add it; but also add optimistically
       if (inserted) {
         setMessages((prev) =>
           prev.some((m) => m.id === (inserted as Message).id)
@@ -425,7 +394,7 @@ export default function ChatScreen() {
     }
   }
 
-  // === Voice recording ===
+  // === Voice ===
   async function startRecording() {
     if (isRecording) return;
     try {
@@ -546,8 +515,7 @@ export default function ChatScreen() {
     return `Last seen ${Math.floor(hr / 24)}d ago`;
   }
 
-  // ---- RENDER ----
-
+  // === Render ===
   if (loading || !myId) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -563,7 +531,6 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -577,9 +544,7 @@ export default function ChatScreen() {
 
           <TouchableOpacity
             style={styles.headerCenter}
-            onPress={() =>
-              other && router.push(`/profile/${other.id}`)
-            }
+            onPress={() => other && router.push(`/profile/${other.id}`)}
             activeOpacity={0.7}
           >
             <Avatar
@@ -616,7 +581,7 @@ export default function ChatScreen() {
 
           <TouchableOpacity
             style={styles.backBtn}
-            onPress={() => router.push(`/profile/${other?.id}`)}
+            onPress={() => other && router.push(`/profile/${other.id}`)}
             activeOpacity={0.7}
           >
             <Ionicons
@@ -686,11 +651,7 @@ export default function ChatScreen() {
                 onPress={cancelRecording}
                 activeOpacity={0.7}
               >
-                <Ionicons
-                  name="close"
-                  size={22}
-                  color={COLORS.danger}
-                />
+                <Ionicons name="close" size={22} color={COLORS.danger} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.sendBtn}
@@ -768,7 +729,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -810,7 +770,6 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  // List
   listContent: {
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.md,
@@ -828,7 +787,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
   },
 
-  // Input bar
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -871,7 +829,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Recording
   recordingWrap: {
     flex: 1,
     height: 40,
