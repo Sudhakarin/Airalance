@@ -65,7 +65,6 @@ export default function NotificationsScreen() {
     const uid = authData.user.id;
     setMyId(uid);
 
-    // App notifications (excluding 'message' type)
     const { data: n } = await supabase
       .from('app_notifications')
       .select(
@@ -77,7 +76,6 @@ export default function NotificationsScreen() {
       .limit(50);
     setAppNotifs((n ?? []) as AppNotification[]);
 
-    // Pending connection requests
     const { data: r } = await supabase
       .from('connection_requests')
       .select(
@@ -96,7 +94,6 @@ export default function NotificationsScreen() {
     load();
   }, [load]);
 
-  // Realtime
   useEffect(() => {
     if (!myId) return;
     const channel = supabase
@@ -138,7 +135,6 @@ export default function NotificationsScreen() {
       .update({ status: 'accepted' })
       .eq('id', req.id);
 
-    // Create conversation if not exists
     const { data: mine } = await supabase
       .from('conversation_participants')
       .select('conversation_id')
@@ -222,7 +218,7 @@ export default function NotificationsScreen() {
           onPress={() => router.back()}
           activeOpacity={0.7}
         >
-          <Ionicons name="chevron-back" size={22} color={COLORS.text} />
+          <Ionicons name="chevron-back" size={26} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Notifications</Text>
         {appNotifs.some((n) => !n.read) ? (
@@ -234,7 +230,7 @@ export default function NotificationsScreen() {
             <Text style={styles.markReadText}>Mark all</Text>
           </TouchableOpacity>
         ) : (
-          <View style={{ width: 60 }} />
+          <View style={{ width: 80 }} />
         )}
       </View>
 
@@ -262,7 +258,7 @@ export default function NotificationsScreen() {
               <View style={styles.emptyIconWrap}>
                 <Ionicons
                   name="notifications-outline"
-                  size={40}
+                  size={50}
                   color={COLORS.mist}
                 />
               </View>
@@ -283,7 +279,7 @@ export default function NotificationsScreen() {
                   name={p?.display_name ?? 'User'}
                   color={p?.avatar_color ?? COLORS.violet}
                   avatarUrl={p?.avatar_url ?? null}
-                  size={44}
+                  size={54}
                 />
                 <View style={styles.cardBody}>
                   <Text style={styles.cardTitle}>
@@ -331,26 +327,26 @@ export default function NotificationsScreen() {
             >
               {n.type === 'verified' ? (
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(124,92,255,0.18)' }]}>
-                  <VerifiedBadge size={24} />
+                  <VerifiedBadge size={28} />
                 </View>
               ) : n.type === 'status_like' ? (
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(239,68,68,0.18)' }]}>
-                  <Ionicons name="heart" size={22} color="#EF4444" />
+                  <Ionicons name="heart" size={26} color="#EF4444" />
                 </View>
               ) : n.type === 'follow' ? (
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(34,211,184,0.18)' }]}>
-                  <Ionicons name="person-add" size={22} color={COLORS.teal} />
+                  <Ionicons name="person-add" size={26} color={COLORS.teal} />
                 </View>
               ) : ap ? (
                 <Avatar
                   name={ap.display_name}
                   color={ap.avatar_color}
                   avatarUrl={ap.avatar_url}
-                  size={44}
+                  size={54}
                 />
               ) : (
                 <View style={styles.iconCircle}>
-                  <Ionicons name="notifications" size={22} color={COLORS.violetLight} />
+                  <Ionicons name="notifications" size={26} color={COLORS.violetLight} />
                 </View>
               )}
               <View style={styles.cardBody}>
@@ -366,7 +362,7 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.ink900 },
+  safe: { flex: 1, backgroundColor: '#000000' },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   glowTop: {
     position: 'absolute',
@@ -382,96 +378,104 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
+  // Header button — 46 (was 40)
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Header title — 22 (was 17)
   headerTitle: {
-    fontSize: 17,
+    fontSize: 22,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   markReadBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minWidth: 60,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minWidth: 80,
     alignItems: 'flex-end',
   },
+  // Mark read text — 16 (was 13)
   markReadText: {
     color: COLORS.violetLight,
-    fontSize: 13,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  list: { paddingHorizontal: SPACING.md, paddingBottom: SPACING.xxl, flexGrow: 1 },
+  list: { paddingHorizontal: 18, paddingBottom: SPACING.xxl, flexGrow: 1 },
 
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: SPACING.md,
-    padding: SPACING.md,
+    gap: 14,
+    padding: 18,
     borderRadius: RADII.xl,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
-    marginBottom: 10,
+    marginBottom: 12,
   },
+  // Icon circle — 54 (was 44)
   iconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
   cardBody: { flex: 1, minWidth: 0 },
+  // Card title — 16.5 (was 14), lineHeight 23
   cardTitle: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 16.5,
     fontFamily: FONTS.body,
-    lineHeight: 19,
+    lineHeight: 23,
   },
   bold: { fontFamily: FONTS.bodySemiBold },
+  // Card sub — 14.5 (was 12)
   cardSub: {
     color: COLORS.mist,
-    fontSize: 12,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
-    marginTop: 3,
+    marginTop: 5,
   },
   requestActions: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
+    gap: 10,
+    marginTop: 14,
   },
   acceptBtn: { borderRadius: 999, overflow: 'hidden', flex: 1 },
   acceptBtnInner: {
-    paddingVertical: 8,
+    paddingVertical: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Accept text — 15.5 (was 13)
   acceptText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 15.5,
     fontFamily: FONTS.bodySemiBold,
   },
   declineBtn: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 11,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 999,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
   },
+  // Decline text — 15.5 (was 13)
   declineText: {
     color: COLORS.mistLight,
-    fontSize: 13,
+    fontSize: 15.5,
     fontFamily: FONTS.bodySemiBold,
   },
 
@@ -479,28 +483,32 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 100,
-    gap: 10,
+    paddingTop: 110,
+    gap: 14,
   },
+  // Empty icon circle — 100 (was 88)
   emptyIconWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: 'rgba(255,255,255,0.04)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
+  // Empty title — 20 (was 17)
   emptyTitle: {
-    fontSize: 17,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
+  // Empty sub — 15.5 (was 13)
   emptySub: {
-    fontSize: 13,
+    fontSize: 15.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
     paddingHorizontal: 40,
+    lineHeight: 22,
   },
 });
