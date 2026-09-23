@@ -4,17 +4,32 @@
     "slug": "airalance-app",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "scheme": "airalance",
     "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0C12"
+    },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.airalance.app"
+      "bundleIdentifier": "com.airalance.app",
+      "buildNumber": "1"
     },
     "android": {
-      "package": "com.airalance.app"
+      "package": "com.airalance.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0C12"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-router"
@@ -22,6 +37,9 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "41e54f25-47ce-448a-8ef9-8ab40a68d1f6"
       }
     },
     "experiments": {
