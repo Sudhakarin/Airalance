@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-// My profile — avatar left, name + stats evenly spread right
+// My profile — matches website layout (avatar left, name top, stats in grid-cols-3)
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -365,7 +365,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Top section: avatar LEFT + name/stats RIGHT */}
+        {/* Top section: avatar LEFT + name & stats RIGHT (website layout) */}
         <View style={styles.topSection}>
           <TouchableOpacity
             onPress={pickAvatar}
@@ -377,7 +377,7 @@ export default function ProfileScreen() {
               name={profile.display_name}
               color={profile.avatar_color}
               avatarUrl={profile.avatar_url}
-              size={100}
+              size={82}
             />
             <View style={styles.cameraBadge}>
               {uploading ? (
@@ -389,7 +389,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
 
           <View style={styles.rightCol}>
-            {/* Name */}
+            {/* Name — 20px bold */}
             <View style={styles.nameRow}>
               <Text style={styles.displayName} numberOfLines={1}>
                 {profile.display_name}
@@ -397,7 +397,7 @@ export default function ProfileScreen() {
               {verified && <VerifiedBadge size={18} />}
             </View>
 
-            {/* Stats — evenly spread with flex: 1 each */}
+            {/* Stats — grid-cols-3 equivalent (each 1/3, evenly spread) */}
             <View style={styles.statsWrap}>
               <StatItem
                 label="status"
@@ -757,20 +757,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Top section: avatar left + name/stats right
+  // Website layout: gap-5 = 20px between avatar and right col
   topSection: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.md,
-    gap: 14,
+    gap: 20,
   },
   avatarWrap: { position: 'relative' },
   cameraBadge: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
+    bottom: 0,
+    right: 0,
     width: 28,
     height: 28,
     borderRadius: 14,
@@ -781,14 +781,16 @@ const styles = StyleSheet.create({
     borderColor: '#000000',
   },
 
+  // Right col: gap-3 = 12px between name and stats
   rightCol: {
     flex: 1,
     minWidth: 0,
+    justifyContent: 'center',
+    gap: 12,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
   },
   displayName: {
     fontSize: 20,
@@ -797,7 +799,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
 
-  // ✅ Stats — each StatItem gets flex:1 (evenly spread)
+  // Website: grid grid-cols-3 — each stat 1/3 width
   statsWrap: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -808,34 +810,34 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    lineHeight: 24,
+    lineHeight: 22,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: FONTS.body,
-    color: COLORS.mist,
+    color: 'rgba(255,255,255,0.7)',
   },
 
+  // Username bold + bio (website mt-3 = 12px)
   bioBlock: {
     paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.sm,
+    paddingTop: 12,
     paddingBottom: SPACING.lg,
-    gap: 3,
+    gap: 4,
   },
   usernameBold: {
-    fontSize: 15,
+    fontSize: 14.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
-    marginBottom: 6,
   },
   bio: {
     fontSize: 14,
     fontFamily: FONTS.body,
-    color: COLORS.mistLight,
-    marginTop: 2,
+    color: 'rgba(255,255,255,0.85)',
+    marginTop: 4,
     lineHeight: 19,
   },
   bioLink: {
