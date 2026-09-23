@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-// My profile — view + edit name, bio, avatar; logout; settings
+// My profile — view + edit name, bio, avatar; logout; settings; follow lists
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -11,6 +11,8 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -42,6 +44,8 @@ type Profile = {
   status_total?: number | null;
 };
 
+type ListTab = 'followers' | 'following';
+
 export default function ProfileScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -55,6 +59,13 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // Follow lists
+  const [listTab, setListTab] = useState<ListTab | null>(null);
+  const [listUsers, setListUsers] = useState<Profile[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [myFollowingIds, setMyFollowingIds] = useState<Set<string>>(new Set());
+  const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
 
   const isVerified = (p: Profile | null) =>
     !!p &&
@@ -80,7 +91,7 @@ export default function ProfileScreen() {
       setBioDraft((data as Profile).bio ?? '');
 
       // Load counts in parallel
-      const [f1, f2, statusRes] = await Promise.all([
+      const [f1, f2, statusRes, followingRes] = await Promise.all([
         supabase
           .from('follows')
           .select('follower_id', { count: 'exact', head: true })
@@ -93,6 +104,10 @@ export default function ProfileScreen() {
           .from('statuses')
           .select('id', { count: 'exact', head: true })
           .eq('user_id', authData.user.id),
+        supabase
+          .from('follows')
+          .select('followed_id')
+          .eq('follower_id', authData.user.id),
       ]);
 
       setFollowersCount(f1.count ?? 0);
@@ -104,6 +119,12 @@ export default function ProfileScreen() {
           ? Math.max(totalFromProfile, liveCount)
           : liveCount
       );
+
+      // Cache my following ids for follow-button state
+      const ids = new Set<string>(
+        (followingRes.data ?? []).map((r: any) => r.followed_id)
+      );
+      setMyFollowingIds(ids);
     } catch (err) {
       console.warn('Load profile error:', err);
     } finally {
@@ -120,6 +141,86 @@ export default function ProfileScreen() {
       loadProfile();
     }, [loadProfile])
   );
+
+  // === Load follow list (followers / following) ===
+  const loadFollowList = useCallback(
+    async (tab: ListTab) => {
+      if (!profile) return;
+      setListTab(tab);
+      setListLoading(true);
+      try {
+        const column = tab === 'followers' ? 'follower_id' : 'followed_id';
+        const match = tab === 'followers' ? 'followed_id' : 'follower_id';
+
+        const { data: rows } = await supabase
+          .from('follows')
+          .select(column)
+          .eq(match, profile.id);
+
+        const ids = (rows ?? []).map((r: any) => r[column]);
+        if (ids.length === 0) {
+          setListUsers([]);
+          setListLoading(false);
+          return;
+        }
+
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', ids);
+
+        setListUsers((profiles ?? []) as Profile[]);
+      } catch (err) {
+        console.warn('Load follow list error:', err);
+      } finally {
+        setListLoading(false);
+      }
+    },
+    [profile]
+  );
+
+  // === Toggle follow from list ===
+  async function toggleFollowFromList(targetId: string) {
+    if (!profile || toggleLoadingId) return;
+    if (targetId === profile.id) return;
+
+    const isFollowing = myFollowingIds.has(targetId);
+    setToggleLoadingId(targetId);
+
+    try {
+      if (isFollowing) {
+        const { error } = await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', profile.id)
+          .eq('followed_id', targetId);
+        if (!error) {
+          setMyFollowingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(targetId);
+            return next;
+          });
+          setFollowingCount((c) => (c === null ? c : Math.max(0, c - 1)));
+        }
+      } else {
+        const { error } = await supabase
+          .from('follows')
+          .insert({ follower_id: profile.id, followed_id: targetId });
+        if (!error) {
+          setMyFollowingIds((prev) => {
+            const next = new Set(prev);
+            next.add(targetId);
+            return next;
+          });
+          setFollowingCount((c) => (c === null ? c : c + 1));
+        }
+      }
+    } catch (err) {
+      console.warn('Toggle follow error:', err);
+    } finally {
+      setToggleLoadingId(null);
+    }
+  }
 
   // Pick + upload avatar
   async function pickAvatar() {
@@ -308,12 +409,12 @@ export default function ProfileScreen() {
             <StatItem
               label="followers"
               value={initialsForCounts.followers}
-              onPress={() => {}}
+              onPress={() => loadFollowList('followers')}
             />
             <StatItem
               label="following"
               value={initialsForCounts.following}
-              onPress={() => {}}
+              onPress={() => loadFollowList('following')}
             />
           </View>
         </View>
@@ -440,6 +541,165 @@ export default function ProfileScreen() {
           </LinearGradient>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* ===== Follow list modal ===== */}
+      {listTab && (
+        <Modal
+          visible
+          transparent
+          animationType="slide"
+          onRequestClose={() => setListTab(null)}
+        >
+          <View style={styles.listModalWrap}>
+            <View style={styles.listModal}>
+              {/* Header with close */}
+              <View style={styles.listHeader}>
+                <TouchableOpacity
+                  onPress={() => setListTab(null)}
+                  style={styles.listHeaderBtn}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={22} color="#FFFFFF" />
+                </TouchableOpacity>
+                <Text style={styles.listHeaderTitle}>
+                  {listTab === 'followers' ? 'Followers' : 'Following'}
+                </Text>
+                <View style={styles.listHeaderBtn} />
+              </View>
+
+              {/* Tabs */}
+              <View style={styles.listTabsRow}>
+                <TouchableOpacity
+                  onPress={() => loadFollowList('followers')}
+                  style={styles.listTabBtn}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.listTabText,
+                      listTab === 'followers' && styles.listTabTextActive,
+                    ]}
+                  >
+                    Followers
+                  </Text>
+                  {listTab === 'followers' && (
+                    <View style={styles.listTabUnderline} />
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => loadFollowList('following')}
+                  style={styles.listTabBtn}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.listTabText,
+                      listTab === 'following' && styles.listTabTextActive,
+                    ]}
+                  >
+                    Following
+                  </Text>
+                  {listTab === 'following' && (
+                    <View style={styles.listTabUnderline} />
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {/* List */}
+              {listLoading ? (
+                <View style={styles.listLoading}>
+                  <ActivityIndicator color={COLORS.violet} />
+                </View>
+              ) : listUsers.length === 0 ? (
+                <View style={styles.listEmpty}>
+                  <Ionicons
+                    name="people-outline"
+                    size={36}
+                    color={COLORS.mist}
+                  />
+                  <Text style={styles.listEmptyText}>
+                    {listTab === 'followers'
+                      ? 'No followers yet'
+                      : 'Not following anyone yet'}
+                  </Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={listUsers}
+                  keyExtractor={(item) => item.id}
+                  contentContainerStyle={styles.listContent}
+                  renderItem={({ item }) => {
+                    const isMe = item.id === profile.id;
+                    const isFollowing = myFollowingIds.has(item.id);
+                    const busy = toggleLoadingId === item.id;
+
+                    return (
+                      <TouchableOpacity
+                        style={styles.personRow}
+                        onPress={() => {
+                          setListTab(null);
+                          router.push(`/profile/${item.id}`);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Avatar
+                          name={item.display_name}
+                          color={item.avatar_color}
+                          avatarUrl={item.avatar_url}
+                          size={48}
+                        />
+                        <View style={styles.personInfo}>
+                          <View style={styles.personNameRow}>
+                            <Text style={styles.personName} numberOfLines={1}>
+                              {item.display_name}
+                            </Text>
+                            {isVerified(item) && <VerifiedBadge size={13} />}
+                          </View>
+                          <Text
+                            style={styles.personUsername}
+                            numberOfLines={1}
+                          >
+                            @{item.username}
+                          </Text>
+                        </View>
+
+                        {!isMe && (
+                          <TouchableOpacity
+                            style={[
+                              styles.followBtnSmall,
+                              isFollowing && styles.followBtnSmallActive,
+                            ]}
+                            onPress={() => toggleFollowFromList(item.id)}
+                            disabled={busy}
+                            activeOpacity={0.85}
+                          >
+                            {busy ? (
+                              <ActivityIndicator
+                                size="small"
+                                color="#FFFFFF"
+                              />
+                            ) : (
+                              <Text
+                                style={[
+                                  styles.followBtnSmallText,
+                                  isFollowing &&
+                                    styles.followBtnSmallTextActive,
+                                ]}
+                              >
+                                {isFollowing ? 'Following' : 'Follow'}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  }}
+                />
+              )}
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -620,7 +880,6 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     textAlign: 'right',
   },
-  // ✅ FIXED: web outline removed
   infoInput: {
     flex: 1,
     fontSize: 14,
@@ -666,7 +925,6 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     opacity: 0.7,
   },
-  // ✅ FIXED: web outline removed
   bioInput: {
     paddingHorizontal: SPACING.lg,
     paddingBottom: 14,
@@ -711,5 +969,133 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // ===== Follow list modal =====
+  listModalWrap: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  listModal: {
+    backgroundColor: COLORS.ink900,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: '85%',
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  listHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.md,
+    paddingBottom: 4,
+  },
+  listHeaderBtn: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listHeaderTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+  },
+  listTabsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 40,
+    paddingVertical: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  listTabBtn: {
+    paddingVertical: 8,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  listTabText: {
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.mist,
+  },
+  listTabTextActive: { color: '#FFFFFF' },
+  listTabUnderline: {
+    position: 'absolute',
+    bottom: 0,
+    height: 2,
+    width: 60,
+    borderRadius: 2,
+    backgroundColor: COLORS.violetLight,
+  },
+  listLoading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listEmpty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  listEmptyText: {
+    color: COLORS.mist,
+    fontSize: 14,
+    fontFamily: FONTS.body,
+  },
+  listContent: {
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xxl,
+  },
+  personRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: RADII.lg,
+  },
+  personInfo: { flex: 1, minWidth: 0 },
+  personNameRow: { flexDirection: 'row', alignItems: 'center' },
+  personName: {
+    fontSize: 15,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+  personUsername: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+    marginTop: 1,
+  },
+
+  // Small follow button in list
+  followBtnSmall: {
+    minWidth: 88,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: RADII.full,
+    backgroundColor: COLORS.violet,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followBtnSmallActive: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  followBtnSmallText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontFamily: FONTS.bodySemiBold,
+  },
+  followBtnSmallTextActive: {
+    color: COLORS.mistLight,
   },
 });
