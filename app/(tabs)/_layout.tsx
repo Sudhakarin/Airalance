@@ -18,6 +18,7 @@ export default function TabsLayout() {
         tabBarLabelStyle: styles.tabLabel,
         tabBarItemStyle: styles.tabItem,
         tabBarAllowFontScaling: false,
+        tabBarHideOnKeyboard: true,
         sceneStyle: { backgroundColor: COLORS.ink900 },
       }}
     >
@@ -73,19 +74,24 @@ export default function TabsLayout() {
 const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: '#0A0C12',
-    borderTopColor: 'rgba(255,255,255,0.06)',
-    borderTopWidth: 1,
-    height: 68,
-    paddingBottom: 8,
-    paddingTop: 8,
+    // No border top — clean look
+    borderTopWidth: 0,
+    // Slight shadow instead of a visible line
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
     elevation: 0,
+    height: 72,
+    paddingBottom: 12,
+    paddingTop: 8,
   },
   tabItem: {
     paddingVertical: 4,
-    gap: 2,
+    gap: 3,
   },
   tabLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
     marginTop: 2,
