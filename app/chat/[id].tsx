@@ -653,7 +653,7 @@ export default function ChatScreen() {
               </TouchableOpacity>
 
               <TextInput
-                style={styles.composerInput}
+                style={[styles.composerInput, { fontSize: 20, lineHeight: 25 }]}
                 value={input}
                 onChangeText={onInputChange}
                 placeholder="Message"
