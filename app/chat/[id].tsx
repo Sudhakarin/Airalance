@@ -653,7 +653,7 @@ export default function ChatScreen() {
                 )}
               </TouchableOpacity>
 
-              {/* Text input */}
+              {/* Text input — web outline fix */}
               <TextInput
                 style={styles.composerInput}
                 value={input}
@@ -663,6 +663,8 @@ export default function ChatScreen() {
                 multiline
                 maxLength={2000}
                 textAlignVertical="center"
+                underlineColorAndroid="transparent"
+                selectionColor={COLORS.violet}
               />
 
               {/* Send or mic inside pill */}
@@ -783,7 +785,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B0D14',
   },
 
-  // === Composer pill — balanced ===
+  // === Composer pill ===
   composerPill: {
     flex: 1,
     flexDirection: 'row',
@@ -803,6 +805,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // ✅ FIXED: web outline removed
   composerInput: {
     flex: 1,
     minHeight: 40,
@@ -813,9 +816,16 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     borderWidth: 0,
+    borderColor: 'transparent',
     backgroundColor: 'transparent',
     textAlignVertical: 'center',
-  },
+    // Web-only overrides (React Native Web)
+    outlineStyle: 'none',
+    outlineWidth: 0,
+    outlineColor: 'transparent',
+    boxShadow: 'none',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any,
   composerSendBtn: {
     width: 40,
     height: 40,
