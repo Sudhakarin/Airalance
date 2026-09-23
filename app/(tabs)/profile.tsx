@@ -395,35 +395,32 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
 
-          <View style={styles.topRowRight}>
-            <View style={styles.nameRow}>
-              <Text style={styles.displayName} numberOfLines={1}>
-                {profile.display_name}
-              </Text>
-              {verified && <VerifiedBadge size={18} />}
-            </View>
-
-            <View style={styles.statsWrap}>
-              <StatItem
-                label="status"
-                value={initialsForCounts.status}
-                onPress={() => router.push('/(tabs)/status')}
-              />
-              <StatItem
-                label="followers"
-                value={initialsForCounts.followers}
-                onPress={() => loadFollowList('followers')}
-              />
-              <StatItem
-                label="following"
-                value={initialsForCounts.following}
-                onPress={() => loadFollowList('following')}
-              />
-            </View>
+          <View style={styles.statsWrap}>
+            <StatItem
+              label="status"
+              value={initialsForCounts.status}
+              onPress={() => router.push('/(tabs)/status')}
+            />
+            <StatItem
+              label="followers"
+              value={initialsForCounts.followers}
+              onPress={() => loadFollowList('followers')}
+            />
+            <StatItem
+              label="following"
+              value={initialsForCounts.following}
+              onPress={() => loadFollowList('following')}
+            />
           </View>
         </View>
 
         <View style={styles.bioBlock}>
+          <View style={styles.nameRow}>
+            <Text style={styles.displayName} numberOfLines={1}>
+              {profile.display_name}
+            </Text>
+            {verified && <VerifiedBadge size={18} />}
+          </View>
           <Text style={styles.username}>@{profile.username}</Text>
           {profile.bio ? (
             <Text style={styles.bio}>{profile.bio}</Text>
@@ -786,14 +783,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#000000',
   },
-  topRowRight: {
-    flex: 1,
-    gap: 8,
-  },
   statsWrap: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'space-around',
   },
   statItem: {
     alignItems: 'flex-start',
@@ -827,9 +821,8 @@ const styles = StyleSheet.create({
   },
   username: {
     fontSize: 14,
-    fontFamily: FONTS.bodySemiBold,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
     marginTop: 1,
   },
   bio: {
