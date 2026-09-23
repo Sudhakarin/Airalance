@@ -1,5 +1,5 @@
 // app/(tabs)/search.tsx
-// Search screen — find users by username + suggestions
+// Search screen — find users by username + suggestions (only @airalance)
 
 import { useEffect, useState, useRef } from 'react';
 import {
@@ -41,9 +41,9 @@ export default function SearchScreen() {
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Profile[]>([]);
-  const [suggestions, setSuggestions] = useState<Profile[]>([]);
+  const [suggestion, setSuggestion] = useState<Profile | null>(null);
   const [searching, setSearching] = useState(false);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(true);
+  const [loadingSuggestion, setLoadingSuggestion] = useState(true);
   const [myId, setMyId] = useState<string | null>(null);
   const searchSeq = useRef(0);
 
@@ -54,37 +54,28 @@ export default function SearchScreen() {
     });
   }, []);
 
-  // Load suggestions (featured users)
+  // Load Airalance suggestion only
   useEffect(() => {
     if (!myId) return;
 
-    async function loadSuggestions() {
+    async function loadSuggestion() {
       try {
         const { data, error } = await supabase
           .from('profiles')
           .select('*')
-          .neq('id', myId)
-          .order('created_at', { ascending: false })
-          .limit(5);
+          .eq('username', 'airalance')
+          .maybeSingle();
 
         if (error) throw error;
-
-        // Prioritize certain usernames
-        const priority = ['sudhakarin', 'airalance'];
-        const sorted = [...(data ?? [])].sort((a, b) => {
-          const ai = priority.indexOf((a.username || '').toLowerCase());
-          const bi = priority.indexOf((b.username || '').toLowerCase());
-          return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-        });
-        setSuggestions(sorted as Profile[]);
+        setSuggestion((data as Profile) ?? null);
       } catch (err) {
-        console.warn('Suggestions error:', err);
+        console.warn('Suggestion error:', err);
       } finally {
-        setLoadingSuggestions(false);
+        setLoadingSuggestion(false);
       }
     }
 
-    loadSuggestions();
+    loadSuggestion();
   }, [myId]);
 
   // Debounced search
@@ -112,7 +103,7 @@ export default function SearchScreen() {
           .neq('id', myId)
           .limit(15);
 
-        if (seq !== searchSeq.current) return; // stale
+        if (seq !== searchSeq.current) return;
 
         if (!error && data) setResults(data as Profile[]);
       } catch (err) {
@@ -130,7 +121,6 @@ export default function SearchScreen() {
   }
 
   function openConnect(p: Profile) {
-    // TODO: connect popup (next files)
     router.push(`/profile/${p.id}`);
   }
 
@@ -139,10 +129,21 @@ export default function SearchScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
+      <View style={styles.glowBottom} />
 
-      {/* Header */}
+      {/* Header — brand + bell */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Search</Text>
+        <Text style={styles.headerBrand}>Airalance!</Text>
+        <TouchableOpacity
+          style={styles.bellBtn}
+          activeOpacity={0.7}
+          onPress={() => router.push('/notifications')}
+        >
+          <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>9+</Text>
+          </View>
+        </TouchableOpacity>
       </View>
 
       {/* Search input */}
@@ -158,7 +159,7 @@ export default function SearchScreen() {
             style={styles.searchInput}
             value={query}
             onChangeText={setQuery}
-            placeholder="Search by username or name…"
+            placeholder="Search by username…"
             placeholderTextColor={COLORS.mist}
             autoCapitalize="none"
             autoCorrect={false}
@@ -166,11 +167,7 @@ export default function SearchScreen() {
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => setQuery('')} activeOpacity={0.7}>
-              <Ionicons
-                name="close-circle"
-                size={18}
-                color={COLORS.mist}
-              />
+              <Ionicons name="close-circle" size={18} color={COLORS.mist} />
             </TouchableOpacity>
           )}
         </View>
@@ -178,24 +175,81 @@ export default function SearchScreen() {
 
       {/* Body */}
       <FlatList
-        data={showResults ? results : suggestions}
+        data={showResults ? results : []}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <>
+            {/* Suggestions — only Airalance */}
             {!showResults && (
-              <View style={styles.suggestHeader}>
-                <Ionicons
-                  name="sparkles-outline"
-                  size={16}
-                  color={COLORS.violetLight}
-                />
-                <Text style={styles.suggestTitle}>
-                  Suggestions for you
-                </Text>
+              <View>
+                <View style={styles.suggestHeader}>
+                  <Ionicons
+                    name="sparkles-outline"
+                    size={16}
+                    color={COLORS.violetLight}
+                  />
+                  <Text style={styles.suggestTitle}>Suggestions for you</Text>
+                </View>
+
+                {loadingSuggestion ? (
+                  <View style={styles.glassCard}>
+                    <View style={styles.skeletonRow}>
+                      <View style={styles.skeletonAvatar} />
+                      <View style={{ flex: 1, gap: 8 }}>
+                        <View style={styles.skeletonName} />
+                        <View style={styles.skeletonUsername} />
+                      </View>
+                    </View>
+                  </View>
+                ) : suggestion ? (
+                  <View style={styles.glassCard}>
+                    <TouchableOpacity
+                      style={styles.suggestionRow}
+                      onPress={() => openProfile(suggestion)}
+                      activeOpacity={0.7}
+                    >
+                      <Avatar
+                        name={suggestion.display_name}
+                        color={suggestion.avatar_color}
+                        avatarUrl={suggestion.avatar_url}
+                        size={48}
+                      />
+
+                      <View style={styles.suggestionInfo}>
+                        <View style={styles.suggestionNameWrap}>
+                          <Text style={styles.suggestionName} numberOfLines={1}>
+                            {suggestion.display_name}
+                          </Text>
+                          {suggestion.verified && <VerifiedBadge size={14} />}
+                        </View>
+                        <Text style={styles.suggestionUsername} numberOfLines={1}>
+                          @{suggestion.username}
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        style={styles.connectBtn}
+                        onPress={() => openConnect(suggestion)}
+                        activeOpacity={0.85}
+                      >
+                        <LinearGradient
+                          colors={GRADIENTS.violet}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.connectBtnGradient}
+                        >
+                          <Text style={styles.connectBtnText}>Connect</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
               </View>
             )}
+
+            {/* Search results */}
             {showResults && searching && results.length === 0 && (
               <View style={styles.searchingWrap}>
                 <ActivityIndicator color={COLORS.violet} size="small" />
@@ -203,44 +257,18 @@ export default function SearchScreen() {
             )}
             {showResults && !searching && results.length === 0 && (
               <View style={styles.emptyWrap}>
-                <Ionicons
-                  name="person-outline"
-                  size={36}
-                  color={COLORS.mist}
-                />
+                <Ionicons name="person-outline" size={36} color={COLORS.mist} />
                 <Text style={styles.emptyText}>No users found</Text>
                 <Text style={styles.emptySub}>
                   Try a different username or name
                 </Text>
               </View>
             )}
-            {!showResults && loadingSuggestions && (
-              <View style={styles.searchingWrap}>
-                <ActivityIndicator color={COLORS.violet} size="small" />
-              </View>
-            )}
           </>
-        }
-        ListEmptyComponent={
-          !showResults && !loadingSuggestions ? (
-            <View style={styles.emptyWrap}>
-              <Ionicons
-                name="people-outline"
-                size={36}
-                color={COLORS.mist}
-              />
-              <Text style={styles.emptyText}>
-                Start typing to search
-              </Text>
-              <Text style={styles.emptySub}>
-                Find friends by username or full name
-              </Text>
-            </View>
-          ) : null
         }
         renderItem={({ item }) => (
           <TouchableOpacity
-            style={styles.row}
+            style={styles.resultRow}
             onPress={() => openProfile(item)}
             activeOpacity={0.7}
           >
@@ -251,19 +279,19 @@ export default function SearchScreen() {
               size={48}
             />
 
-            <View style={styles.rowInfo}>
-              <View style={styles.rowNameWrap}>
-                <Text style={styles.rowName} numberOfLines={1}>
+            <View style={styles.resultInfo}>
+              <View style={styles.resultNameWrap}>
+                <Text style={styles.resultName} numberOfLines={1}>
                   {item.display_name}
                 </Text>
                 {item.verified && <VerifiedBadge size={14} />}
               </View>
-              <Text style={styles.rowUsername} numberOfLines={1}>
+              <Text style={styles.resultUsername} numberOfLines={1}>
                 @{item.username}
               </Text>
               {item.bio ? (
                 <Text
-                  style={styles.rowBio}
+                  style={styles.resultBio}
                   numberOfLines={1}
                   ellipsizeMode="tail"
                 >
@@ -272,30 +300,7 @@ export default function SearchScreen() {
               ) : null}
             </View>
 
-            {!showResults && (
-              <TouchableOpacity
-                style={styles.connectBtn}
-                onPress={() => openConnect(item)}
-                activeOpacity={0.85}
-              >
-                <LinearGradient
-                  colors={GRADIENTS.violet}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.connectBtnGradient}
-                >
-                  <Text style={styles.connectBtnText}>Connect</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            )}
-
-            {showResults && (
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={COLORS.mist}
-              />
-            )}
+            <Ionicons name="chevron-forward" size={18} color={COLORS.mist} />
           </TouchableOpacity>
         )}
       />
@@ -313,19 +318,61 @@ const styles = StyleSheet.create({
     width: 500,
     height: 500,
     borderRadius: 250,
-    backgroundColor: 'rgba(124, 92, 255, 0.10)',
+    backgroundColor: 'rgba(124, 92, 255, 0.12)',
+  },
+  glowBottom: {
+    position: 'absolute',
+    bottom: -200,
+    right: -100,
+    width: 460,
+    height: 460,
+    borderRadius: 230,
+    backgroundColor: 'rgba(34, 211, 184, 0.06)',
   },
 
   // Header
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.md,
   },
-  headerTitle: {
+  headerBrand: {
     fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    letterSpacing: -0.3,
+    letterSpacing: -0.5,
+  },
+  bellBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  badge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#EF4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: COLORS.ink900,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontFamily: FONTS.bodySemiBold,
+    lineHeight: 12,
   },
 
   // Search box
@@ -341,7 +388,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.08)',
     borderRadius: RADII.lg,
     paddingHorizontal: 14,
-    height: 46,
+    height: 48,
   },
   searchInput: {
     flex: 1,
@@ -363,7 +410,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: SPACING.sm,
+    paddingHorizontal: 4,
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.md,
   },
@@ -374,8 +421,92 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  // Row
-  row: {
+  // Glass card (suggestion)
+  glassCard: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: RADII.xl,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    // Glass effect
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+  },
+  suggestionInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  suggestionNameWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  suggestionName: {
+    fontSize: 15.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+  suggestionUsername: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+    marginTop: 2,
+  },
+  connectBtn: {
+    borderRadius: RADII.full,
+    overflow: 'hidden',
+  },
+  connectBtnGradient: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+  },
+  connectBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontFamily: FONTS.bodySemiBold,
+    letterSpacing: 0.3,
+  },
+
+  // Skeleton
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+  },
+  skeletonAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  skeletonName: {
+    height: 14,
+    width: '50%',
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  skeletonUsername: {
+    height: 12,
+    width: '30%',
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+
+  // Result row
+  resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
@@ -383,27 +514,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.sm,
     borderRadius: RADII.lg,
   },
-  rowInfo: {
+  resultInfo: {
     flex: 1,
     minWidth: 0,
   },
-  rowNameWrap: {
+  resultNameWrap: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  rowName: {
+  resultName: {
     fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
-  rowUsername: {
+  resultUsername: {
     fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginTop: 1,
   },
-  rowBio: {
+  resultBio: {
     fontSize: 12,
     fontFamily: FONTS.body,
     color: COLORS.mist,
@@ -411,23 +542,7 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
 
-  // Connect button
-  connectBtn: {
-    borderRadius: RADII.full,
-    overflow: 'hidden',
-  },
-  connectBtnGradient: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  connectBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontFamily: FONTS.bodySemiBold,
-    letterSpacing: 0.3,
-  },
-
-  // Searching / loading
+  // Loading
   searchingWrap: {
     paddingVertical: SPACING.xl,
     alignItems: 'center',
