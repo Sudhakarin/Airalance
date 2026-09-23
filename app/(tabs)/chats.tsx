@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
+import VerifiedBadge from '../../components/VerifiedBadge';
 
 type Conversation = {
   id: string;
@@ -305,12 +306,7 @@ export default function ChatsScreen() {
                       {displayName}
                     </Text>
                     {item.other_profile?.verified && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={14}
-                        color={COLORS.violetLight}
-                        style={{ marginLeft: 4 }}
-                      />
+                      <VerifiedBadge size={14} />
                     )}
                   </View>
                   <Text
