@@ -45,7 +45,6 @@ type UserStatusGroup = {
   profile: Profile | null;
   statuses: Status[];
   latestAt: string;
-  allViewed: boolean;
 };
 
 export default function StatusScreen() {
@@ -58,12 +57,10 @@ export default function StatusScreen() {
   const [myId, setMyId] = useState<string | null>(null);
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
 
-  // Get current user
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) {
         setMyId(data.user.id);
-        // Load my profile
         supabase
           .from('profiles')
           .select('*')
@@ -76,12 +73,9 @@ export default function StatusScreen() {
     });
   }, []);
 
-  // Load statuses
   const loadStatuses = useCallback(async () => {
     if (!myId) return;
-
     try {
-      // 1. Get all non-expired statuses with profiles
       const { data: statusData, error } = await supabase
         .from('statuses')
         .select('*, profile:profiles(*)')
@@ -90,13 +84,10 @@ export default function StatusScreen() {
 
       if (error) throw error;
 
-      const allStatuses = (statusData ?? []) as Status[];
+      const all = (statusData ?? []) as Status[];
+      const mine = all.filter((s) => s.user_id === myId);
+      const others = all.filter((s) => s.user_id !== myId);
 
-      // 2. Split my statuses vs others
-      const mine = allStatuses.filter((s) => s.user_id === myId);
-      const others = allStatuses.filter((s) => s.user_id !== myId);
-
-      // 3. Group others by user
       const grouped: Record<string, UserStatusGroup> = {};
       others.forEach((s) => {
         if (!grouped[s.user_id]) {
@@ -105,7 +96,6 @@ export default function StatusScreen() {
             profile: s.profile,
             statuses: [],
             latestAt: s.created_at,
-            allViewed: true,
           };
         }
         grouped[s.user_id].statuses.push(s);
@@ -117,16 +107,13 @@ export default function StatusScreen() {
       setMyStatuses(mine);
       setOtherGroups(Object.values(grouped));
 
-      // 4. Get my viewed status IDs
       const { data: views } = await supabase
         .from('status_views')
         .select('status_id')
         .eq('viewer_id', myId);
-
-      const viewedSet = new Set<string>(
-        (views ?? []).map((v: any) => v.status_id)
+      setViewedIds(
+        new Set((views ?? []).map((v: any) => v.status_id))
       );
-      setViewedIds(viewedSet);
     } catch (err) {
       console.warn('Load statuses error:', err);
     } finally {
@@ -139,10 +126,8 @@ export default function StatusScreen() {
     loadStatuses();
   }, [loadStatuses]);
 
-  // Realtime subscription
   useEffect(() => {
     if (!myId) return;
-
     const channel = supabase
       .channel('statuses-tab-realtime')
       .on(
@@ -151,13 +136,11 @@ export default function StatusScreen() {
         () => loadStatuses()
       )
       .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
     };
   }, [myId, loadStatuses]);
 
-  // Reload on focus
   useFocusEffect(
     useCallback(() => {
       if (myId) loadStatuses();
@@ -169,46 +152,36 @@ export default function StatusScreen() {
     await loadStatuses();
   }
 
-  // Check if all statuses in a group are viewed
-  function isGroupViewed(group: UserStatusGroup): boolean {
+  function isGroupViewed(group: UserStatusGroup) {
     return group.statuses.every((s) => viewedIds.has(s.id));
   }
 
-  // Format timestamp
   function formatTime(iso: string) {
-    if (!iso) return '';
-    const date = new Date(iso);
-    const now = new Date();
-    const diffMin = Math.floor((now.getTime() - date.getTime()) / 60000);
-    if (diffMin < 1) return 'just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
-    const diffDay = Math.floor(diffHr / 24);
-    return `${diffDay}d ago`;
+    const diff = Date.now() - new Date(iso).getTime();
+    const min = Math.floor(diff / 60000);
+    if (min < 1) return 'just now';
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    return `${Math.floor(hr / 24)}d ago`;
   }
 
-  // Open status viewer
   function openStatusViewer(userId: string) {
     router.push(`/status/${userId}`);
   }
 
-  // Open create status
   function openCreateStatus() {
     router.push('/status/create');
   }
 
-  // Split groups into recent (unviewed) and viewed
-  const recent = otherGroups.filter((g) => !isGroupViewed(g));
-  const viewed = otherGroups.filter((g) => isGroupViewed(g));
-
-  // Sort recent by latestAt desc
-  recent.sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));
-  viewed.sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));
+  const recent = otherGroups
+    .filter((g) => !isGroupViewed(g))
+    .sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));
+  const viewed = otherGroups
+    .filter((g) => isGroupViewed(g))
+    .sort((a, b) => (a.latestAt < b.latestAt ? 1 : -1));
 
   const myAllViewed = myStatuses.every((s) => viewedIds.has(s.id));
-
-  // ---- RENDER ----
 
   if (loading && myStatuses.length === 0 && otherGroups.length === 0) {
     return (
@@ -218,7 +191,6 @@ export default function StatusScreen() {
         </View>
         <View style={styles.loadingWrap}>
           <ActivityIndicator color={COLORS.violet} />
-          <Text style={styles.loadingText}>Loading status…</Text>
         </View>
       </SafeAreaView>
     );
@@ -228,7 +200,6 @@ export default function StatusScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
 
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Status</Text>
         <TouchableOpacity
@@ -248,7 +219,6 @@ export default function StatusScreen() {
             refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor={COLORS.violet}
-            colors={[COLORS.violet]}
           />
         }
       >
@@ -256,12 +226,17 @@ export default function StatusScreen() {
         <TouchableOpacity
           style={styles.myStatusRow}
           onPress={() =>
-            myStatuses.length > 0 ? openStatusViewer(myId!) : openCreateStatus()
+            myStatuses.length > 0
+              ? openStatusViewer(myId!)
+              : openCreateStatus()
           }
           activeOpacity={0.7}
         >
           <View style={styles.myStatusAvatarWrap}>
-            <StatusRing hasStatus={myStatuses.length > 0} viewed={myAllViewed}>
+            <StatusRing
+              hasStatus={myStatuses.length > 0}
+              viewed={myAllViewed}
+            >
               {myProfile && (
                 <Avatar
                   name={myProfile.display_name}
@@ -286,34 +261,14 @@ export default function StatusScreen() {
             <Text style={styles.myStatusTitle}>My Status</Text>
             <Text style={styles.myStatusSubtitle}>
               {myStatuses.length > 0
-                ? `Tap to view · ${myStatuses.length} update${myStatuses.length > 1 ? 's' : ''}`
+                ? `Tapgroup to view · ${myStatuses.length} update${
+                    myStatuses.length > 1 ? 's' : ''
+                  }`
                 : 'Tap to add a status update'}
             </Text>
           </View>
 
           <View style={styles.myStatusIcons}>
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={openCreateStatus}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="musical-notes-outline"
-                size={18}
-                color={COLORS.violetLight}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={openCreateStatus}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="at-outline"
-                size={18}
-                color={COLORS.violetLight}
-              />
-            </TouchableOpacity>
             <TouchableOpacity
               style={styles.iconBtn}
               onPress={openCreateStatus}
@@ -328,13 +283,13 @@ export default function StatusScreen() {
           </View>
         </TouchableOpacity>
 
-        {/* Recent Updates */}
+        {/* Recent */}
         {recent.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>Recent updates</Text>
             {recent.map((group) => (
               <TouchableOpacity
-                key={group.userId}
+                key={.userId}
                 style={styles.statusRow}
                 onPress={() => openStatusViewer(group.userId)}
                 activeOpacity={0.7}
@@ -373,7 +328,7 @@ export default function StatusScreen() {
           </>
         )}
 
-        {/* Viewed Updates */}
+        {/* Viewed */}
         {viewed.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>Viewed updates</Text>
@@ -421,29 +376,31 @@ export default function StatusScreen() {
           </>
         )}
 
-        {/* Empty state */}
-        {recent.length === 0 && viewed.length === 0 && myStatuses.length === 0 && (
-          <View style={styles.emptyWrap}>
-            <View style={styles.emptyIconWrap}>
-              <Ionicons
-                name="ellipse-outline"
-                size={44}
-                color={COLORS.mist}
-              />
+        {/* Empty */}
+        {recent.length === 0 &&
+          viewed.length === 0 &&
+          myStatuses.length === 0 && (
+            <View style={styles.emptyWrap}>
+              <View style={styles.emptyIconWrap}>
+                <Ionicons
+                  name="ellipse-outline"
+                  size={44}
+                  color={COLORS.mist}
+                />
+              </View>
+              <Text style={styles.emptyTitle}>No status updates</Text>
+              <Text style={styles.emptySubtitle}>
+                When your connections post a status, it will appear here.
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyBtn}
+                onPress={openCreateStatus}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.emptyBtnText}>Add your status</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.emptyTitle}>No status updates</Text>
-            <Text style={styles.emptySubtitle}>
-              When your connections post a status, it will appear here.
-            </Text>
-            <TouchableOpacity
-              style={styles.emptyBtn}
-              onPress={openCreateStatus}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.emptyBtnText}>Add your status</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+          )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -452,7 +409,6 @@ export default function StatusScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.ink900 },
   scroll: { paddingBottom: SPACING.xxl },
-
   glowTop: {
     position: 'absolute',
     top: -200,
@@ -462,8 +418,6 @@ const styles = StyleSheet.create({
     borderRadius: 250,
     backgroundColor: 'rgba(124, 92, 255, 0.10)',
   },
-
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -485,8 +439,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  // My Status
   myStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -494,9 +446,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.md,
   },
-  myStatusAvatarWrap: {
-    position: 'relative',
-  },
+  myStatusAvatarWrap: { position: 'relative' },
   addBadge: {
     position: 'absolute',
     bottom: 0,
@@ -510,9 +460,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.ink900,
   },
-  myStatusInfo: {
-    flex: 1,
-  },
+  myStatusInfo: { flex: 1 },
   myStatusTitle: {
     fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
@@ -524,10 +472,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
-  myStatusIcons: {
-    flexDirection: 'row',
-    gap: 4,
-  },
+  myStatusIcons: { flexDirection: 'row', gap: 4 },
   iconBtn: {
     width: 32,
     height: 32,
@@ -536,8 +481,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(124, 92, 255, 0.1)',
   },
-
-  // Section title
   sectionTitle: {
     fontSize: 11,
     fontFamily: FONTS.bodySemiBold,
@@ -549,8 +492,6 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.sm,
     opacity: 0.7,
   },
-
-  // Status row
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -558,44 +499,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.sm,
   },
-  statusInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  statusNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  statusInfo: { flex: 1, minWidth: 0 },
+  statusNameRow: { flexDirection: 'row', alignItems: 'center' },
   statusName: {
     fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
-  statusNameViewed: {
-    color: COLORS.mistLight,
-  },
+  statusNameViewed: { color: COLORS.mistLight },
   statusTime: {
     fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginTop: 2,
   },
-
-  // Loading
   loadingWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
   },
-  loadingText: {
-    color: COLORS.mist,
-    fontSize: 13,
-    fontFamily: FONTS.body,
-  },
-
-  // Empty
   emptyWrap: {
     alignItems: 'center',
     justifyContent: 'center',
