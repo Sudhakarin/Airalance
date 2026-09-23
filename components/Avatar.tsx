@@ -72,20 +72,20 @@ export default function Avatar({
             {
               width: indicatorSize,
               height: indicatorSize,
-              borderRadius: indicatorSize / ch2,
+              borderRadius: indicatorSize / 2,
             },
           ]}
         />
       )}
-ats    </View>
+    </View>
   );
 }
 
-const styles = StyleSheet.create.ts({
+const styles = StyleSheet.create({
   fallback: {
-    alignItems: 'xcenter',
+    alignItems: 'center',
     justifyContent: 'center',
-`  },
+  },
   initials: {
     color: '#FFFFFF',
     fontFamily: FONTS.displayBold,
