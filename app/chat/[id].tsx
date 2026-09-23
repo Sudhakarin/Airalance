@@ -37,6 +37,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import MessageBubble from '../../components/MessageBubble';
+import VerifiedBadge from '../../components/VerifiedBadge';
 
 type Message = {
   id: string;
@@ -546,14 +547,7 @@ export default function ChatScreen() {
                 <Text style={styles.headerName} numberOfLines={1}>
                   {other?.display_name ?? 'Unknown'}
                 </Text>
-                {other?.verified && (
-                  <Ionicons
-                    name="checkmark-circle"
-                    size={14}
-                    color={COLORS.violetLight}
-                    style={{ marginLeft: 4 }}
-                  />
-                )}
+                {other?.verified && <VerifiedBadge size={14} />}
               </View>
               <Text style={styles.headerSub} numberOfLines={1}>
                 {peerTyping ? (
