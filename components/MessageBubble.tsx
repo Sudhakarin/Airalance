@@ -231,12 +231,12 @@ const styles = StyleSheet.create({
   bubbleOtherTightBottom: { borderBottomLeftRadius: 6 },
   bubbleOtherImage: { padding: 3, borderRadius: 18 },
 
-  // ✅ FIXED: message font thoda mota (Medium weight) + size 15 -> 16
+  // ✅ FIXED: message font bada + mota (Medium weight), size 18
   text: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 18,
     fontFamily: FONTS.bodyMedium,
-    lineHeight: 22,
+    lineHeight: 25,
   },
   deletedText: {
     color: COLORS.mist,
@@ -253,7 +253,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   time: {
-    fontSize: 11,
+    fontSize: 12,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.55)',
   },
