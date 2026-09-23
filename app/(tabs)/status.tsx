@@ -206,7 +206,7 @@ export default function StatusScreen() {
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="add" size={24} color={COLORS.text} />
+          <Ionicons name="add" size={28} color={COLORS.text} />
         </TouchableOpacity>
       </View>
 
@@ -241,7 +241,7 @@ export default function StatusScreen() {
                   name={myProfile.display_name}
                   color={myProfile.avatar_color}
                   avatarUrl={myProfile.avatar_url}
-                  size={64}
+                  size={72}
                 />
               )}
             </StatusRing>
@@ -251,7 +251,7 @@ export default function StatusScreen() {
                 onPress={openCreateStatus}
                 activeOpacity={0.85}
               >
-                <Ionicons name="add" size={14} color="#FFFFFF" />
+                <Ionicons name="add" size={16} color="#FFFFFF" />
               </TouchableOpacity>
             )}
           </View>
@@ -275,7 +275,7 @@ export default function StatusScreen() {
             >
               <Ionicons
                 name="text-outline"
-                size={18}
+                size={22}
                 color={COLORS.violetLight}
               />
             </TouchableOpacity>
@@ -301,7 +301,7 @@ export default function StatusScreen() {
                       name={group.profile?.display_name ?? 'Unknown'}
                       color={group.profile?.avatar_color ?? COLORS.violet}
                       avatarUrl={group.profile?.avatar_url ?? null}
-                      size={64}
+                      size={72}
                     />
                   </StatusRing>
                   <View style={styles.statusInfo}>
@@ -310,7 +310,7 @@ export default function StatusScreen() {
                         {group.profile?.display_name ?? 'Unknown'}
                       </Text>
                       {group.profile?.verified && (
-                        <VerifiedBadge size={14} />
+                        <VerifiedBadge size={16} />
                       )}
                     </View>
                     <Text style={styles.statusTime}>
@@ -345,7 +345,7 @@ export default function StatusScreen() {
                       name={group.profile?.display_name ?? 'Unknown'}
                       color={group.profile?.avatar_color ?? COLORS.violet}
                       avatarUrl={group.profile?.avatar_url ?? null}
-                      size={64}
+                      size={72}
                     />
                   </StatusRing>
                   <View style={styles.statusInfo}>
@@ -357,7 +357,7 @@ export default function StatusScreen() {
                         {group.profile?.display_name ?? 'Unknown'}
                       </Text>
                       {group.profile?.verified && (
-                        <VerifiedBadge size={14} />
+                        <VerifiedBadge size={16} />
                       )}
                     </View>
                     <Text style={styles.statusTime}>
@@ -384,7 +384,7 @@ export default function StatusScreen() {
               <View style={styles.emptyIconWrap}>
                 <Ionicons
                   name="ellipse-outline"
-                  size={44}
+                  size={52}
                   color={COLORS.mist}
                 />
               </View>
@@ -407,7 +407,7 @@ export default function StatusScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.ink900 },
+  safe: { flex: 1, backgroundColor: '#000000' },
   scroll: { paddingBottom: SPACING.xxl },
   glowTop: {
     position: 'absolute',
@@ -422,19 +422,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
+    paddingHorizontal: 24,
+    paddingVertical: 18,
   },
+  // Header title — 34 (was 28)
   headerTitle: {
-    fontSize: 28,
+    fontSize: 34,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    letterSpacing: -0.3,
+    letterSpacing: -0.5,
   },
+  // Header button — 46 (was 40)
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -445,145 +447,155 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
+    paddingHorizontal: 24,
+    paddingVertical: 18,
   },
   myStatusAvatarWrap: { position: 'relative' },
+  // Add badge — 30 (was 24)
   addBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    bottom: 2,
+    right: 2,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: COLORS.ink900,
+    borderWidth: 2.5,
+    borderColor: '#000000',
   },
   myStatusInfo: { flex: 1 },
+  // My Status title — 20 (was 16)
   myStatusTitle: {
-    fontSize: 16,
+    fontSize: 20,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
-    marginBottom: 3,
+    marginBottom: 4,
   },
+  // My Status subtitle — 15.5 (was 13)
   myStatusSubtitle: {
-    fontSize: 13,
+    fontSize: 15.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
-  myStatusIcons: { flexDirection: 'row', gap: 4 },
+  myStatusIcons: { flexDirection: 'row', gap: 6 },
+  // Icon button — 40 (was 32)
   iconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(124, 92, 255, 0.1)',
   },
 
-  // ✅ Thick divider after My Status
+  // Thick divider after My Status
   thickDivider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.08)',
-    marginHorizontal: SPACING.lg,
+    marginHorizontal: 24,
     marginTop: SPACING.sm,
     marginBottom: SPACING.md,
   },
 
-  // ✅ Section wrapper
   section: {
     marginTop: SPACING.sm,
   },
+  // Section title — 13 (was 11)
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mist,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    paddingHorizontal: SPACING.lg,
-    paddingBottom: SPACING.sm,
+    paddingHorizontal: 24,
+    paddingBottom: SPACING.md,
     opacity: 0.7,
   },
 
-  // ✅ Status row with proper spacing
+  // Status row — more padding
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.md,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
   },
   statusInfo: { flex: 1, minWidth: 0 },
   statusNameRow: { flexDirection: 'row', alignItems: 'center' },
+  // Status name — 20 (was 16)
   statusName: {
-    fontSize: 16,
+    fontSize: 20,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
   statusNameViewed: { color: COLORS.mistLight },
+  // Status time — 15.5 (was 13)
   statusTime: {
-    fontSize: 13,
+    fontSize: 15.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 2,
+    marginTop: 3,
   },
 
-  // ✅ Separator between rows
+  // Separator between rows — adjusted for bigger avatar
   separator: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: 96, // avatar width (64) + padding (SPACING.lg=24) + gap (8)
-    marginRight: SPACING.lg,
+    marginLeft: 110,
+    marginRight: 24,
   },
 
   loadingWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: 14,
   },
   emptyWrap: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 40,
-    paddingTop: 60,
-    gap: 12,
+    paddingTop: 70,
+    gap: 14,
   },
+  // Empty icon — 100 (was 88)
   emptyIconWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     backgroundColor: 'rgba(255,255,255,0.04)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
+  // Empty title — 20 (was 17)
   emptyTitle: {
-    fontSize: 17,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
+  // Empty subtitle — 15.5 (was 13)
   emptySubtitle: {
-    fontSize: 13,
+    fontSize: 15.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 22,
   },
   emptyBtn: {
     marginTop: SPACING.md,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
     borderRadius: RADII.full,
     backgroundColor: COLORS.violet,
   },
+  // Empty btn text — 15.5 (was 13)
   emptyBtnText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 15.5,
     fontFamily: FONTS.bodySemiBold,
   },
 });
