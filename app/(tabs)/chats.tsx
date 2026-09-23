@@ -44,14 +44,12 @@ export default function ChatsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [myId, setMyId] = useState<string | null>(null);
 
-  // Get current user
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setMyId(data.user.id);
     });
   }, []);
 
-  // Load conversations
   const loadConversations = useCallback(async () => {
     if (!myId) return;
 
@@ -194,8 +192,6 @@ export default function ChatsScreen() {
     router.push(`/chat/${convoId}`);
   }
 
-  // ---- RENDER ----
-
   if (loading && conversations.length === 0) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -315,7 +311,6 @@ export default function ChatsScreen() {
                 </View>
               </TouchableOpacity>
 
-              {/* Separator line — between rows, not after last */}
               {index < conversations.length - 1 && (
                 <View style={styles.separator} />
               )}
@@ -328,7 +323,8 @@ export default function ChatsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.ink900 },
+  // ✅ Background pure black
+  safe: { flex: 1, backgroundColor: '#000000' },
 
   glowTop: {
     position: 'absolute',
@@ -337,7 +333,7 @@ const styles = StyleSheet.create({
     width: 500,
     height: 500,
     borderRadius: 250,
-    backgroundColor: 'rgba(124, 92, 255, 0.10)',
+    backgroundColor: 'rgba(124, 92, 255, 0.08)',
   },
 
   header: {
@@ -362,14 +358,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // List
   listContent: {
     paddingHorizontal: SPACING.md,
     paddingBottom: SPACING.xxl,
     flexGrow: 1,
   },
 
-  // Row
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -377,10 +371,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: SPACING.sm,
   },
-  rowInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
+  rowInfo: { flex: 1, minWidth: 0 },
   rowTop: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -426,11 +417,10 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyMedium,
   },
 
-  // Separator line between rows
   separator: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: 80, // indent to align with name (avatar width + gap)
+    marginLeft: 80,
     marginRight: 0,
   },
 
@@ -450,7 +440,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
 
-  // Loading
   loadingWrap: {
     flex: 1,
     alignItems: 'center',
@@ -463,7 +452,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
   },
 
-  // Empty
   emptyWrap: {
     flex: 1,
     alignItems: 'center',
