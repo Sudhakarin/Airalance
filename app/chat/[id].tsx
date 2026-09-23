@@ -653,7 +653,7 @@ export default function ChatScreen() {
               </TouchableOpacity>
 
               <TextInput
-                style={[styles.composerInput, { fontSize: 20, lineHeight: 25 }]}
+                style={styles.composerInput}
                 value={input}
                 onChangeText={onInputChange}
                 placeholder="Message"
@@ -802,15 +802,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // ✅ FIXED: text bada + composer ke hisaab se sahi line height
+  // ✅ FIXED: text ab composer ke bich (vertical center) me aata hai
+  // minHeight 44 = paddingTop 9 + lineHeight 26 + paddingBottom 9 (symmetric)
+  // iOS/web multiline me textAlignVertical kaam nahi karta, isliye padding se center kiya
   composerInput: {
     flex: 1,
     minHeight: 44,
     maxHeight: 100,
     paddingHorizontal: 8,
-    paddingVertical: 8,
-    fontSize: 19,
-    lineHeight: 24,
+    paddingTop: 9,
+    paddingBottom: 9,
+    fontSize: 20,
+    lineHeight: 26,
+    includeFontPadding: false,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     borderWidth: 0,
