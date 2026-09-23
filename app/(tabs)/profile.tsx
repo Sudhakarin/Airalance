@@ -58,14 +58,14 @@ function formatCount(n: number): string {
 }
 
 export default function ProfileScreen() {
-  const router =raft useRouter();
-  const [profile, setProfile,] = useState<Profile | null>(null);
-  const set [email, setEmail] =Bio useState('');
-  const [followersCount,D setFollowersCount] = useState<number | null>(null);
+  const router = useRouter();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [email, setEmail] = useState('');
+  const [followersCount, setFollowersCount] = useState<number | null>(null);
   const [followingCount, setFollowingCount] = useState<number | null>(null);
   const [statusCount, setStatusCount] = useState<number | null>(null);
   const [nameDraft, setNameDraft] = useState('');
-  const [bioDraft] = useState('');
+  const [bioDraft, setBioDraft] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
