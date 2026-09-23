@@ -1,5 +1,5 @@
 // app/(tabs)/_layout.tsx
-// Bottom tab navigator — 5 tabs matching website's mobile layout
+// Bottom tab navigator — 5 tabs with polished icons
 
 import { Tabs } from 'expo-router';
 import { StyleSheet } from 'react-native';
@@ -13,10 +13,11 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarShowLabel: true,
         tabBarActiveTintColor: COLORS.violetLight,
-        tabBarInactiveTintColor: COLORS.mist,
+        tabBarInactiveTintColor: '#FFFFFF',
         tabBarStyle: styles.tabBar,
         tabBarLabelStyle: styles.tabLabel,
         tabBarItemStyle: styles.tabItem,
+        tabBarAllowFontScaling: false,
         sceneStyle: { backgroundColor: COLORS.ink900 },
       }}
     >
@@ -27,7 +28,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? 'home' : 'home-outline'}
-              size={22}
+              size={24}
               color={color}
             />
           ),
@@ -39,7 +40,7 @@ export default function TabsLayout() {
           title: 'Status',
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
-              name={focused ? 'ellipse' : 'ellipse-outline'}
+              name={focused ? 'radio-button-on' : 'radio-button-off'}
               size={22}
               color={color}
             />
@@ -53,7 +54,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? 'chatbubble' : 'chatbubble-outline'}
-              size={22}
+              size={23}
               color={color}
             />
           ),
@@ -66,7 +67,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? 'search' : 'search-outline'}
-              size={22}
+              size={24}
               color={color}
             />
           ),
@@ -79,7 +80,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? 'person' : 'person-outline'}
-              size={22}
+              size={23}
               color={color}
             />
           ),
@@ -91,19 +92,22 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: COLORS.ink900,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#0A0C12',
+    borderTopColor: 'rgba(255,255,255,0.08)',
     borderTopWidth: 1,
-    height: 64,
+    height: 68,
     paddingBottom: 8,
     paddingTop: 8,
     elevation: 0,
   },
-  tabItem: { paddingVertical: 4 },
+  tabItem: {
+    paddingVertical: 4,
+    gap: 2,
+  },
   tabLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontFamily: FONTS.bodySemiBold,
-    letterSpacing: 0.2,
+    letterSpacing: 0.1,
     marginTop: 2,
   },
 });
