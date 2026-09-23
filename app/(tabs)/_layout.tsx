@@ -74,26 +74,28 @@ export default function TabsLayout() {
 const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: '#0A0C12',
-    // No border top — clean look
     borderTopWidth: 0,
-    // Slight shadow instead of a visible line
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 0,
-    height: 72,
-    paddingBottom: 12,
-    paddingTop: 8,
+    // Better height for labels
+    height: 82,
+    paddingBottom: 10,
+    paddingTop: 10,
   },
   tabItem: {
+    // Ensure proper spacing for icon + label
     paddingVertical: 4,
-    gap: 3,
+    height: 62,
   },
   tabLabel: {
     fontSize: 11,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
-    marginTop: 2,
+    marginTop: 4,
+    // Better visibility
+    color: '#FFFFFF',
   },
 });
