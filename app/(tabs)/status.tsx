@@ -18,6 +18,7 @@ import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import StatusRing from '../../components/StatusRing';
+import VerifiedBadge from '../../components/VerifiedBadge';
 
 type Profile = {
   id: string;
@@ -306,12 +307,7 @@ export default function StatusScreen() {
                       {group.profile?.display_name ?? 'Unknown'}
                     </Text>
                     {group.profile?.verified && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={14}
-                        color={COLORS.violetLight}
-                        style={{ marginLeft: 4 }}
-                      />
+                      <VerifiedBadge size={14} />
                     )}
                   </View>
                   <Text style={styles.statusTime}>
@@ -354,12 +350,7 @@ export default function StatusScreen() {
                       {group.profile?.display_name ?? 'Unknown'}
                     </Text>
                     {group.profile?.verified && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={14}
-                        color={COLORS.mist}
-                        style={{ marginLeft: 4 }}
-                      />
+                      <VerifiedBadge size={14} />
                     )}
                   </View>
                   <Text style={styles.statusTime}>
