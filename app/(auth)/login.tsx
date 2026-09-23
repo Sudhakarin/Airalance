@@ -1,5 +1,5 @@
 // app/(auth)/login.tsx
-// Login screen — matches website UI with violet/teal gradient design
+// Full login flow — password, OTP, forgot password (6 modes)
 
 import { useState } from 'react';
 import {
@@ -12,70 +12,184 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
+  Pressable,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, Link } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { COLORS, FONTS, RADII, GRADIENTS, SPACING, SHADOWS } from '../../constants/theme';
+import { Ionicons } from '@expo/vector-icons';
+import {
+  COLORS,
+  FONTS,
+  RADII,
+  GRADIENTS,
+  SPACING,
+  SHADOWS,
+} from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import Field from '../../components/Field';
+import OtpBoxes from '../../components/OtpBoxes';
+
+type Mode =
+  | 'password'
+  | 'otp-email'
+  | 'otp-verify'
+  | 'forgot-email'
+  | 'forgot-otp'
+  | 'forgot-newpass';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const [mode, setMode] = useState<Mode>('password');
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  async function handleLogin() {
-    // Reset error
-    setError('');
+  function resetState() {
+    setOtp('');
+    setError(null);
+    setNewPassword('');
+    setConfirmPassword('');
+  }
 
-    // Validate
+  function goBack() {
+    resetState();
+    if (mode === 'otp-verify') setMode('otp-email');
+    else if (mode === 'otp-email') setMode('password');
+    else if (mode === 'forgot-otp') setMode('forgot-email');
+    else if (mode === 'forgot-email') setMode('password');
+    else if (mode === 'forgot-newpass') setMode('forgot-otp');
+  }
+
+  // === Password login ===
+  async function handlePasswordLogin() {
     if (!email.trim() || !password.trim()) {
-      setError('Please enter email and password');
+      setError('Please enter email and password.');
       return;
     }
-
-    if (!email.includes('@')) {
-      setError('Please enter a valid email');
-      return;
-    }
-
     setLoading(true);
+    setError(null);
+    const { error: err } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    if (err) {
+      setError('Incorrect email or password.');
+      setLoading(false);
+    } else {
+      router.replace('/(tabs)/home');
+    }
+  }
 
-    try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password: password,
-      });
-
-      if (authError) {
-        // Friendly error messages
-        let msg = authError.message;
-        if (msg.includes('Invalid login credentials')) {
-          msg = 'Wrong email or password';
-        } else if (msg.includes('Email not confirmed')) {
-          msg = 'Please confirm your email first';
-        }
-        setError(msg);
-        setLoading(false);
-        return;
-      }
-
-      if (data.session) {
-        // Success — navigate to tabs
-        router.replace('/(tabs)/home');
-      } else {
-        setError('Login failed. Please try again.');
-        setLoading(false);
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Something went wrong');
+  // === Send OTP (login) ===
+  async function handleSendOtp() {
+    if (!email.trim()) {
+      setError('Please enter your email.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const { error: err } = await supabase.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
+      options: { shouldCreateUser: true },
+    });
+    if (err) {
+      setError(err.message);
+      setLoading(false);
+    } else {
+      setMode('otp-verify');
       setLoading(false);
     }
   }
+
+  // === Verify OTP (login) ===
+  async function handleVerifyOtp() {
+    if (otp.length !== 6) return;
+    setLoading(true);
+    setError(null);
+    const { error: err } = await supabase.auth.verifyOtp({
+      email: email.trim().toLowerCase(),
+      token: otp,
+      type: 'email',
+    });
+    if (err) {
+      setError('Invalid or expired code. Please try again.');
+      setLoading(false);
+    } else {
+      router.replace('/(tabs)/home');
+    }
+  }
+
+  // === Forgot — send OTP ===
+  async function handleForgotSendOtp() {
+    if (!email.trim()) {
+      setError('Please enter your email.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const { error: err } = await supabase.auth.signInWithOtp({
+      email: email.trim().toLowerCase(),
+      options: { shouldCreateUser: false },
+    });
+    if (err) {
+      setError('No account found with this email.');
+      setLoading(false);
+    } else {
+      setMode('forgot-otp');
+      setLoading(false);
+    }
+  }
+
+  // === Forgot — verify OTP ===
+  async function handleForgotVerifyOtp() {
+    if (otp.length !== 6) return;
+    setLoading(true);
+    setError(null);
+    const { error: err } = await supabase.auth.verifyOtp({
+      email: email.trim().toLowerCase(),
+      token: otp,
+      type: 'email',
+    });
+    if (err) {
+      setError('Invalid or expired code. Please try again.');
+      setLoading(false);
+    } else {
+      setMode('forgot-newpass');
+      setLoading(false);
+    }
+  }
+
+  // === Forgot — set new password ===
+  async function handleSetNewPassword() {
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const { error: err } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+    if (err) {
+      setError(err.message);
+      setLoading(false);
+    } else {
+      router.replace('/(tabs)/home');
+    }
+  }
+
+  const showBrandHeader = mode === 'password';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -84,139 +198,519 @@ export default function LoginScreen() {
       <View style={styles.glowBottom} />
 
       <KeyboardAvoidingView
-        style={styles.flex}
+        style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Brand */}
-          <View style={styles.brandWrap}>
-            <Text style={styles.brand}>Airalance!</Text>
-            <Text style={styles.tagline}>Welcome back</Text>
-          </View>
-
-          {/* Card */}
           <View style={styles.card}>
-            {/* Heading */}
-            <Text style={styles.heading}>Log in</Text>
-            <Text style={styles.subheading}>
-              Enter your credentials to continue
-            </Text>
-
-            {/* Error */}
-            {error ? (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            ) : null}
-
-            {/* Email */}
-            <View style={styles.field}>
-              <Text style={styles.label}>Email</Text>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={(t) => {
-                  setEmail(t);
-                  if (error) setError('');
-                }}
-                placeholder="you@example.com"
-                placeholderTextColor={COLORS.mist}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                autoComplete="email"
-                editable={!loading}
-              />
-            </View>
-
-            {/* Password */}
-            <View style={styles.field}>
-              <Text style={styles.label}>Password</Text>
-              <View style={styles.passwordWrap}>
-                <TextInput
-                  style={[styles.input, styles.passwordInput]}
-                  value={password}
-                  onChangeText={(t) => {
-                    setPassword(t);
-                    if (error) setError('');
-                  }}
-                  placeholder="Your password"
-                  placeholderTextColor={COLORS.mist}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  editable={!loading}
-                />
+            {/* Header — back button + brand */}
+            <View style={styles.headerRow}>
+              {mode !== 'password' && (
                 <TouchableOpacity
-                  style={styles.eyeBtn}
-                  onPress={() => setShowPassword((v) => !v)}
+                  onPress={goBack}
+                  style={styles.backBtn}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.eyeText}>
-                    {showPassword ? '🙈' : '👁'}
-                  </Text>
+                  <Ionicons
+                    name="chevron-back"
+                    size={18}
+                    color={COLORS.mist}
+                  />
                 </TouchableOpacity>
-              </View>
+              )}
+              <Link href="/" asChild>
+                <Pressable style={styles.brandRow}>
+                  <View style={styles.brandIcon}>
+                    <Ionicons
+                      name="chatbubble"
+                      size={16}
+                      color="#FFFFFF"
+                    />
+                  </View>
+                  <Text style={styles.brandText}>
+                    Aira
+                    <Text style={styles.brandTextGradient}>Think!</Text>
+                  </Text>
+                </Pressable>
+              </Link>
             </View>
 
-            {/* Login Button */}
-            <TouchableOpacity
-              style={styles.primaryBtn}
-              onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.85}
-            >
-              <LinearGradient
-                colors={GRADIENTS.violet}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.primaryBtnGradient}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.primaryBtnText}>Log in</Text>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
+            {showBrandHeader && (
+              <Text style={styles.brandTagline}>
+                Where conversations think ahead ⚡
+              </Text>
+            )}
 
-            {/* Forgot password */}
-            <TouchableOpacity
-              style={styles.forgotBtn}
-              activeOpacity={0.7}
-              onPress={() =>
-                Alert.alert(
-                  'Forgot password?',
-                  'Password reset will be available soon.'
-                )
-              }
-            >
-              <Text style={styles.forgotText}>Forgot password?</Text>
-            </TouchableOpacity>
+            {/* ====== PASSWORD LOGIN ====== */}
+            {mode === 'password' && (
+              <>
+                <Text style={styles.h1}>Welcome back</Text>
+                <Text style={styles.subtitle}>
+                  Log in to continue chatting.
+                </Text>
 
-            {/* Divider */}
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>New here?</Text>
-              <View style={styles.dividerLine} />
-            </View>
+                <View style={{ marginTop: SPACING.xl }}>
+                  <Field
+                    label="Email"
+                    icon={
+                      <Ionicons
+                        name="mail-outline"
+                        size={18}
+                        color={COLORS.mist}
+                      />
+                    }
+                  >
+                    <TextInput
+                      style={[styles.input, styles.inputWithIcon]}
+                      value={email}
+                      onChangeText={(t) => {
+                        setEmail(t);
+                        if (error) setError(null);
+                      }}
+                      placeholder="you@example.com"
+                      placeholderTextColor={'rgba(139,143,163,0.5)'}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!loading}
+                    />
+                  </Field>
 
-            {/* Signup Button */}
-            <Link href="/(auth)/signup" asChild>
-              <TouchableOpacity style={styles.secondaryBtn} activeOpacity={0.85}>
-                <Text style={styles.secondaryBtnText}>Create an account</Text>
-              </TouchableOpacity>
-            </Link>
+                  <Field
+                    label="Password"
+                    icon={
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={18}
+                        color={COLORS.mist}
+                      />
+                    }
+                    right={
+                      <TouchableOpacity
+                        onPress={() => {
+                          resetState();
+                          setMode('forgot-email');
+                        }}
+                      >
+                        <Text style={styles.linkSmall}>
+                          Forgot password?
+                        </Text>
+                      </TouchableOpacity>
+                    }
+                  >
+                    <TextInput
+                      style={[
+                        styles.input,
+                        styles.inputWithIcon,
+                        styles.inputWithIconRight,
+                      ]}
+                      value={password}
+                      onChangeText={(t) => {
+                        setPassword(t);
+                        if (error) setError(null);
+                      }}
+                      placeholder="Your password"
+                      placeholderTextColor={'rgba(139,143,163,0.5)'}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!loading}
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeBtn}
+                      onPress={() => setShowPassword((s) => !s)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={18}
+                        color={COLORS.mist}
+                      />
+                    </TouchableOpacity>
+                  </Field>
+
+                  {error && (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.primaryBtn}
+                    onPress={handlePasswordLogin}
+                    disabled={loading}
+                    activeOpacity={0.9}
+                  >
+                    <LinearGradient
+                      colors={GRADIENTS.violet}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.primaryBtnInner}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.primaryBtnText}>Log in</Text>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+
+                  {/* Divider */}
+                  <View style={styles.divider}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>or</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+
+                  {/* OTP button */}
+                  <TouchableOpacity
+                    style={styles.secondaryBtn}
+                    onPress={() => {
+                      resetState();
+                      setMode('otp-email');
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name="mail-outline"
+                      size={16}
+                      color="#FFFFFF"
+                    />
+                    <Text style={styles.secondaryBtnText}>
+                      Log in with OTP
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.footerText}>
+                    Don't have an account?{' '}
+                    <Link href="/(auth)/signup" asChild>
+                      <Text style={styles.linkText}>Sign up</Text>
+                    </Link>
+                  </Text>
+                </View>
+              </>
+            )}
+
+            {/* ====== OTP LOGIN - EMAIL ====== */}
+            {mode === 'otp-email' && (
+              <>
+                <Text style={styles.h1}>Log in with OTP</Text>
+                <Text style={styles.subtitle}>
+                  We'll send a 6-digit code to your email.
+                </Text>
+
+                <View style={{ marginTop: SPACING.xl }}>
+                  <Field
+                    label="Email"
+                    icon={
+                      <Ionicons
+                        name="mail-outline"
+                        size={18}
+                        color={COLORS.mist}
+                      />
+                    }
+                  >
+                    <TextInput
+                      style={[styles.input, styles.inputWithIcon]}
+                      value={email}
+                      onChangeText={(t) => {
+                        setEmail(t);
+                        if (error) setError(null);
+                      }}
+                      placeholder="you@example.com"
+                      placeholderTextColor={'rgba(139,143,163,0.5)'}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!loading}
+                    />
+                  </Field>
+
+                  {error && (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.primaryBtn}
+                    onPress={handleSendOtp}
+                    disabled={loading}
+                    activeOpacity={0.9}
+                  >
+                    <LinearGradient
+                      colors={GRADIENTS.violet}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.primaryBtnInner}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.primaryBtnText}>Send OTP</Text>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {/* ====== OTP VERIFY ====== */}
+            {mode === 'otp-verify' && (
+              <>
+                <Text style={styles.h1}>Enter your code</Text>
+                <Text style={styles.subtitle}>
+                  A 6-digit code was sent to{' '}
+                  <Text style={{ color: '#FFFFFF', fontFamily: FONTS.bodyMedium }}>
+                    {email}
+                  </Text>
+                  .
+                </Text>
+
+                <View style={{ marginTop: SPACING.xl }}>
+                  <OtpBoxes value={otp} onChange={setOtp} autoFocus />
+
+                  {error && (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.primaryBtn,
+                      (loading || otp.length !== 6) && { opacity: 0.6 },
+                    ]}
+                    onPress={handleVerifyOtp}
+                    disabled={loading || otp.length !== 6}
+                    activeOpacity={0.9}
+                  >
+                    <LinearGradient
+                      colors={GRADIENTS.violet}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.primaryBtnInner}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.primaryBtnText}>Log in</Text>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {/* ====== FORGOT - EMAIL ====== */}
+            {mode === 'forgot-email' && (
+              <>
+                <Text style={styles.h1}>Reset password</Text>
+                <Text style={styles.subtitle}>
+                  Enter your email — we'll send a verification code.
+                </Text>
+
+                <View style={{ marginTop: SPACING.xl }}>
+                  <Field
+                    label="Email"
+                    icon={
+                      <Ionicons
+                        name="mail-outline"
+                        size={18}
+                        color={COLORS.mist}
+                      />
+                    }
+                  >
+                    <TextInput
+                      style={[styles.input, styles.inputWithIcon]}
+                      value={email}
+                      onChangeText={(t) => {
+                        setEmail(t);
+                        if (error) setError(null);
+                      }}
+                      placeholder="you@example.com"
+                      placeholderTextColor={'rgba(139,143,163,0.5)'}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      editable={!loading}
+                    />
+                  </Field>
+
+                  {error && (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.primaryBtn}
+                    onPress={handleForgotSendOtp}
+                    disabled={loading}
+                    activeOpacity={0.9}
+                  >
+                    <LinearGradient
+                      colors={GRADIENTS.violet}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.primaryBtnInner}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.primaryBtnText}>
+                          Send Code
+                        </Text>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {/* ====== FORGOT - OTP VERIFY ====== */}
+            {mode === 'forgot-otp' && (
+              <>
+                <Text style={styles.h1}>Enter your code</Text>
+                <Text style={styles.subtitle}>
+                  A 6-digit code was sent to{' '}
+                  <Text style={{ color: '#FFFFFF', fontFamily: FONTS.bodyMedium }}>
+                    {email}
+                  </Text>
+                  .
+                </Text>
+
+                <View style={{ marginTop: SPACING.xl }}>
+                  <OtpBoxes value={otp} onChange={setOtp} autoFocus />
+
+                  {error && (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.primaryBtn,
+                      (loading || otp.length !== 6) && { opacity: 0.6 },
+                    ]}
+                    onPress={handleForgotVerifyOtp}
+                    disabled={loading || otp.length !== 6}
+                    activeOpacity={0.9}
+                  >
+                    <LinearGradient
+                      colors={GRADIENTS.violet}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.primaryBtnInner}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.primaryBtnText}>
+                          Verify Code
+                        </Text>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {/* ====== FORGOT - NEW PASSWORD ====== */}
+            {mode === 'forgot-newpass' && (
+              <>
+                <Text style={styles.h1}>Set new password</Text>
+                <Text style={styles.subtitle}>
+                  Choose a strong new password.
+                </Text>
+
+                <View style={{ marginTop: SPACING.xl }}>
+                  <Field
+                    label="New password"
+                    icon={
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={18}
+                        color={COLORS.mist}
+                      />
+                    }
+                  >
+                    <TextInput
+                      style={[styles.input, styles.inputWithIcon]}
+                      value={newPassword}
+                      onChangeText={(t) => {
+                        setNewPassword(t);
+                        if (error) setError(null);
+                      }}
+                      placeholder="At least 6 characters"
+                      placeholderTextColor={'rgba(139,143,163,0.5)'}
+                      secureTextEntry
+                      autoCapitalize="none"
+                      editable={!loading}
+                    />
+                  </Field>
+
+                  <Field
+                    label="Confirm password"
+                    icon={
+                      <Ionicons
+                        name="lock-closed-outline"
+                        size={18}
+                        color={COLORS.mist}
+                      />
+                    }
+                  >
+                    <TextInput
+                      style={[styles.input, styles.inputWithIcon]}
+                      value={confirmPassword}
+                      onChangeText={(t) => {
+                        setConfirmPassword(t);
+                        if (error) setError(null);
+                      }}
+                      placeholder="Repeat your password"
+                      placeholderTextColor={'rgba(139,143,163,0.5)'}
+                      secureTextEntry
+                      autoCapitalize="none"
+                      editable={!loading}
+                    />
+                  </Field>
+
+                  {error && (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText}>{error}</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity
+                    style={styles.primaryBtn}
+                    onPress={handleSetNewPassword}
+                    disabled={loading}
+                    activeOpacity={0.9}
+                  >
+                    <LinearGradient
+                      colors={GRADIENTS.violet}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.primaryBtnInner}
+                    >
+                      {loading ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.primaryBtnText}>
+                          Save New Password
+                        </Text>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
-
-          {/* Footer */}
-          <Text style={styles.footer}>
-            By continuing, you agree to our Terms & Privacy Policy
-          </Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -224,147 +718,160 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: COLORS.ink900,
-  },
-  flex: {
-    flex: 1,
-  },
-  scrollContent: {
+  safe: { flex: 1, backgroundColor: COLORS.ink900 },
+  scroll: {
     flexGrow: 1,
+    justifyContent: 'center',
     paddingHorizontal: SPACING.xl,
-    paddingTop: SPACING.xxxl,
-    paddingBottom: SPACING.xxl,
+    paddingVertical: SPACING.xxl,
   },
 
   // Background glows
   glowTop: {
     position: 'absolute',
-    top: -180,
+    top: -150,
     left: -100,
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    backgroundColor: 'rgba(124, 92, 255, 0.16)',
+    width: 400,
+    height: 400,
+    borderRadius: 200,
+    backgroundColor: 'rgba(124,92,255,0.20)',
   },
   glowBottom: {
     position: 'absolute',
-    bottom: -180,
-    right: -120,
-    width: 460,
-    height: 460,
-    borderRadius: 230,
-    backgroundColor: 'rgba(34, 211, 184, 0.08)',
-  },
-
-  // Brand
-  brandWrap: {
-    alignItems: 'center',
-    marginBottom: SPACING.xxxl,
-  },
-  brand: {
-    fontSize: 36,
-    fontFamily: FONTS.displayBold,
-    color: '#FFFFFF',
-    letterSpacing: -0.5,
-  },
-  tagline: {
-    marginTop: 6,
-    fontSize: 14,
-    fontFamily: FONTS.body,
-    color: COLORS.mist,
+    bottom: -150,
+    right: -100,
+    width: 400,
+    height: 400,
+    borderRadius: 200,
+    backgroundColor: 'rgba(156,130,255,0.15)',
   },
 
   // Card
   card: {
-    backgroundColor: 'rgba(16, 19, 28, 0.75)',
-    borderRadius: RADII.xxl,
+    backgroundColor: 'rgba(16,19,28,0.85)',
+    borderRadius: 28,
     borderWidth: 1,
-    borderColor: COLORS.glassBorder,
+    borderColor: 'rgba(255,255,255,0.06)',
     padding: SPACING.xl,
     ...SHADOWS.card,
   },
 
-  heading: {
-    fontSize: 26,
+  // Header
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  brandIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 14,
+    backgroundColor: COLORS.violet,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: COLORS.violet,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  brandText: {
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    marginBottom: 4,
   },
-  subheading: {
+  brandTextGradient: {
+    color: COLORS.violetLight,
+  },
+  brandTagline: {
+    marginTop: 6,
     fontSize: 13,
     fontFamily: FONTS.body,
+    color: 'rgba(139,143,163,0.7)',
+  },
+
+  // Headings
+  h1: {
+    marginTop: SPACING.xxl,
+    fontSize: 24,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+  },
+  subtitle: {
+    marginTop: 6,
+    fontSize: 14,
+    fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginBottom: SPACING.xl,
+    lineHeight: 19,
   },
 
-  // Error
-  errorBox: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-    borderRadius: RADII.md,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginBottom: SPACING.lg,
-  },
-  errorText: {
-    color: '#FCA5A5',
-    fontSize: 13,
-    fontFamily: FONTS.bodyMedium,
-  },
-
-  // Fields
-  field: {
-    marginBottom: SPACING.lg,
-  },
-  label: {
-    fontSize: 12,
-    fontFamily: FONTS.bodySemiBold,
-    color: COLORS.mistLight,
-    marginBottom: 6,
-    letterSpacing: 0.2,
-    textTransform: 'uppercase',
-  },
+  // Inputs
   input: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    width: '100%',
+    backgroundColor: COLORS.ink800,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: RADII.lg,
-    paddingHorizontal: 14,
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderRadius: RADII.xl,
+    paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 15,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
   },
-  passwordWrap: {
-    position: 'relative',
+  inputWithIcon: {
+    paddingLeft: 44,
   },
-  passwordInput: {
-    paddingRight: 48,
+  inputWithIconRight: {
+    paddingRight: 44,
   },
   eyeBtn: {
     position: 'absolute',
-    right: 12,
+    right: 14,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
-    paddingHorizontal: 4,
   },
-  eyeText: {
-    fontSize: 16,
+
+  // Error
+  errorBox: {
+    backgroundColor: 'rgba(239,68,68,0.10)',
+    borderRadius: RADII.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: SPACING.md,
+  },
+  errorText: {
+    color: '#FCA5A5',
+    fontSize: 12.5,
+    fontFamily: FONTS.bodyMedium,
   },
 
   // Primary button
   primaryBtn: {
-    borderRadius: RADII.full,
+    borderRadius: RADII.xl,
     overflow: 'hidden',
     marginTop: SPACING.sm,
-    ...SHADOWS.buttonViolet,
+    shadowColor: COLORS.violet,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  primaryBtnGradient: {
-    paddingVertical: 16,
+  primaryBtnInner: {
+    paddingVertical: 15,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -372,63 +879,61 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
   },
 
-  // Forgot
-  forgotBtn: {
+  // Secondary button
+  secondaryBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    marginTop: 4,
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: RADII.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    paddingVertical: 14,
   },
-  forgotText: {
-    color: COLORS.mist,
-    fontSize: 13,
-    fontFamily: FONTS.body,
+  secondaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
   },
 
   // Divider
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
     marginVertical: SPACING.lg,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
   dividerText: {
-    marginHorizontal: 12,
-    color: COLORS.mist,
     fontSize: 12,
     fontFamily: FONTS.body,
+    color: COLORS.mist,
   },
 
-  // Secondary button
-  secondaryBtn: {
-    borderRadius: RADII.full,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    paddingVertical: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
+  // Links
+  linkSmall: {
+    fontSize: 12,
+    fontFamily: FONTS.bodyMedium,
+    color: COLORS.violetLight,
   },
-  secondaryBtnText: {
-    color: '#FFFFFF',
+  linkText: {
     fontSize: 14,
-    fontFamily: FONTS.bodySemiBold,
-    letterSpacing: 0.3,
+    fontFamily: FONTS.bodyMedium,
+    color: COLORS.violetLight,
   },
-
-  // Footer
-  footer: {
+  footerText: {
     marginTop: SPACING.xxl,
     textAlign: 'center',
-    color: COLORS.mist,
-    fontSize: 11,
+    fontSize: 14,
     fontFamily: FONTS.body,
-    opacity: 0.6,
+    color: COLORS.mist,
   },
 });
