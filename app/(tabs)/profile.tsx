@@ -536,7 +536,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ===== Follow list modal — website design ===== */}
+      {/* ===== Follow list modal — pure black background ===== */}
       {listTab && (
         <Modal
           visible
@@ -955,14 +955,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ===== Follow list modal — website design =====
+  // ===== Follow list modal — pure black background =====
   listModalWrap: {
     flex: 1,
-    backgroundColor: COLORS.ink900,
+    backgroundColor: '#000000',
   },
   listModal: {
     flex: 1,
-    backgroundColor: COLORS.ink900,
+    backgroundColor: '#000000',
   },
   listHeader: {
     flexDirection: 'row',
