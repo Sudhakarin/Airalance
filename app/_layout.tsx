@@ -29,7 +29,6 @@ import { supabase } from '../lib/supabase';
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // === Push notification handler ===
-// Foreground mein bhi notification banner dikhe
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: true,
@@ -114,16 +113,13 @@ export default function RootLayout() {
   // === Push notification token register ===
   useEffect(() => {
     async function registerForPushNotificationsAsync() {
-      // Web pe push notifications skip karo
       if (Platform.OS === 'web') return;
 
-      // Real device check (emulator pe push kaam nahi karti)
       if (!Device.isDevice) {
         console.log('[push] Must use physical device for push notifications');
         return;
       }
 
-      // Android pe notification channel banao
       if (Platform.OS === 'android') {
         await Notifications.setNotificationChannelAsync('default', {
           name: 'default',
@@ -133,7 +129,6 @@ export default function RootLayout() {
         });
       }
 
-      // Permission maango
       const { status: existingStatus } =
         await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
@@ -146,7 +141,6 @@ export default function RootLayout() {
         return;
       }
 
-      // Expo Push Token lo
       try {
         const projectId =
           Constants.expoConfig?.extra?.eas?.projectId ??
@@ -163,23 +157,29 @@ export default function RootLayout() {
 
         console.log('[push] Expo Push Token:', token);
 
-        // Supabase mein save karo
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        console.log('[push] Current user:', user?.id ?? 'null', 'Error:', userError);
+
         if (user && token) {
-          await supabase
+          const { error: updateError } = await supabase
             .from('profiles')
             .update({ expo_push_token: token })
             .eq('id', user.id);
-          console.log('[push] Token saved to Supabase');
+
+          if (updateError) {
+            console.error('[push] Token save FAILED:', updateError);
+          } else {
+            console.log('[push] Token SAVED successfully to Supabase');
+          }
+        } else {
+          console.warn('[push] Skipped saving: user or token is missing');
         }
       } catch (err) {
         console.warn('[push] Token registration failed:', err);
       }
     }
 
-    registerForPushNotificationsAsync();
+    registerPushNotificationsAsync();
   }, [authReady]);
 
   useEffect(() => {
@@ -261,7 +261,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 20,
   },
-  // Loading text — 24
   loadingText: {
     color: COLORS.text,
     fontSize: 24,
