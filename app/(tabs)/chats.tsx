@@ -552,4 +552,4 @@ const styles = StyleSheet.create({
     fontSize: 14.5,
     fontFamily: FONTS.bodySemiBold,
   },
- terminal});
+});
