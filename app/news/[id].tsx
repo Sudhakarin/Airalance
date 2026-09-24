@@ -103,14 +103,12 @@ export default function ArticleReaderScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* Progress bar */}
       <View style={styles.progressBar}>
         <View
           style={[styles.progressFill, { width: `${progress}%` }]}
         />
       </View>
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerBtn}
@@ -136,7 +134,6 @@ export default function ArticleReaderScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Content */}
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -144,15 +141,12 @@ export default function ArticleReaderScreen() {
         scrollEventThrottle={16}
       >
         <View style={styles.articleWrap}>
-          {/* Category pill */}
           <View style={styles.categoryPill}>
             <Text style={styles.categoryText}>{article.category}</Text>
           </View>
 
-          {/* Title */}
           <Text style={styles.title}>{article.title}</Text>
 
-          {/* Meta */}
           <View style={styles.metaRow}>
             <Text style={styles.metaText}>{article.source}</Text>
             <Text style={styles.metaDot}>·</Text>
@@ -163,7 +157,6 @@ export default function ArticleReaderScreen() {
             </Text>
           </View>
 
-          {/* Image */}
           {article.image_url ? (
             <Image
               source={{ uri: article.image_url }}
@@ -183,7 +176,6 @@ export default function ArticleReaderScreen() {
             </LinearGradient>
           )}
 
-          {/* Body */}
           <View style={styles.body}>
             {(article.body ?? []).map((para, i) => (
               <Text key={i} style={styles.paragraph}>
@@ -192,7 +184,6 @@ export default function ArticleReaderScreen() {
             ))}
           </View>
 
-          {/* Source link */}
           {article.source_url && (
             <TouchableOpacity
               style={styles.sourceBtn}
@@ -233,22 +224,22 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: 14,
   },
   emptyText: {
     color: COLORS.mist,
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: FONTS.body,
   },
   backBtn2: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 999,
     backgroundColor: COLORS.violet,
   },
   backBtn2Text: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
   },
 
@@ -270,9 +261,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -282,82 +273,82 @@ const styles = StyleSheet.create({
   },
   headerSource: {
     color: COLORS.text,
-    fontSize: 13,
+    fontSize: 12.5,
     fontFamily: FONTS.bodySemiBold,
   },
   headerTime: {
     color: COLORS.mist,
-    fontSize: 11,
+    fontSize: 10.5,
     fontFamily: FONTS.body,
     marginTop: 1,
   },
 
-  scroll: { paddingBottom: SPACING.xxl },
+  scroll: { paddingBottom: SPACING.xl },
   articleWrap: {
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.sm,
   },
   categoryPill: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 999,
     backgroundColor: 'rgba(124,92,255,0.18)',
   },
   categoryText: {
     color: COLORS.violetLight,
-    fontSize: 11,
+    fontSize: 10.5,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
   title: {
-    marginTop: SPACING.md,
+    marginTop: SPACING.sm,
     color: '#FFFFFF',
-    fontSize: 24,
+    fontSize: 21,
     fontFamily: FONTS.displayBold,
-    lineHeight: 30,
+    lineHeight: 27,
   },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: SPACING.sm,
-    gap: 6,
+    gap: 5,
     flexWrap: 'wrap',
   },
   metaText: {
     color: COLORS.mist,
-    fontSize: 12,
+    fontSize: 11.5,
     fontFamily: FONTS.body,
   },
   metaDot: {
     color: COLORS.mist,
-    fontSize: 12,
+    fontSize: 11.5,
   },
   heroImage: {
     width: '100%',
-    height: SCREEN_W * 0.55,
+    height: SCREEN_W * 0.5,
     borderRadius: RADII.xl,
-    marginTop: SPACING.lg,
+    marginTop: SPACING.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroEmoji: {
-    fontSize: 72,
+    fontSize: 60,
     opacity: 0.9,
   },
   body: {
-    marginTop: SPACING.xl,
-    gap: SPACING.md,
+    marginTop: SPACING.lg,
+    gap: SPACING.sm,
   },
   paragraph: {
     color: 'rgba(255,255,255,0.85)',
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: FONTS.body,
-    lineHeight: 23,
+    lineHeight: 21,
   },
   sourceBtn: {
-    marginTop: SPACING.xl,
+    marginTop: SPACING.lg,
     borderRadius: 999,
     overflow: 'hidden',
   },
@@ -366,12 +357,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
   },
   sourceBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
   },
 });
