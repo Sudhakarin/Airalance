@@ -84,12 +84,10 @@ export default function ChatScreen() {
   const lastTypingSentRef = useRef(0);
   const inputRef = useRef<TextInput>(null);
 
-  // === Voice recording ===
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 100);
   const [isRecording, setIsRecording] = useState(false);
 
-  // === Bootstrap ===
   useEffect(() => {
     let mounted = true;
 
@@ -143,7 +141,6 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
-  // === Realtime ===
   useEffect(() => {
     if (!myId || !convoId) return;
 
@@ -223,7 +220,6 @@ export default function ChatScreen() {
     };
   }, [myId, convoId]);
 
-  // === Online status ===
   useEffect(() => {
     if (!other?.id) return;
     const check = async () => {
@@ -243,7 +239,6 @@ export default function ChatScreen() {
     return () => clearInterval(interval);
   }, [other?.id]);
 
-  // === Scroll to bottom ===
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => {
@@ -252,21 +247,18 @@ export default function ChatScreen() {
     }
   }, [messages.length]);
 
-  // === Web: composer auto-height ===
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const el: any = inputRef.current;
     if (!el || !el.style) return;
     el.style.height = 'auto';
-    const next = Math.min(Math.max(el.scrollHeight, 52), 130);
+    const next = Math.min(Math.max(el.scrollHeight, 48), 120);
     el.style.height = `${next}px`;
   }, [input, isRecording]);
 
-  // === Push Notification Helper ===
   async function triggerPushNotification(receiverId: string, messageText: string, messageType: 'text' | 'image' | 'voice' = 'text') {
     if (!myId || !receiverId) return;
     try {
-      // Fetch sender's display name
       const { data: profile } = await supabase
         .from('profiles')
         .select('display_name')
@@ -293,7 +285,6 @@ export default function ChatScreen() {
     }
   }
 
-  // === Typing broadcast ===
   function onInputChange(text: string) {
     setInput(text);
     const channel = channelRef.current;
@@ -320,7 +311,6 @@ export default function ChatScreen() {
     }
   }
 
-  // === Send text ===
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
@@ -376,7 +366,6 @@ export default function ChatScreen() {
       );
     });
 
-    // Trigger push notification
     if (other?.id) {
       triggerPushNotification(other.id, content, 'text');
     }
@@ -384,7 +373,6 @@ export default function ChatScreen() {
     setSending(false);
   }
 
-  // === Send image ===
   async function pickImage() {
     if (!myId || !convoId || uploading) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -440,7 +428,6 @@ export default function ChatScreen() {
             : [...prev, inserted as Message]
         );
 
-        // Trigger push notification
         if (other?.id) {
           triggerPushNotification(other.id, '', 'image');
         }
@@ -453,7 +440,6 @@ export default function ChatScreen() {
     }
   }
 
-  // === Voice recording ===
   async function startRecording() {
     if (isRecording) return;
     try {
@@ -522,7 +508,6 @@ export default function ChatScreen() {
             : [...prev, inserted as Message]
         );
 
-        // Trigger push notification
         if (other?.id) {
           triggerPushNotification(other.id, '', 'voice');
         }
@@ -562,7 +547,6 @@ export default function ChatScreen() {
 
   const recordSeconds = Math.floor((recorderState.durationMillis ?? 0) / 1000);
 
-  // === Render ===
   if (loading || !myId) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -577,16 +561,16 @@ export default function ChatScreen() {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backBtn}
             onPress={() => router.back()}
             activeOpacity={0.7}
           >
-            <Ionicons name="chevron-back" size={28} color={COLORS.text} />
+            <Ionicons name="chevron-back" size={26} color={COLORS.text} />
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -598,14 +582,14 @@ export default function ChatScreen() {
               name={other?.display_name ?? 'Unknown'}
               color={other?.avatar_color ?? COLORS.violet}
               avatarUrl={other?.avatar_url ?? null}
-              size={46}
+              size={42}
             />
             <View style={{ marginLeft: 12, flex: 1 }}>
               <View style={styles.headerNameRow}>
                 <Text style={styles.headerName} numberOfLines={1}>
                   {other?.display_name ?? 'Unknown'}
                 </Text>
-                {other?.verified && <VerifiedBadge size={17} />}
+                {other?.verified && <VerifiedBadge size={15} />}
               </View>
               <Text style={styles.headerSub} numberOfLines={1}>
                 {peerTyping ? (
@@ -626,13 +610,12 @@ export default function ChatScreen() {
           >
             <Ionicons
               name="information-circle-outline"
-              size={28}
+              size={26}
               color={COLORS.text}
             />
           </TouchableOpacity>
         </View>
 
-        {/* Messages */}
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -663,7 +646,6 @@ export default function ChatScreen() {
           }
         />
 
-        {/* Composer */}
         <View style={styles.inputBar}>
           {isRecording ? (
             <>
@@ -678,7 +660,7 @@ export default function ChatScreen() {
                 onPress={cancelRecording}
                 activeOpacity={0.7}
               >
-                <Ionicons name="close" size={24} color={COLORS.danger} />
+                <Ionicons name="close" size={22} color={COLORS.danger} />
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.recordingSendBtn}
@@ -691,7 +673,7 @@ export default function ChatScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.recordingSendBtnInner}
                 >
-                  <Ionicons name="send" size={20} color="#FFFFFF" />
+                  <Ionicons name="send" size={18} color="#FFFFFF" />
                 </LinearGradient>
               </TouchableOpacity>
             </>
@@ -706,7 +688,7 @@ export default function ChatScreen() {
                 {uploading ? (
                   <ActivityIndicator size="small" color={COLORS.mist} />
                 ) : (
-                  <Ionicons name="image-outline" size={26} color={COLORS.mist} />
+                  <Ionicons name="image-outline" size={24} color={COLORS.mist} />
                 )}
               </TouchableOpacity>
 
@@ -741,7 +723,7 @@ export default function ChatScreen() {
                     {sending ? (
                       <ActivityIndicator size="small" color="#FFFFFF" />
                     ) : (
-                      <Ionicons name="send" size={20} color="#FFFFFF" />
+                      <Ionicons name="send" size={18} color="#FFFFFF" />
                     )}
                   </LinearGradient>
                 </TouchableOpacity>
@@ -751,7 +733,7 @@ export default function ChatScreen() {
                   onPress={startRecording}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="mic-outline" size={26} color={COLORS.mist} />
+                  <Ionicons name="mic-outline" size={24} color={COLORS.mist} />
                 </TouchableOpacity>
               )}
             </View>
@@ -775,15 +757,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.sm,
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
     backgroundColor: 'rgba(10,12,18,0.95)',
   },
   backBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -791,8 +773,8 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
     borderRadius: RADII.lg,
   },
   headerNameRow: {
@@ -800,21 +782,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerName: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
   headerSub: {
-    fontSize: 15,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 2,
+    marginTop: 1,
   },
 
   listContent: {
     paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
     flexGrow: 1,
   },
   emptyWrap: {
@@ -825,16 +807,16 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     color: COLORS.mist,
-    fontSize: 17.5,
+    fontSize: 16,
     fontFamily: FONTS.body,
   },
 
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: Platform.OS === 'ios' ? 16 : 12,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 12 : 8,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
     backgroundColor: '#0B0D14',
@@ -847,27 +829,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#171A24',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 30,
-    paddingHorizontal: 5,
-    paddingVertical: 5,
-    minHeight: 62,
+    borderRadius: 28,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    minHeight: 54,
   },
   composerIconBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
   },
   composerInput: {
     flex: 1,
-    minHeight: 52,
-    maxHeight: 130,
-    paddingHorizontal: 10,
-    paddingTop: 13,
-    paddingBottom: 13,
-    fontSize: 19,
-    lineHeight: 26,
+    minHeight: 46,
+    maxHeight: 120,
+    paddingHorizontal: 8,
+    paddingTop: 10,
+    paddingBottom: 10,
+    fontSize: 17,
+    lineHeight: 22,
     includeFontPadding: false,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
@@ -881,59 +863,59 @@ const styles = StyleSheet.create({
     boxShadow: 'none',
   } as any,
   composerSendBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     overflow: 'hidden',
   },
   composerSendBtnInner: {
-    width: 50,
-    height: 50,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   recordingWrap: {
     flex: 1,
-    height: 62,
+    height: 54,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 20,
+    gap: 10,
+    paddingHorizontal: 16,
     backgroundColor: 'rgba(239,68,68,0.10)',
-    borderRadius: 30,
+    borderRadius: 28,
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.25)',
   },
   recordingDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: COLORS.danger,
   },
   recordingText: {
     color: COLORS.danger,
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: FONTS.bodyMedium,
   },
   recordingIconBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 8,
+    marginLeft: 6,
   },
   recordingSendBtn: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     overflow: 'hidden',
-    marginLeft: 8,
+    marginLeft: 6,
   },
   recordingSendBtnInner: {
-    width: 50,
-    height: 50,
+    width: 44,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
