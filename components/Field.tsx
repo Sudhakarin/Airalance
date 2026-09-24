@@ -29,16 +29,16 @@ export default function Field({ label, icon, right, children }: Props) {
 
 const styles = StyleSheet.create({
   wrap: {
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.md,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 5,
   },
   label: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.mistLight,
   },
@@ -47,7 +47,7 @@ const styles = StyleSheet.create({
   },
   iconWrap: {
     position: 'absolute',
-    left: 16,
+    left: 14,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
