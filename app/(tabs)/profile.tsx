@@ -365,7 +365,7 @@ export default function ProfileScreen() {
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="settings-outline" size={24} color={COLORS.text} />
+          <Ionicons name="settings-outline" size={22} color={COLORS.text} />
         </TouchableOpacity>
       </View>
 
@@ -374,7 +374,6 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Top section */}
         <View style={styles.topSection}>
           <TouchableOpacity
             onPress={pickAvatar}
@@ -390,7 +389,7 @@ export default function ProfileScreen() {
                 name={profile.display_name}
                 color={profile.avatar_color}
                 avatarUrl={profile.avatar_url}
-                size={110}
+                size={96}
               />
             </StatusRing>
 
@@ -398,7 +397,7 @@ export default function ProfileScreen() {
               {uploading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Ionicons name="camera" size={15} color="#FFFFFF" />
+                <Ionicons name="camera" size={14} color="#FFFFFF" />
               )}
             </View>
           </TouchableOpacity>
@@ -408,7 +407,7 @@ export default function ProfileScreen() {
               <Text style={styles.displayName} numberOfLines={1}>
                 {profile.display_name}
               </Text>
-              {verified && <VerifiedBadge size={22} />}
+              {verified && <VerifiedBadge size={20} />}
             </View>
 
             <View style={styles.statsGrid}>
@@ -431,7 +430,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Username + bio */}
         <View style={styles.bioBlock}>
           <Text style={styles.username}>@{profile.username}</Text>
           {profile.bio ? (
@@ -442,7 +440,6 @@ export default function ProfileScreen() {
           ) : null}
         </View>
 
-        {/* Info card */}
         <View style={styles.card}>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Full name</Text>
@@ -471,7 +468,7 @@ export default function ProfileScreen() {
             <Text style={styles.infoLabel}>Username</Text>
             <View style={styles.usernameRow}>
               <Text style={styles.infoValue}>@{profile.username}</Text>
-              {verified && <VerifiedBadge size={16} />}
+              {verified && <VerifiedBadge size={15} />}
             </View>
           </View>
 
@@ -492,7 +489,6 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Bio card */}
         <View style={styles.card}>
           <View style={styles.bioHeader}>
             <Text style={styles.infoLabel}>Bio</Text>
@@ -547,7 +543,6 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Follow list modal */}
       {listTab && (
         <Modal
           visible
@@ -563,13 +558,13 @@ export default function ProfileScreen() {
                   style={styles.listHeaderBtn}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="chevron-back" size={26} color="#FFFFFF" />
+                  <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
                 <View style={styles.listHeaderCenter}>
                   <Text style={styles.listHeaderUsername} numberOfLines={1}>
                     {profile.username}
                   </Text>
-                  {verified && <VerifiedBadge size={16} />}
+                  {verified && <VerifiedBadge size={15} />}
                 </View>
                 <View style={styles.listHeaderBtn} />
               </View>
@@ -621,7 +616,7 @@ export default function ProfileScreen() {
                 <View style={styles.listEmpty}>
                   <Ionicons
                     name="people-outline"
-                    size={44}
+                    size={40}
                     color={COLORS.mist}
                   />
                   <Text style={styles.listEmptyText}>
@@ -653,14 +648,14 @@ export default function ProfileScreen() {
                           name={item.display_name}
                           color={item.avatar_color}
                           avatarUrl={item.avatar_url}
-                          size={56}
+                          size={50}
                         />
                         <View style={styles.personInfo}>
                           <View style={styles.personNameRow}>
                             <Text style={styles.personName} numberOfLines={1}>
                               {item.display_name}
                             </Text>
-                            {isVerified(item) && <VerifiedBadge size={15} />}
+                            {isVerified(item) && <VerifiedBadge size={14} />}
                           </View>
                           <Text
                             style={styles.personUsername}
@@ -736,7 +731,7 @@ function StatItem({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
-  scroll: { paddingBottom: SPACING.xxl },
+  scroll: { paddingBottom: SPACING.xl },
 
   glowTop: {
     position: 'absolute',
@@ -752,19 +747,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
   },
   headerTitle: {
-    fontSize: 34,
+    fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   headerBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -773,19 +768,19 @@ const styles = StyleSheet.create({
   topSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 14,
-    paddingBottom: 22,
-    gap: 24,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 18,
+    gap: 18,
   },
   avatarWrap: { position: 'relative' },
   cameraBadge: {
     position: 'absolute',
     bottom: 2,
     right: 2,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
@@ -797,7 +792,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     justifyContent: 'center',
-    gap: 16,
+    gap: 12,
   },
 
   nameRow: {
@@ -805,7 +800,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   displayName: {
-    fontSize: 25,
+    fontSize: 22,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     flexShrink: 1,
@@ -817,47 +812,47 @@ const styles = StyleSheet.create({
   statItem: {
     flex: 1,
     alignItems: 'flex-start',
-    gap: 4,
+    gap: 3,
   },
   statValue: {
-    fontSize: 23,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    lineHeight: 27,
+    lineHeight: 24,
   },
   statLabel: {
-    fontSize: 15.5,
+    fontSize: 13.5,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.7)',
   },
 
   bioBlock: {
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 26,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 20,
   },
   username: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
   },
   bio: {
-    fontSize: 16.5,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.85)',
-    marginTop: 8,
-    lineHeight: 23,
+    marginTop: 6,
+    lineHeight: 21,
   },
   bioLink: {
-    fontSize: 16.5,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.teal,
-    marginTop: 8,
+    marginTop: 6,
   },
 
   card: {
-    marginHorizontal: 24,
-    marginBottom: SPACING.md,
+    marginHorizontal: 20,
+    marginBottom: SPACING.sm,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
@@ -868,18 +863,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 18,
-    gap: SPACING.md,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    gap: SPACING.sm,
   },
   infoLabel: {
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     letterSpacing: 0.2,
   },
   infoValue: {
-    fontSize: 17.5,
+    fontSize: 15.5,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
     flexShrink: 1,
@@ -887,7 +882,7 @@ const styles = StyleSheet.create({
   },
   infoInput: {
     flex: 1,
-    fontSize: 17.5,
+    fontSize: 15.5,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     textAlign: 'right',
@@ -907,10 +902,10 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: 24,
+    marginLeft: 20,
   },
   logoutText: {
-    fontSize: 17.5,
+    fontSize: 15.5,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.danger,
   },
@@ -919,24 +914,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 18,
-    paddingBottom: 10,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 8,
   },
   bioCounter: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     opacity: 0.7,
   },
   bioInput: {
-    paddingHorizontal: 24,
-    paddingBottom: 18,
-    fontSize: 17.5,
+    paddingHorizontal: 20,
+    paddingBottom: 14,
+    fontSize: 15.5,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
-    minHeight: 90,
-    lineHeight: 24,
+    minHeight: 80,
+    lineHeight: 22,
     borderWidth: 0,
     borderColor: 'transparent',
     backgroundColor: 'transparent',
@@ -947,20 +942,20 @@ const styles = StyleSheet.create({
   } as any,
 
   saveBtn: {
-    marginHorizontal: 24,
-    marginTop: SPACING.md,
+    marginHorizontal: 20,
+    marginTop: SPACING.sm,
     borderRadius: RADII.full,
     overflow: 'hidden',
   },
   saveBtnDisabled: { opacity: 0.4 },
   saveBtnGradient: {
-    paddingVertical: 19,
+    paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   saveBtnText: {
     color: '#FFFFFF',
-    fontSize: 17.5,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.3,
   },
@@ -971,7 +966,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ===== Follow list modal =====
   listModalWrap: { flex: 1, backgroundColor: '#000000' },
   listModal: { flex: 1, backgroundColor: '#000000' },
   listHeader: {
@@ -979,12 +973,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.sm,
-    paddingTop: SPACING.md,
+    paddingTop: SPACING.sm,
     paddingBottom: SPACING.sm,
   },
   listHeaderBtn: {
-    width: 46,
-    height: 46,
+    width: 42,
+    height: 42,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -995,7 +989,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   listHeaderUsername: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
@@ -1007,12 +1001,12 @@ const styles = StyleSheet.create({
   },
   listTabBtn: {
     flex: 1,
-    paddingVertical: 18,
+    paddingVertical: 14,
     alignItems: 'center',
     position: 'relative',
   },
   listTabText: {
-    fontSize: 17,
+    fontSize: 15.5,
     fontFamily: FONTS.bodySemiBold,
     color: 'rgba(255,255,255,0.45)',
   },
@@ -1033,44 +1027,44 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 14,
+    gap: 12,
   },
   listEmptyText: {
     color: COLORS.mist,
-    fontSize: 17.5,
+    fontSize: 16,
     fontFamily: FONTS.body,
   },
   listContent: {
     paddingHorizontal: SPACING.md,
     paddingTop: SPACING.sm,
-    paddingBottom: SPACING.xxl,
+    paddingBottom: SPACING.xl,
   },
   personRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.md,
-    paddingVertical: 14,
+    gap: SPACING.sm,
+    paddingVertical: 12,
     paddingHorizontal: 4,
   },
   personInfo: { flex: 1, minWidth: 0 },
   personNameRow: { flexDirection: 'row', alignItems: 'center' },
   personName: {
-    fontSize: 17.5,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
   personUsername: {
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 3,
+    marginTop: 2,
   },
 
   followBtnSmall: {
-    minWidth: 120,
-    height: 42,
-    paddingHorizontal: 18,
+    minWidth: 110,
+    height: 38,
+    paddingHorizontal: 16,
     borderRadius: 9,
     backgroundColor: '#E54E60',
     alignItems: 'center',
@@ -1083,7 +1077,7 @@ const styles = StyleSheet.create({
   },
   followBtnSmallText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 14.5,
     fontFamily: FONTS.bodySemiBold,
   },
   followBtnSmallTextFollowing: {
