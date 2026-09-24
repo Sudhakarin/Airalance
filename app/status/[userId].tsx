@@ -56,6 +56,8 @@ export default function StatusViewerScreen() {
   const [myId, setMyId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [liked, setLiked] = useState(false);
+  const [likeLoading, setLikeLoading] = useState(false);
 
   const pausedRef = useRef(false);
   const elapsedRef = useRef(0);
@@ -105,12 +107,60 @@ export default function StatusViewerScreen() {
     [myId]
   );
 
+  const checkLiked = useCallback(
+    async (statusId: string) => {
+      if (!myId) return;
+      try {
+        const { data } = await supabase
+          .from('status_likes')
+          .select('status_id')
+          .eq('status_id', statusId)
+          .eq('user_id', myId)
+          .maybeSingle();
+        setLiked(!!data);
+      } catch {
+        setLiked(false);
+      }
+    },
+    [myId]
+  );
+
+  async function toggleLike() {
+    if (!myId || likeLoading) return;
+    const current = statuses[index];
+    if (!current) return;
+
+    setLikeLoading(true);
+    const wasLiked = liked;
+    setLiked(!wasLiked);
+
+    try {
+      if (wasLiked) {
+        await supabase
+          .from('status_likes')
+          .delete()
+          .eq('status_id', current.id)
+          .eq('user_id', myId);
+      } else {
+        await supabase
+          .from('status_likes')
+          .insert({ status_id: current.id, user_id: myId });
+      }
+    } catch (err) {
+      console.warn('Toggle like error:', err);
+      setLiked(wasLiked);
+    } finally {
+      setLikeLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (loading || statuses.length === 0) return;
     const current = statuses[index];
     if (!current) return;
 
     markViewed(current.id);
+    checkLiked(current.id);
 
     elapsedRef.current = 0;
     frameStartRef.current = performance.now();
@@ -141,7 +191,7 @@ export default function StatusViewerScreen() {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [index, statuses, loading, markViewed]);
+  }, [index, statuses, loading, markViewed, checkLiked]);
 
   function advance(dir: 1 | -1) {
     const next = index + dir;
@@ -314,8 +364,27 @@ export default function StatusViewerScreen() {
 
       {!isMine && (
         <SafeAreaView style={styles.bottomArea} edges={['bottom']}>
-          <View style={styles.replyBar}>
-            <Text style={styles.replyPlaceholder}>Reply to status…</Text>
+          <View style={styles.bottomRow}>
+            <TouchableOpacity
+              style={styles.replyBar}
+              activeOpacity={0.7}
+              onPress={() => {}}
+            >
+              <Text style={styles.replyPlaceholder}>Reply to status…</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.heartBtn, liked && styles.heartBtnActive]}
+              onPress={toggleLike}
+              activeOpacity={0.7}
+              disabled={likeLoading}
+            >
+              <Ionicons
+                name={liked ? 'heart' : 'heart-outline'}
+                size={22}
+                color={liked ? '#EF4444' : '#FFFFFF'}
+              />
+            </TouchableOpacity>
           </View>
         </SafeAreaView>
       )}
@@ -479,7 +548,13 @@ const styles = StyleSheet.create({
     right: 0,
     padding: SPACING.sm,
   },
+  bottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   replyBar: {
+    flex: 1,
     borderRadius: 999,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.5)',
@@ -490,5 +565,19 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.75)',
     fontSize: 13.5,
     fontFamily: FONTS.body,
+  },
+  heartBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  heartBtnActive: {
+    borderColor: '#EF4444',
+    backgroundColor: 'rgba(239,68,68,0.15)',
   },
 });
