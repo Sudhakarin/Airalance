@@ -19,7 +19,7 @@ export default function EmptyState({
   return (
     <View style={styles.wrap}>
       <View style={styles.iconWrap}>
-        <Ionicons name={icon} size={42} color={COLORS.mist} />
+        <Ionicons name={icon} size={36} color={COLORS.mist} />
       </View>
       <Text style={styles.title}>{title}</Text>
       {subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
@@ -31,30 +31,30 @@ const styles = StyleSheet.create({
   wrap: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 60,
-    paddingHorizontal: 40,
-    gap: 10,
+    paddingVertical: 48,
+    paddingHorizontal: 32,
+    gap: 8,
   },
   iconWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: 'rgba(255,255,255,0.04)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
   },
   title: {
-    fontSize: 17,
+    fontSize: 16,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 17,
   },
 });
