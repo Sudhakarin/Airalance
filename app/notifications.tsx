@@ -52,6 +52,12 @@ type ConnectionRequest = {
   } | null;
 };
 
+function stripTrailingEmoji(text: string): string {
+  const emojiRegex =
+    /[\u{1F300}-\u{1FAFF}\u{1F000}-\u{1F02F}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]+\s*$/u;
+  return text.replace(emojiRegex, '').trim();
+}
+
 export default function NotificationsScreen() {
   const router = useRouter();
   const [myId, setMyId] = useState<string | null>(null);
@@ -221,7 +227,7 @@ export default function NotificationsScreen() {
           onPress={() => router.back()}
           activeOpacity={0.7}
         >
-          <Ionicons name="chevron-back" size={22} color={COLORS.text} />
+          <Ionicons name="chevron-back" size={24} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Notifications</Text>
         {appNotifs.some((n) => !n.read) ? (
@@ -322,6 +328,21 @@ export default function NotificationsScreen() {
 
           const n = entry.item;
           const ap = n.actor_profile;
+          const bodyText = stripTrailingEmoji(n.body || '');
+          const actorName = ap?.display_name || '';
+
+          const nameIndex = actorName ? bodyText.indexOf(actorName) : -1;
+          const hasName = nameIndex >= 0;
+
+          const beforeName = hasName
+            ? bodyText.slice(0, nameIndex)
+            : '';
+          const namePart = hasName
+            ? bodyText.slice(nameIndex, nameIndex + actorName.length)
+            : '';
+          const afterName = hasName
+            ? bodyText.slice(nameIndex + actorName.length)
+            : bodyText;
 
           const renderRightActions = () => (
             <TouchableOpacity
@@ -349,17 +370,44 @@ export default function NotificationsScreen() {
                   />
                 ) : (
                   <View style={styles.iconCircle}>
-                    <Ionicons name="notifications" size={20} color={COLORS.violetLight} />
+                    <Ionicons
+                      name="notifications"
+                      size={20}
+                      color={COLORS.violetLight}
+                    />
                   </View>
                 )}
                 <View style={styles.cardBody}>
-                  <View style={styles.cardTitleRow}>
-                    <Text style={styles.cardTitle}>{n.body}</Text>
-                    {ap?.verified && (
-                      <VerifiedBadge size={13} style={{ marginLeft: 5 }} />
-                    )}
-                  </View>
-                  <Text style={styles.cardSub}>{formatTime(n.created_at)}</Text>
+                  {hasName ? (
+                    <View style={styles.cardTitleRow}>
+                      {beforeName ? (
+                        <Text style={styles.cardTitle}>{beforeName}</Text>
+                      ) : null}
+                      <Text style={[styles.cardTitle, styles.bold]}>
+                        {namePart}
+                      </Text>
+                      {ap?.verified && (
+                        <View style={styles.badgeInline}>
+                          <VerifiedBadge size={13} />
+                        </View>
+                      )}
+                      {afterName ? (
+                        <Text style={styles.cardTitle}>{afterName}</Text>
+                      ) : null}
+                    </View>
+                  ) : (
+                    <View style={styles.cardTitleRow}>
+                      <Text style={styles.cardTitle}>{bodyText}</Text>
+                      {ap?.verified && (
+                        <View style={styles.badgeInline}>
+                          <VerifiedBadge size={13} />
+                        </View>
+                      )}
+                    </View>
+                  )}
+                  <Text style={styles.cardSub}>
+                    {formatTime(n.created_at)}
+                  </Text>
                 </View>
               </TouchableOpacity>
             </Swipeable>
@@ -379,44 +427,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   headerBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   markReadBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    minWidth: 75,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 80,
     alignItems: 'flex-end',
   },
   markReadText: {
     color: COLORS.violetLight,
-    fontSize: 13,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  list: { paddingHorizontal: 16, paddingBottom: SPACING.lg, flexGrow: 1 },
+  list: { paddingHorizontal: 16, paddingBottom: SPACING.xl, flexGrow: 1 },
 
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 10,
-    padding: 12,
-    borderRadius: 16,
+    gap: 12,
+    padding: 14,
+    borderRadius: RADII.xl,
     backgroundColor: '#121212',
     borderWidth: 1,
     borderColor: '#1F1F23',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   iconCircle: {
     width: 40,
@@ -431,6 +479,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
+  },
+  badgeInline: {
+    marginLeft: 3,
+    marginRight: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   cardTitle: {
     color: '#FFFFFF',
