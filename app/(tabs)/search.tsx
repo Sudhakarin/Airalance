@@ -9,7 +9,6 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
-  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -37,7 +36,7 @@ type Profile = {
   status: string | null;
 };
 
-// ===== Skeleton (pulse animation) =====
+// ===== Skeleton block (static — works on web + native) =====
 function SkeletonBlock({
   width,
   height,
@@ -49,36 +48,14 @@ function SkeletonBlock({
   borderRadius?: number;
   style?: any;
 }) {
-  const opacity = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.3,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity]);
-
   return (
-    <Animated.View
+    <View
       style={[
         {
           width,
           height,
           borderRadius,
           backgroundColor: 'rgba(255,255,255,0.08)',
-          opacity,
         },
         style,
       ]}
@@ -399,14 +376,12 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 18,
   },
-  // Brand — 34 (was 28)
   headerBrand: {
     fontSize: 34,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
-  // Bell — 46 (was 42)
   bellBtn: {
     width: 46,
     height: 46,
@@ -416,7 +391,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
   },
-  // Badge — 20 (was 18)
   badge: {
     position: 'absolute',
     top: 3,
@@ -442,7 +416,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: SPACING.md,
   },
-  // Search box — 54 (was 48)
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -453,7 +426,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     height: 56,
   },
-  // Input — 17 (was 15)
   searchInput: {
     flex: 1,
     fontSize: 17,
@@ -483,7 +455,6 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.md,
   },
-  // Suggest title — 15.5 (was 13)
   suggestTitle: {
     fontSize: 15.5,
     fontFamily: FONTS.bodySemiBold,
@@ -513,14 +484,12 @@ const styles = StyleSheet.create({
   },
   suggestionInfo: { flex: 1, minWidth: 0 },
   suggestionNameWrap: { flexDirection: 'row', alignItems: 'center' },
-  // Suggestion name — 18 (was 15.5)
   suggestionName: {
     fontSize: 18,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
-  // Suggestion username — 15 (was 13)
   suggestionUsername: {
     fontSize: 15,
     fontFamily: FONTS.body,
@@ -535,7 +504,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingVertical: 12,
   },
-  // Connect btn text — 15 (was 12.5)
   connectBtnText: {
     color: '#FFFFFF',
     fontSize: 15,
@@ -583,7 +551,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
 
-  // Result row — bigger padding
+  // Result row
   resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -594,14 +562,12 @@ const styles = StyleSheet.create({
   },
   resultInfo: { flex: 1, minWidth: 0 },
   resultNameWrap: { flexDirection: 'row', alignItems: 'center' },
-  // Result name — 17.5 (was 15)
   resultName: {
     fontSize: 17.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
-  // Result username — 15 (was 13)
   resultUsername: {
     fontSize: 15,
     fontFamily: FONTS.body,
@@ -616,14 +582,12 @@ const styles = StyleSheet.create({
     paddingTop: 70,
     gap: 12,
   },
-  // Empty text — 18 (was 15)
   emptyText: {
     fontSize: 18,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.text,
     marginTop: 8,
   },
-  // Empty sub — 14.5 (was 12)
   emptySub: {
     fontSize: 14.5,
     fontFamily: FONTS.body,
