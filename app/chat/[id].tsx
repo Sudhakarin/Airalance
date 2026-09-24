@@ -262,6 +262,37 @@ export default function ChatScreen() {
     el.style.height = `${next}px`;
   }, [input, isRecording]);
 
+  // === Push Notification Helper ===
+  async function triggerPushNotification(receiverId: string, messageText: string, messageType: 'text' | 'image' | 'voice' = 'text') {
+    if (!myId || !receiverId) return;
+    try {
+      // Fetch sender's display name
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('id', myId)
+        .single();
+      
+      const senderName = profile?.display_name || 'Someone';
+      let bodyText = messageText;
+      
+      if (messageType === 'image') bodyText = '📷 Image';
+      if (messageType === 'voice') bodyText = '🎤 Voice message';
+
+      await supabase.functions.invoke('send-push', {
+        body: {
+          userId: receiverId,
+          title: senderName,
+          body: bodyText,
+          data: { screen: 'chat', chatId: convoId }
+        }
+      });
+      console.log('[push] Notification sent successfully');
+    } catch (error) {
+      console.warn('[push] Failed to send push notification:', error);
+    }
+  }
+
   // === Typing broadcast ===
   function onInputChange(text: string) {
     setInput(text);
@@ -344,6 +375,12 @@ export default function ChatScreen() {
         m.id === tempId ? (inserted as Message) : m
       );
     });
+
+    // Trigger push notification
+    if (other?.id) {
+      triggerPushNotification(other.id, content, 'text');
+    }
+
     setSending(false);
   }
 
@@ -402,6 +439,11 @@ export default function ChatScreen() {
             ? prev
             : [...prev, inserted as Message]
         );
+
+        // Trigger push notification
+        if (other?.id) {
+          triggerPushNotification(other.id, '', 'image');
+        }
       }
     } catch (err: any) {
       console.warn('Image upload error:', err);
@@ -479,6 +521,11 @@ export default function ChatScreen() {
             ? prev
             : [...prev, inserted as Message]
         );
+
+        // Trigger push notification
+        if (other?.id) {
+          triggerPushNotification(other.id, '', 'voice');
+        }
       }
     } catch (err: any) {
       console.warn('Voice send error:', err);
@@ -733,7 +780,6 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255,255,255,0.06)',
     backgroundColor: 'rgba(10,12,18,0.95)',
   },
-  // Back button — 48 (was 40)
   backBtn: {
     width: 48,
     height: 48,
@@ -753,14 +799,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  // Header name — 20 (was 15)
   headerName: {
     fontSize: 20,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
-  // Header sub — 15 (was 12)
   headerSub: {
     fontSize: 15,
     fontFamily: FONTS.body,
@@ -768,7 +812,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // === Messages list ===
   listContent: {
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.md,
@@ -780,14 +823,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: 80,
   },
-  // Empty text — 17.5 (was 14)
   emptyText: {
     color: COLORS.mist,
     fontSize: 17.5,
     fontFamily: FONTS.body,
   },
 
-  // === Input bar ===
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -799,7 +840,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#0B0D14',
   },
 
-  // === Composer pill — bigger ===
   composerPill: {
     flex: 1,
     flexDirection: 'row',
@@ -812,7 +852,6 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     minHeight: 62,
   },
-  // Icon buttons — 52 (was 44)
   composerIconBtn: {
     width: 52,
     height: 52,
@@ -820,7 +859,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Input — fontSize 19 (was 22 but felt huge vs rest), lineHeight 26, symmetric padding
   composerInput: {
     flex: 1,
     minHeight: 52,
@@ -842,7 +880,6 @@ const styles = StyleSheet.create({
     outlineColor: 'transparent',
     boxShadow: 'none',
   } as any,
-  // Send button — 50 (was 42)
   composerSendBtn: {
     width: 50,
     height: 50,
@@ -856,8 +893,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // === Recording mode ===
-  // Height 62 to match pill
   recordingWrap: {
     flex: 1,
     height: 62,
@@ -870,20 +905,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.25)',
   },
-  // Dot — 10 (was 8)
   recordingDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
     backgroundColor: COLORS.danger,
   },
-  // Text — 17 (was 14)
   recordingText: {
     color: COLORS.danger,
     fontSize: 17,
     fontFamily: FONTS.bodyMedium,
   },
-  // Buttons — 50 (was 42)
   recordingIconBtn: {
     width: 50,
     height: 50,
