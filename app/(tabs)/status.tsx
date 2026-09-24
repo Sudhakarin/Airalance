@@ -125,21 +125,6 @@ export default function StatusScreen() {
     loadStatuses();
   }, [loadStatuses]);
 
-  useEffect(() => {
-    if (!myId) return;
-    const channel = supabase
-      .channel('statuses-tab-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'statuses' },
-        () => loadStatuses()
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [myId, loadStatuses]);
-
   useFocusEffect(
     useCallback(() => {
       if (myId) loadStatuses();
