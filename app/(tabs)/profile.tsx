@@ -356,8 +356,6 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.glowTop} />
-
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Airalance!</Text>
         <TouchableOpacity
@@ -365,7 +363,7 @@ export default function ProfileScreen() {
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="settings-outline" size={22} color={COLORS.text} />
+          <Ionicons name="settings-outline" size={19} color={COLORS.text} />
         </TouchableOpacity>
       </View>
 
@@ -389,7 +387,7 @@ export default function ProfileScreen() {
                 name={profile.display_name}
                 color={profile.avatar_color}
                 avatarUrl={profile.avatar_url}
-                size={96}
+                size={80}
               />
             </StatusRing>
 
@@ -397,7 +395,7 @@ export default function ProfileScreen() {
               {uploading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Ionicons name="camera" size={14} color="#FFFFFF" />
+                <Ionicons name="camera" size={11} color="#FFFFFF" />
               )}
             </View>
           </TouchableOpacity>
@@ -407,7 +405,7 @@ export default function ProfileScreen() {
               <Text style={styles.displayName} numberOfLines={1}>
                 {profile.display_name}
               </Text>
-              {verified && <VerifiedBadge size={20} />}
+              {verified && <VerifiedBadge size={16} />}
             </View>
 
             <View style={styles.statsGrid}>
@@ -468,7 +466,7 @@ export default function ProfileScreen() {
             <Text style={styles.infoLabel}>Username</Text>
             <View style={styles.usernameRow}>
               <Text style={styles.infoValue}>@{profile.username}</Text>
-              {verified && <VerifiedBadge size={15} />}
+              {verified && <VerifiedBadge size={13} />}
             </View>
           </View>
 
@@ -558,13 +556,13 @@ export default function ProfileScreen() {
                   style={styles.listHeaderBtn}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+                  <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
                 </TouchableOpacity>
                 <View style={styles.listHeaderCenter}>
                   <Text style={styles.listHeaderUsername} numberOfLines={1}>
                     {profile.username}
                   </Text>
-                  {verified && <VerifiedBadge size={15} />}
+                  {verified && <VerifiedBadge size={13} />}
                 </View>
                 <View style={styles.listHeaderBtn} />
               </View>
@@ -616,7 +614,7 @@ export default function ProfileScreen() {
                 <View style={styles.listEmpty}>
                   <Ionicons
                     name="people-outline"
-                    size={40}
+                    size={38}
                     color={COLORS.mist}
                   />
                   <Text style={styles.listEmptyText}>
@@ -648,14 +646,14 @@ export default function ProfileScreen() {
                           name={item.display_name}
                           color={item.avatar_color}
                           avatarUrl={item.avatar_url}
-                          size={50}
+                          size={46}
                         />
                         <View style={styles.personInfo}>
                           <View style={styles.personNameRow}>
                             <Text style={styles.personName} numberOfLines={1}>
                               {item.display_name}
                             </Text>
-                            {isVerified(item) && <VerifiedBadge size={14} />}
+                            {isVerified(item) && <VerifiedBadge size={13} />}
                           </View>
                           <Text
                             style={styles.personUsername}
@@ -731,35 +729,25 @@ function StatItem({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
-  scroll: { paddingBottom: SPACING.xl },
-
-  glowTop: {
-    position: 'absolute',
-    top: -200,
-    left: -100,
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    backgroundColor: 'rgba(124, 92, 255, 0.10)',
-  },
+  scroll: { paddingBottom: SPACING.lg },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   headerBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -768,23 +756,23 @@ const styles = StyleSheet.create({
   topSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 18,
-    gap: 18,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 12,
+    gap: 14,
   },
   avatarWrap: { position: 'relative' },
   cameraBadge: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    bottom: 1,
+    right: 1,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
+    borderWidth: 2.5,
     borderColor: '#000000',
   },
 
@@ -792,7 +780,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     justifyContent: 'center',
-    gap: 12,
+    gap: 10,
   },
 
   nameRow: {
@@ -800,7 +788,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   displayName: {
-    fontSize: 22,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     flexShrink: 1,
@@ -812,50 +800,50 @@ const styles = StyleSheet.create({
   statItem: {
     flex: 1,
     alignItems: 'flex-start',
-    gap: 3,
+    gap: 2,
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 17,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    lineHeight: 24,
+    lineHeight: 20,
   },
   statLabel: {
-    fontSize: 13.5,
+    fontSize: 11.5,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.7)',
   },
 
   bioBlock: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 20,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 16,
   },
   username: {
-    fontSize: 16,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
   },
   bio: {
-    fontSize: 15,
+    fontSize: 13.5,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.85)',
-    marginTop: 6,
-    lineHeight: 21,
+    marginTop: 5,
+    lineHeight: 19,
   },
   bioLink: {
-    fontSize: 15,
+    fontSize: 13.5,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.teal,
-    marginTop: 6,
+    marginTop: 5,
   },
 
   card: {
-    marginHorizontal: 20,
-    marginBottom: SPACING.sm,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    marginHorizontal: 18,
+    marginBottom: 10,
+    backgroundColor: '#121212',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: '#1F1F23',
     borderRadius: RADII.xl,
     overflow: 'hidden',
   },
@@ -863,18 +851,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     gap: SPACING.sm,
   },
   infoLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     letterSpacing: 0.2,
   },
   infoValue: {
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
     flexShrink: 1,
@@ -882,7 +870,7 @@ const styles = StyleSheet.create({
   },
   infoInput: {
     flex: 1,
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     textAlign: 'right',
@@ -901,11 +889,11 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: 20,
+    backgroundColor: '#1F1F23',
+    marginLeft: 18,
   },
   logoutText: {
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.danger,
   },
@@ -914,24 +902,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 8,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 6,
   },
   bioCounter: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     opacity: 0.7,
   },
   bioInput: {
-    paddingHorizontal: 20,
-    paddingBottom: 14,
-    fontSize: 15.5,
+    paddingHorizontal: 18,
+    paddingBottom: 12,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
-    minHeight: 80,
-    lineHeight: 22,
+    minHeight: 70,
+    lineHeight: 20,
     borderWidth: 0,
     borderColor: 'transparent',
     backgroundColor: 'transparent',
@@ -942,20 +930,20 @@ const styles = StyleSheet.create({
   } as any,
 
   saveBtn: {
-    marginHorizontal: 20,
-    marginTop: SPACING.sm,
+    marginHorizontal: 18,
+    marginTop: 10,
     borderRadius: RADII.full,
     overflow: 'hidden',
   },
   saveBtnDisabled: { opacity: 0.4 },
   saveBtnGradient: {
-    paddingVertical: 16,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   saveBtnText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 14.5,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.3,
   },
@@ -977,8 +965,8 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.sm,
   },
   listHeaderBtn: {
-    width: 42,
-    height: 42,
+    width: 38,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -989,7 +977,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   listHeaderUsername: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
@@ -997,16 +985,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
+    borderBottomColor: '#1F1F23',
   },
   listTabBtn: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: 'center',
     position: 'relative',
   },
   listTabText: {
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
     color: 'rgba(255,255,255,0.45)',
   },
@@ -1027,45 +1015,45 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: 10,
   },
   listEmptyText: {
     color: COLORS.mist,
-    fontSize: 16,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
   },
   listContent: {
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.sm,
     paddingTop: SPACING.sm,
-    paddingBottom: SPACING.xl,
+    paddingBottom: SPACING.lg,
   },
   personRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 4,
   },
   personInfo: { flex: 1, minWidth: 0 },
   personNameRow: { flexDirection: 'row', alignItems: 'center' },
   personName: {
-    fontSize: 16,
+    fontSize: 14.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
   personUsername: {
-    fontSize: 14,
+    fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginTop: 2,
   },
 
   followBtnSmall: {
-    minWidth: 110,
-    height: 38,
-    paddingHorizontal: 16,
-    borderRadius: 9,
+    minWidth: 100,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 8,
     backgroundColor: '#E54E60',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1077,7 +1065,7 @@ const styles = StyleSheet.create({
   },
   followBtnSmallText: {
     color: '#FFFFFF',
-    fontSize: 14.5,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
   },
   followBtnSmallTextFollowing: {
