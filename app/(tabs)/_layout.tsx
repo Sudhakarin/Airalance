@@ -20,8 +20,8 @@ export default function TabsLayout() {
         tabBarStyle: [
           styles.tabBar,
           {
-            height: 60 + insets.bottom,
-            paddingBottom: 8 + insets.bottom,
+            height: 56 + insets.bottom,
+            paddingBottom: 6 + insets.bottom,
           },
         ],
         tabBarLabelStyle: styles.tabLabel,
@@ -36,7 +36,7 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon tab="home" active={focused} color={color} size={26} />
+            <TabIcon tab="home" active={focused} color={color} size={24} />
           ),
         }}
       />
@@ -45,7 +45,7 @@ export default function TabsLayout() {
         options={{
           title: 'Status',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon tab="status" active={focused} color={color} size={26} />
+            <TabIcon tab="status" active={focused} color={color} size={24} />
           ),
         }}
       />
@@ -54,7 +54,7 @@ export default function TabsLayout() {
         options={{
           title: 'Chats',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon tab="chats" active={focused} color={color} size={26} />
+            <TabIcon tab="chats" active={focused} color={color} size={24} />
           ),
         }}
       />
@@ -63,7 +63,7 @@ export default function TabsLayout() {
         options={{
           title: 'Search',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon tab="search" active={focused} color={color} size={26} />
+            <TabIcon tab="search" active={focused} color={color} size={24} />
           ),
         }}
       />
@@ -72,7 +72,7 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon tab="profile" active={focused} color={color} size={26} />
+            <TabIcon tab="profile" active={focused} color={color} size={24} />
           ),
         }}
       />
@@ -90,17 +90,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     shadowRadius: 0,
     elevation: 0,
-    paddingTop: 8,
+    paddingTop: 6,
   },
   tabItem: {
     paddingVertical: 4,
-    height: 56,
+    height: 50,
   },
   tabLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.3,
-    marginTop: 4,
+    marginTop: 3,
     color: '#FFFFFF',
   },
 });
