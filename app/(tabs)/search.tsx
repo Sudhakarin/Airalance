@@ -255,7 +255,7 @@ export default function SearchScreen() {
                         name={suggestion.display_name}
                         color={suggestion.avatar_color}
                         avatarUrl={suggestion.avatar_url}
-                        size={46}
+                        size={42}
                       />
 
                       <View style={styles.suggestionInfo}>
@@ -437,41 +437,42 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1F1F23',
     borderRadius: RADII.xl,
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    marginBottom: 4,
   },
   suggestionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.sm,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
+    gap: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
   },
   suggestionInfo: { flex: 1, minWidth: 0 },
   suggestionNameWrap: { flexDirection: 'row', alignItems: 'center' },
   suggestionName: {
-    fontSize: 15,
+    fontSize: 14.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
   suggestionUsername: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 2,
+    marginTop: 1,
   },
   connectBtn: {
     borderRadius: RADII.full,
     overflow: 'hidden',
   },
   connectBtnGradient: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   connectBtnText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12.5,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.3,
   },
@@ -479,14 +480,14 @@ const styles = StyleSheet.create({
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.sm,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
+    gap: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
   },
   skeletonAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   skeletonName: {
@@ -496,7 +497,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   skeletonUsername: {
-    height: 11,
+    height: 10,
     width: '30%',
     borderRadius: 6,
     backgroundColor: 'rgba(255,255,255,0.05)',
