@@ -163,10 +163,20 @@ export default function ChatsScreen() {
 
         let preview = 'Say hello 👋';
         if (last) {
-          if (last.is_deleted) preview = 'This message was deleted';
-          else if (last.message_type === 'image') preview = '📷 Photo';
-          else if (last.message_type === 'voice') preview = '🎤 Voice message';
-          else preview = last.content || '';
+          if (last.is_deleted) {
+            preview = 'This message was deleted';
+          } else if (last.message_type === 'image') {
+            preview = '📷 Photo';
+          } else if (last.message_type === 'voice') {
+            preview = '🎤 Voice message';
+          } else if (
+            last.content &&
+            last.content.startsWith('[STATUS_REPLY]')
+          ) {
+            preview = '↩️ Replied to your status';
+          } else {
+            preview = last.content || '';
+          }
         }
 
         return {
