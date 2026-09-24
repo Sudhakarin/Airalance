@@ -211,14 +211,13 @@ export default function NotificationsScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerBtn}
           onPress={() => router.back()}
           activeOpacity={0.7}
         >
-          <Ionicons name="chevron-back" size={26} color={COLORS.text} />
+          <Ionicons name="chevron-back" size={24} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Notifications</Text>
         {appNotifs.some((n) => !n.read) ? (
@@ -258,7 +257,7 @@ export default function NotificationsScreen() {
               <View style={styles.emptyIconWrap}>
                 <Ionicons
                   name="notifications-outline"
-                  size={50}
+                  size={40}
                   color={COLORS.mist}
                 />
               </View>
@@ -279,7 +278,7 @@ export default function NotificationsScreen() {
                   name={p?.display_name ?? 'User'}
                   color={p?.avatar_color ?? COLORS.violet}
                   avatarUrl={p?.avatar_url ?? null}
-                  size={54}
+                  size={46}
                 />
                 <View style={styles.cardBody}>
                   <Text style={styles.cardTitle}>
@@ -327,26 +326,26 @@ export default function NotificationsScreen() {
             >
               {n.type === 'verified' ? (
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(124,92,255,0.18)' }]}>
-                  <VerifiedBadge size={28} />
+                  <VerifiedBadge size={24} />
                 </View>
               ) : n.type === 'status_like' ? (
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(239,68,68,0.18)' }]}>
-                  <Ionicons name="heart" size={26} color="#EF4444" />
+                  <Ionicons name="heart" size={22} color="#EF4444" />
                 </View>
               ) : n.type === 'follow' ? (
                 <View style={[styles.iconCircle, { backgroundColor: 'rgba(34,211,184,0.18)' }]}>
-                  <Ionicons name="person-add" size={26} color={COLORS.teal} />
+                  <Ionicons name="person-add" size={22} color={COLORS.teal} />
                 </View>
               ) : ap ? (
                 <Avatar
                   name={ap.display_name}
                   color={ap.avatar_color}
                   avatarUrl={ap.avatar_url}
-                  size={54}
+                  size={46}
                 />
               ) : (
                 <View style={styles.iconCircle}>
-                  <Ionicons name="notifications" size={26} color={COLORS.violetLight} />
+                  <Ionicons name="notifications" size={22} color={COLORS.violetLight} />
                 </View>
               )}
               <View style={styles.cardBody}>
@@ -379,103 +378,95 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
-  // Header button — 46 (was 40)
   headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+  },
+  markReadBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: 80,
+    alignItems: 'flex-end',
+  },
+  markReadText: {
+    color: COLORS.violetLight,
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+  },
+
+  list: { paddingHorizontal: 16, paddingBottom: SPACING.xl, flexGrow: 1 },
+
+  card: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 14,
+    borderRadius: RADII.xl,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    marginBottom: 10,
+  },
+  iconCircle: {
     width: 46,
     height: 46,
     borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  // Header title — 22 (was 17)
-  headerTitle: {
-    fontSize: 22,
-    fontFamily: FONTS.displayBold,
-    color: '#FFFFFF',
-  },
-  markReadBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minWidth: 80,
-    alignItems: 'flex-end',
-  },
-  // Mark read text — 16 (was 13)
-  markReadText: {
-    color: COLORS.violetLight,
-    fontSize: 16,
-    fontFamily: FONTS.bodySemiBold,
-  },
-
-  list: { paddingHorizontal: 18, paddingBottom: SPACING.xxl, flexGrow: 1 },
-
-  card: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 14,
-    padding: 18,
-    borderRadius: RADII.xl,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    marginBottom: 12,
-  },
-  // Icon circle — 54 (was 44)
-  iconCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
   cardBody: { flex: 1, minWidth: 0 },
-  // Card title — 16.5 (was 14), lineHeight 23
   cardTitle: {
     color: '#FFFFFF',
-    fontSize: 16.5,
+    fontSize: 15,
     fontFamily: FONTS.body,
-    lineHeight: 23,
+    lineHeight: 21,
   },
   bold: { fontFamily: FONTS.bodySemiBold },
-  // Card sub — 14.5 (was 12)
   cardSub: {
     color: COLORS.mist,
-    fontSize: 14.5,
+    fontSize: 13,
     fontFamily: FONTS.body,
-    marginTop: 5,
+    marginTop: 4,
   },
   requestActions: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
+    gap: 8,
+    marginTop: 10,
   },
   acceptBtn: { borderRadius: 999, overflow: 'hidden', flex: 1 },
   acceptBtnInner: {
-    paddingVertical: 11,
+    paddingVertical: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Accept text — 15.5 (was 13)
   acceptText: {
     color: '#FFFFFF',
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
   declineBtn: {
     flex: 1,
-    paddingVertical: 11,
+    paddingVertical: 9,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 999,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
   },
-  // Decline text — 15.5 (was 13)
   declineText: {
     color: COLORS.mistLight,
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
 
@@ -483,32 +474,29 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 110,
-    gap: 14,
+    paddingTop: 90,
+    gap: 12,
   },
-  // Empty icon circle — 100 (was 88)
   emptyIconWrap: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     backgroundColor: 'rgba(255,255,255,0.04)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
   },
-  // Empty title — 20 (was 17)
   emptyTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
-  // Empty sub — 15.5 (was 13)
   emptySub: {
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
-    paddingHorizontal: 40,
-    lineHeight: 22,
+    paddingHorizontal: 30,
+    lineHeight: 20,
   },
 });
