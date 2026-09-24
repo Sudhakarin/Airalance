@@ -128,7 +128,7 @@ function HomeSkeleton() {
     <View>
       <SkeletonBlock
         width="100%"
-        height={200}
+        height={160}
         borderRadius={RADII.xl}
         style={{ marginBottom: SPACING.md }}
       />
@@ -145,7 +145,7 @@ function HomeSkeleton() {
           <SkeletonBlock width={8} height={8} borderRadius={4} />
           <SkeletonBlock width={40} height={14} borderRadius={6} />
         </View>
-        <SkeletonBlock width="100%" height={170} borderRadius={RADII.xl} />
+        <SkeletonBlock width="100%" height={140} borderRadius={RADII.xl} />
       </View>
       {[0, 1, 2, 3].map((i) => (
         <View
@@ -158,11 +158,11 @@ function HomeSkeleton() {
             paddingHorizontal: 4,
           }}
         >
-          <SkeletonBlock width={74} height={74} borderRadius={RADII.lg} />
+          <SkeletonBlock width={64} height={64} borderRadius={RADII.lg} />
           <View style={{ flex: 1, gap: 6 }}>
             <SkeletonBlock width={50} height={10} borderRadius={4} />
-            <SkeletonBlock width="90%" height={14} borderRadius={5} />
-            <SkeletonBlock width="70%" height={14} borderRadius={5} />
+            <SkeletonBlock width="90%" height={13} borderRadius={5} />
+            <SkeletonBlock width="70%" height={13} borderRadius={5} />
             <SkeletonBlock width={100} height={10} borderRadius={4} />
           </View>
         </View>
@@ -243,7 +243,7 @@ export default function HomeScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.welcomeIconGradient}
           >
-            <Ionicons name="chatbubble" size={30} color="#FFFFFF" />
+            <Ionicons name="chatbubble" size={22} color="#FFFFFF" />
           </LinearGradient>
         </View>
         <Text style={styles.welcomeTitle}>Welcome to Airalance!</Text>
@@ -308,7 +308,7 @@ export default function HomeScreen() {
           <HomeSkeleton />
         ) : filteredArticles.length === 0 ? (
           <View style={styles.emptyWrap}>
-            <Ionicons name="newspaper-outline" size={44} color={COLORS.mist} />
+            <Ionicons name="newspaper-outline" size={40} color={COLORS.mist} />
             <Text style={styles.emptyText}>
               No {selectedCategory === 'For you' ? 'news' : selectedCategory} articles yet.
             </Text>
@@ -357,7 +357,7 @@ export default function HomeScreen() {
                       FEATURED · {featured.category}
                     </Text>
                   </View>
-                  <Text style={styles.featuredTitle} numberOfLines={3}>
+                  <Text style={styles.featuredTitle} numberOfLines={2}>
                     {featured.title}
                   </Text>
                   <View style={styles.featuredMeta}>
@@ -376,7 +376,7 @@ export default function HomeScreen() {
                 <Text style={styles.liveTitle}>Live</Text>
               </View>
               <View style={styles.liveBox}>
-                <Ionicons name="radio-outline" size={44} color={COLORS.mist} />
+                <Ionicons name="radio-outline" size={38} color={COLORS.mist} />
                 <Text style={styles.liveText}>
                   Live stream will appear here
                 </Text>
@@ -390,8 +390,6 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.glowTop} />
-
       <View style={styles.header}>
         <Text style={styles.brandText}>Airalance!</Text>
         <TouchableOpacity
@@ -399,7 +397,7 @@ export default function HomeScreen() {
           onPress={() => router.push('/notifications')}
           activeOpacity={0.7}
         >
-          <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
+          <Ionicons name="notifications-outline" size={19} color="#FFFFFF" />
           {notifCount > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
@@ -448,34 +446,24 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
   scroll: { paddingBottom: 40 },
 
-  glowTop: {
-    position: 'absolute',
-    top: -200,
-    left: -100,
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    backgroundColor: 'rgba(124, 92, 255, 0.12)',
-  },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
   brandText: {
-    fontSize: 28,
+    fontSize: 22,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   bellBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -483,76 +471,76 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: 2,
-    right: 2,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+    top: 1,
+    right: 1,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
     backgroundColor: '#EF4444',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 3,
     borderWidth: 2,
     borderColor: '#000000',
   },
   badgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 8,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 11,
+    lineHeight: 10,
   },
 
   welcomeCard: {
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.lg,
-    paddingBottom: SPACING.lg,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.md,
   },
   welcomeIcon: {
-    marginBottom: SPACING.md,
-    borderRadius: 24,
+    marginBottom: SPACING.sm,
+    borderRadius: 18,
     overflow: 'hidden',
     ...SHADOWS.card,
   },
   welcomeIconGradient: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
+    width: 58,
+    height: 58,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   welcomeTitle: {
-    fontSize: 24,
+    fontSize: 19,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     textAlign: 'center',
   },
   welcomeSubtitle: {
-    marginTop: 6,
-    fontSize: 14.5,
+    marginTop: 4,
+    fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
     paddingHorizontal: 16,
-    lineHeight: 20,
+    lineHeight: 17,
   },
   welcomeBtn: {
-    marginTop: SPACING.lg,
+    marginTop: SPACING.md,
     borderRadius: RADII.full,
     overflow: 'hidden',
     ...SHADOWS.buttonViolet,
   },
   welcomeBtnGradient: {
-    paddingVertical: 13,
-    paddingHorizontal: 26,
+    paddingVertical: 9,
+    paddingHorizontal: 20,
   },
   welcomeBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  newsSection: { paddingHorizontal: 20, marginTop: SPACING.sm },
+  newsSection: { paddingHorizontal: 18, marginTop: SPACING.sm },
   newsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -561,21 +549,21 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   newsTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
 
-  categoriesRow: { gap: 8, paddingRight: SPACING.md, paddingBottom: SPACING.sm },
-  categoryWrap: { marginRight: 6 },
+  categoriesRow: { gap: 6, paddingRight: SPACING.md, paddingBottom: SPACING.sm },
+  categoryWrap: { marginRight: 5 },
   categoryPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
+    paddingHorizontal: 13,
+    paddingVertical: 6,
     borderRadius: RADII.full,
   },
   categoryPillInactive: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
+    paddingHorizontal: 13,
+    paddingVertical: 6,
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
@@ -583,30 +571,30 @@ const styles = StyleSheet.create({
   },
   categoryTextActive: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: FONTS.bodySemiBold,
   },
   categoryTextInactive: {
     color: COLORS.mist,
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  emptyWrap: { paddingVertical: 60, alignItems: 'center', gap: 10 },
+  emptyWrap: { paddingVertical: 40, alignItems: 'center', gap: 8 },
   emptyText: {
     color: COLORS.text,
-    fontSize: 15.5,
+    fontSize: 13.5,
     fontFamily: FONTS.bodyMedium,
     textAlign: 'center',
   },
   emptySubtext: {
     color: COLORS.mist,
-    fontSize: 13.5,
+    fontSize: 12,
     fontFamily: FONTS.body,
   },
 
   featuredCard: {
-    height: 200,
+    height: 150,
     borderRadius: RADII.xl,
     overflow: 'hidden',
     marginBottom: SPACING.md,
@@ -624,7 +612,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  featuredEmoji: { fontSize: 56, opacity: 0.85 },
+  featuredEmoji: { fontSize: 40, opacity: 0.85 },
   featuredOverlay: {
     position: 'absolute',
     left: 0,
@@ -637,32 +625,32 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: SPACING.md,
+    padding: SPACING.sm + 2,
   },
   featuredBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: RADII.full,
     backgroundColor: 'rgba(255,255,255,0.18)',
-    marginBottom: 8,
+    marginBottom: 5,
   },
   featuredBadgeText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.5,
   },
   featuredTitle: {
     color: '#FFFFFF',
-    fontSize: 16.5,
+    fontSize: 13.5,
     fontFamily: FONTS.displayBold,
-    lineHeight: 22,
+    lineHeight: 18,
   },
-  featuredMeta: { marginTop: 6 },
+  featuredMeta: { marginTop: 3 },
   featuredMetaText: {
     color: 'rgba(255,255,255,0.75)',
-    fontSize: 12.5,
+    fontSize: 10.5,
     fontFamily: FONTS.body,
   },
 
@@ -675,37 +663,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   livePulse: {
-    width: 8,
-    height: 8,
+    width: 7,
+    height: 7,
     borderRadius: 4,
     backgroundColor: COLORS.danger,
     opacity: 0.3,
     position: 'absolute',
   },
   livePulseInner: {
-    width: 8,
-    height: 8,
+    width: 7,
+    height: 7,
     borderRadius: 4,
     backgroundColor: COLORS.danger,
   },
   liveTitle: {
     color: '#FFFFFF',
-    fontSize: 17.5,
+    fontSize: 15,
     fontFamily: FONTS.displayBold,
   },
   liveBox: {
-    height: 170,
+    height: 130,
     borderRadius: RADII.xl,
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
   },
   liveText: {
     color: COLORS.mist,
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: FONTS.body,
   },
 
@@ -716,40 +704,40 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
     paddingHorizontal: 4,
     borderRadius: RADII.lg,
-    marginHorizontal: 20,
+    marginHorizontal: 18,
   },
   articleDivider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.07)',
-    marginHorizontal: 24,
+    marginHorizontal: 22,
     marginVertical: 2,
   },
   articleThumb: {
-    width: 74,
-    height: 74,
+    width: 64,
+    height: 64,
     borderRadius: RADII.lg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  articleEmoji: { fontSize: 30, opacity: 0.9 },
+  articleEmoji: { fontSize: 24, opacity: 0.9 },
   articleInfo: { flex: 1 },
   articleCategory: {
     color: COLORS.teal,
-    fontSize: 10.5,
+    fontSize: 9.5,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.6,
-    marginBottom: 3,
+    marginBottom: 2,
   },
   articleTitle: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 13.5,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 20,
+    lineHeight: 18,
   },
   articleMeta: {
-    marginTop: 4,
+    marginTop: 3,
     color: COLORS.mist,
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: FONTS.body,
   },
 });
