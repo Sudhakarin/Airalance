@@ -48,6 +48,66 @@ type UserStatusGroup = {
   latestAt: string;
 };
 
+function SkeletonBlock({
+  width,
+  height,
+  borderRadius = 6,
+  style,
+}: {
+  width: number | string;
+  height: number;
+  borderRadius?: number;
+  style?: any;
+}) {
+  return (
+    <View
+      style={[
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: 'rgba(255,255,255,0.08)',
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+function StatusSkeleton() {
+  return (
+    <View style={styles.skeletonWrap}>
+      <View style={styles.myStatusRow}>
+        <SkeletonBlock width={58} height={58} borderRadius={29} />
+        <View style={{ flex: 1, gap: 8 }}>
+          <SkeletonBlock width="40%" height={16} borderRadius={6} />
+          <SkeletonBlock width="60%" height={12} borderRadius={4} />
+        </View>
+      </View>
+
+      <View style={styles.thickDivider} />
+
+      <View style={styles.section}>
+        <SkeletonBlock
+          width={100}
+          height={12}
+          borderRadius={4}
+          style={{ marginBottom: 12, marginHorizontal: 18 }}
+        />
+        {[1, 2, 3].map((i) => (
+          <View key={i} style={styles.statusRow}>
+            <SkeletonBlock width={58} height={58} borderRadius={29} />
+            <View style={{ flex: 1, gap: 6 }}>
+              <SkeletonBlock width="50%" height={16} borderRadius={6} />
+              <SkeletonBlock width="30%" height={12} borderRadius={4} />
+            </View>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function StatusScreen() {
   const router = useRouter();
   const [myStatuses, setMyStatuses] = useState<Status[]>([]);
@@ -125,6 +185,21 @@ export default function StatusScreen() {
     loadStatuses();
   }, [loadStatuses]);
 
+  useEffect(() => {
+    if (!myId) return;
+    const channel = supabase
+      .channel('statuses-tab-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'statuses' },
+        () => loadStatuses()
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [myId, loadStatuses]);
+
   useFocusEffect(
     useCallback(() => {
       if (myId) loadStatuses();
@@ -172,10 +247,14 @@ export default function StatusScreen() {
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Status</Text>
+          <View style={styles.headerBtn} />
         </View>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator color={COLORS.violet} />
-        </View>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+        >
+          <StatusSkeleton />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -550,5 +629,17 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
+  },
+
+  // Skeleton styles
+  skeletonWrap: {
+    paddingBottom: SPACING.lg,
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
   },
 });
