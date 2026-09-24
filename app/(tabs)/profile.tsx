@@ -405,7 +405,11 @@ export default function ProfileScreen() {
               <Text style={styles.displayName} numberOfLines={1}>
                 {profile.display_name}
               </Text>
-              {verified && <VerifiedBadge size={16} />}
+              {verified && (
+                <View style={styles.badgeWrap}>
+                  <VerifiedBadge size={16} />
+                </View>
+              )}
             </View>
 
             <View style={styles.statsGrid}>
@@ -466,7 +470,11 @@ export default function ProfileScreen() {
             <Text style={styles.infoLabel}>Username</Text>
             <View style={styles.usernameRow}>
               <Text style={styles.infoValue}>@{profile.username}</Text>
-              {verified && <VerifiedBadge size={13} />}
+              {verified && (
+                <View style={styles.badgeWrapSmall}>
+                  <VerifiedBadge size={13} />
+                </View>
+              )}
             </View>
           </View>
 
@@ -562,7 +570,11 @@ export default function ProfileScreen() {
                   <Text style={styles.listHeaderUsername} numberOfLines={1}>
                     {profile.username}
                   </Text>
-                  {verified && <VerifiedBadge size={13} />}
+                  {verified && (
+                    <View style={styles.badgeWrapSmall}>
+                      <VerifiedBadge size={13} />
+                    </View>
+                  )}
                 </View>
                 <View style={styles.listHeaderBtn} />
               </View>
@@ -653,7 +665,11 @@ export default function ProfileScreen() {
                             <Text style={styles.personName} numberOfLines={1}>
                               {item.display_name}
                             </Text>
-                            {isVerified(item) && <VerifiedBadge size={13} />}
+                            {isVerified(item) && (
+                              <View style={styles.badgeWrapSmall}>
+                                <VerifiedBadge size={13} />
+                              </View>
+                            )}
                           </View>
                           <Text
                             style={styles.personUsername}
@@ -792,6 +808,20 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     flexShrink: 1,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  } as any,
+  badgeWrap: {
+    marginLeft: 6,
+    marginTop: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeWrapSmall: {
+    marginLeft: 5,
+    marginTop: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   statsGrid: {
@@ -807,7 +837,8 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     lineHeight: 20,
-  },
+    includeFontPadding: false,
+  } as any,
   statLabel: {
     fontSize: 11.5,
     fontFamily: FONTS.body,
@@ -980,7 +1011,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-  },
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  } as any,
   listTabsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -1041,7 +1074,9 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
-  },
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  } as any,
   personUsername: {
     fontSize: 12.5,
     fontFamily: FONTS.body,

@@ -13,7 +13,6 @@ export default function VerifiedBadge({ size = 14 }: Props) {
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      style={{ marginLeft: 4 }}
     >
       {/* White star/badge shape */}
       <Path
