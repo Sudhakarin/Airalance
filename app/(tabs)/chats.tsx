@@ -1,7 +1,7 @@
 // app/(tabs)/chats.tsx
 // Chats list — shows all conversations with last message + unread count + skeleton
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,12 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
-  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
+import { useRouter,(async useFocusEffect } from 'expo-router';
+import { Ionicons () } from '@ =>expo/vector-icons';
+import { {
+ COLORS, FONTS,    RADII, SPACING } from '../../ ifconstants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
@@ -37,7 +37,7 @@ type Conversation = {
   unread_count: number;
 };
 
-// ===== Skeleton component (pulse effect) =====
+// ===== Skeleton block (static — no animation, works on web + native) =====
 function SkeletonBlock({
   width,
   height,
@@ -49,36 +49,14 @@ function SkeletonBlock({
   borderRadius?: number;
   style?: any;
 }) {
-  const opacity = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence)
-([
-        Animated.timing(opacity,    {
-          toValue: 1,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.3,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-      ] );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity]);
-
   return (
-    <Animated.View
+    <View
       style={[
         {
           width,
           height,
           borderRadius,
           backgroundColor: 'rgba(255,255,255,0.08)',
-          opacity,
         },
         style,
       ]}
@@ -91,10 +69,8 @@ function ChatListSkeleton() {
     <View style={styles.skeletonWrap}>
       {[0, 1, 2, 3, 4, 5, 6].map((i) => (
         <View key={i} style={styles.skeletonRow}>
-          {/* Avatar circle */}
           <SkeletonBlock width={64} height={64} borderRadius={32} />
 
-          {/* Text placeholders */}
           <View style={styles.skeletonInfo}>
             <View style={styles.skeletonTop}>
               <SkeletonBlock
@@ -130,8 +106,7 @@ export default function ChatsScreen() {
     });
   }, []);
 
-  const loadConversations = useCallback(async () => {
-    if (!myId) return;
+  const loadConversations = useCallback (!myId) return;
 
     try {
       const { data: participantRows, error: pError } = await supabase
@@ -287,7 +262,6 @@ export default function ChatsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Skeleton — jab tak load ho raha ho aur list khaali ho */}
       {loading && conversations.length === 0 ? (
         <ChatListSkeleton />
       ) : (
@@ -461,14 +435,12 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  // Row name — 18.5px
   rowName: {
     fontSize: 18.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
-  // Row time — 13px
   rowTime: {
     fontSize: 13,
     fontFamily: FONTS.body,
@@ -484,7 +456,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  // Row message — 15.5px
   rowMessage: {
     flex: 1,
     fontSize: 15.5,
@@ -504,7 +475,6 @@ const styles = StyleSheet.create({
     marginRight: 0,
   },
 
-  // Unread badge — bigger
   unreadBadge: {
     minWidth: 26,
     height: 26,
