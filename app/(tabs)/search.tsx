@@ -67,18 +67,18 @@ function SearchResultsSkeleton({ count = 5 }: { count?: number }) {
     <View>
       {Array.from({ length: count }).map((_, i) => (
         <View key={i} style={styles.skeletonResultRow}>
-          <SkeletonBlock width={50} height={50} borderRadius={25} />
+          <SkeletonBlock width={46} height={46} borderRadius={23} />
           <View style={styles.skeletonResultInfo}>
             <SkeletonBlock
               width={`${45 + ((i * 15) % 30)}%`}
-              height={14}
+              height={13}
               borderRadius={5}
             />
             <SkeletonBlock
               width={`${30 + ((i * 11) % 25)}%`}
-              height={11}
+              height={10}
               borderRadius={4}
-              style={{ marginTop: 6 }}
+              style={{ marginTop: 5 }}
             />
           </View>
         </View>
@@ -175,9 +175,6 @@ export default function SearchScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.glowTop} />
-      <View style={styles.glowBottom} />
-
       <View style={styles.header}>
         <Text style={styles.headerBrand}>Airalance!</Text>
         <TouchableOpacity
@@ -185,7 +182,7 @@ export default function SearchScreen() {
           activeOpacity={0.7}
           onPress={() => router.push('/notifications')}
         >
-          <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
+          <Ionicons name="notifications-outline" size={19} color="#FFFFFF" />
           <View style={styles.badge}>
             <Text style={styles.badgeText}>9+</Text>
           </View>
@@ -196,7 +193,7 @@ export default function SearchScreen() {
         <View style={styles.searchBox}>
           <Ionicons
             name="search"
-            size={18}
+            size={17}
             color={COLORS.mist}
             style={{ marginRight: 8 }}
           />
@@ -213,7 +210,7 @@ export default function SearchScreen() {
           />
           {query.length > 0 && (
             <TouchableOpacity onPress={() => setQuery('')} activeOpacity={0.7}>
-              <Ionicons name="close-circle" size={18} color={COLORS.mist} />
+              <Ionicons name="close-circle" size={17} color={COLORS.mist} />
             </TouchableOpacity>
           )}
         </View>
@@ -231,24 +228,24 @@ export default function SearchScreen() {
                 <View style={styles.suggestHeader}>
                   <Ionicons
                     name="sparkles-outline"
-                    size={16}
+                    size={15}
                     color={COLORS.violetLight}
                   />
                   <Text style={styles.suggestTitle}>Suggestions for you</Text>
                 </View>
 
                 {loadingSuggestion ? (
-                  <View style={styles.glassCard}>
+                  <View style={styles.matteCard}>
                     <View style={styles.skeletonRow}>
                       <View style={styles.skeletonAvatar} />
-                      <View style={{ flex: 1, gap: 8 }}>
+                      <View style={{ flex: 1, gap: 6 }}>
                         <View style={styles.skeletonName} />
                         <View style={styles.skeletonUsername} />
                       </View>
                     </View>
                   </View>
                 ) : suggestion ? (
-                  <View style={styles.glassCard}>
+                  <View style={styles.matteCard}>
                     <TouchableOpacity
                       style={styles.suggestionRow}
                       onPress={() => openProfile(suggestion)}
@@ -258,7 +255,7 @@ export default function SearchScreen() {
                         name={suggestion.display_name}
                         color={suggestion.avatar_color}
                         avatarUrl={suggestion.avatar_url}
-                        size={50}
+                        size={46}
                       />
 
                       <View style={styles.suggestionInfo}>
@@ -266,7 +263,7 @@ export default function SearchScreen() {
                           <Text style={styles.suggestionName} numberOfLines={1}>
                             {suggestion.display_name}
                           </Text>
-                          {suggestion.verified && <VerifiedBadge size={14} />}
+                          {suggestion.verified && <VerifiedBadge size={13} />}
                         </View>
                         <Text style={styles.suggestionUsername} numberOfLines={1}>
                           @{suggestion.username}
@@ -296,7 +293,7 @@ export default function SearchScreen() {
             {showResults && searching && <SearchResultsSkeleton count={5} />}
             {showResults && !searching && results.length === 0 && (
               <View style={styles.emptyWrap}>
-                <Ionicons name="person-outline" size={38} color={COLORS.mist} />
+                <Ionicons name="person-outline" size={34} color={COLORS.mist} />
                 <Text style={styles.emptyText}>No users found</Text>
                 <Text style={styles.emptySub}>
                   Try a different username or name
@@ -315,7 +312,7 @@ export default function SearchScreen() {
               name={item.display_name}
               color={item.avatar_color}
               avatarUrl={item.avatar_url}
-              size={50}
+              size={46}
             />
 
             <View style={styles.resultInfo}>
@@ -323,14 +320,14 @@ export default function SearchScreen() {
                 <Text style={styles.resultName} numberOfLines={1}>
                   {item.display_name}
                 </Text>
-                {item.verified && <VerifiedBadge size={14} />}
+                {item.verified && <VerifiedBadge size={13} />}
               </View>
               <Text style={styles.resultUsername} numberOfLines={1}>
                 @{item.username}
               </Text>
             </View>
 
-            <Ionicons name="chevron-forward" size={18} color={COLORS.mist} />
+            <Ionicons name="chevron-forward" size={16} color={COLORS.mist} />
           </TouchableOpacity>
         )}
       />
@@ -341,43 +338,24 @@ export default function SearchScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
 
-  glowTop: {
-    position: 'absolute',
-    top: -200,
-    left: -100,
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    backgroundColor: 'rgba(124, 92, 255, 0.12)',
-  },
-  glowBottom: {
-    position: 'absolute',
-    bottom: -200,
-    right: -100,
-    width: 460,
-    height: 460,
-    borderRadius: 230,
-    backgroundColor: 'rgba(34, 211, 184, 0.06)',
-  },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
   headerBrand: {
-    fontSize: 28,
+    fontSize: 22,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   bellBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -385,42 +363,42 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: 2,
-    right: 2,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+    top: 1,
+    right: 1,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
     backgroundColor: '#EF4444',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 3,
     borderWidth: 2,
     borderColor: '#000000',
   },
   badgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 8,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 11,
+    lineHeight: 10,
   },
 
   searchWrap: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingBottom: SPACING.sm,
   },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: '#121212',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: '#1F1F23',
     borderRadius: RADII.lg,
-    paddingHorizontal: 14,
-    height: 50,
+    paddingHorizontal: 13,
+    height: 44,
   },
   searchInput: {
     flex: 1,
-    fontSize: 15.5,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
     paddingVertical: 0,
@@ -435,7 +413,7 @@ const styles = StyleSheet.create({
 
   listContent: {
     paddingHorizontal: SPACING.sm,
-    paddingBottom: SPACING.xl,
+    paddingBottom: SPACING.lg,
     flexGrow: 1,
   },
 
@@ -448,42 +426,37 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.sm,
   },
   suggestTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mistLight,
     letterSpacing: 0.2,
   },
 
-  glassCard: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
+  matteCard: {
+    backgroundColor: '#121212',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: '#1F1F23',
     borderRadius: RADII.xl,
     paddingVertical: SPACING.sm,
     paddingHorizontal: SPACING.sm,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
   },
   suggestionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
   },
   suggestionInfo: { flex: 1, minWidth: 0 },
   suggestionNameWrap: { flexDirection: 'row', alignItems: 'center' },
   suggestionName: {
-    fontSize: 16.5,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
   suggestionUsername: {
-    fontSize: 14,
+    fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginTop: 2,
@@ -493,12 +466,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   connectBtnGradient: {
-    paddingHorizontal: 16,
-    paddingVertical: 9,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
   connectBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.3,
   },
@@ -507,23 +480,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
   },
   skeletonAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   skeletonName: {
-    height: 14,
+    height: 13,
     width: '50%',
     borderRadius: 6,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
   skeletonUsername: {
-    height: 12,
+    height: 11,
     width: '30%',
     borderRadius: 6,
     backgroundColor: 'rgba(255,255,255,0.05)',
@@ -552,13 +525,13 @@ const styles = StyleSheet.create({
   resultInfo: { flex: 1, minWidth: 0 },
   resultNameWrap: { flexDirection: 'row', alignItems: 'center' },
   resultName: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
   resultUsername: {
-    fontSize: 14,
+    fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginTop: 2,
@@ -572,13 +545,13 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   emptyText: {
-    fontSize: 16.5,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.text,
     marginTop: 6,
   },
   emptySub: {
-    fontSize: 13.5,
+    fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
