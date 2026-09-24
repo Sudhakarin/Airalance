@@ -62,7 +62,6 @@ export default function StatusViewerScreen() {
   const frameStartRef = useRef(0);
   const rafRef = useRef<number | null>(null);
 
-  // === Load statuses ===
   useEffect(() => {
     let mounted = true;
     async function load() {
@@ -91,7 +90,6 @@ export default function StatusViewerScreen() {
     };
   }, [userId]);
 
-  // === Mark as viewed ===
   const markViewed = useCallback(
     async (statusId: string) => {
       if (!myId) return;
@@ -107,7 +105,6 @@ export default function StatusViewerScreen() {
     [myId]
   );
 
-  // === Progress timer ===
   useEffect(() => {
     if (loading || statuses.length === 0) return;
     const current = statuses[index];
@@ -165,7 +162,6 @@ export default function StatusViewerScreen() {
     pausedRef.current = false;
   }
 
-  // Format time
   function formatTime(iso: string) {
     const diffMs = Date.now() - new Date(iso).getTime();
     const min = Math.floor(diffMs / 60000);
@@ -176,7 +172,6 @@ export default function StatusViewerScreen() {
     return `${Math.floor(hr / 24)}d ago`;
   }
 
-  // === RENDER ===
   if (loading) {
     return (
       <View style={styles.loadingWrap}>
@@ -189,7 +184,7 @@ export default function StatusViewerScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.emptyWrap}>
-          <Ionicons name="time-outline" size={48} color={COLORS.mist} />
+          <Ionicons name="time-outline" size={44} color={COLORS.mist} />
           <Text style={styles.emptyText}>This status has expired</Text>
           <TouchableOpacity
             style={styles.emptyBtn}
@@ -208,7 +203,6 @@ export default function StatusViewerScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Background media */}
       {current.media_type === 'video' && current.media_url ? (
         <View style={styles.mediaWrap}>
           <Image
@@ -232,7 +226,6 @@ export default function StatusViewerScreen() {
         </LinearGradient>
       )}
 
-      {/* Top gradient for readability */}
       <LinearGradient
         colors={['rgba(0,0,0,0.75)', 'transparent']}
         style={styles.topGradient}
@@ -242,9 +235,7 @@ export default function StatusViewerScreen() {
         style={styles.bottomGradient}
       />
 
-      {/* Top bar: progress + header */}
       <SafeAreaView style={styles.topArea} edges={['top']}>
-        {/* Progress segments */}
         <View style={styles.progressRow}>
           {statuses.map((s, i) => (
             <View key={s.id} style={styles.progressSegment}>
@@ -265,20 +256,19 @@ export default function StatusViewerScreen() {
           ))}
         </View>
 
-        {/* Header */}
         <View style={styles.header}>
           <Avatar
             name={profile?.display_name ?? 'Unknown'}
             color={profile?.avatar_color ?? COLORS.violet}
             avatarUrl={profile?.avatar_url ?? null}
-            size={36}
+            size={34}
           />
           <View style={styles.headerInfo}>
             <View style={styles.headerNameRow}>
               <Text style={styles.headerName} numberOfLines={1}>
                 {profile?.display_name ?? 'Unknown'}
               </Text>
-              {profile?.verified && <VerifiedBadge size={14} />}
+              {profile?.verified && <VerifiedBadge size={13} />}
             </View>
             <Text style={styles.headerTime}>
               {formatTime(current.created_at)}
@@ -296,7 +286,7 @@ export default function StatusViewerScreen() {
               }}
               activeOpacity={0.7}
             >
-              <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
+              <Ionicons name="trash-outline" size={19} color="#FFFFFF" />
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -304,12 +294,11 @@ export default function StatusViewerScreen() {
             onPress={() => router.back()}
             activeOpacity={0.7}
           >
-            <Ionicons name="close" size={24} color="#FFFFFF" />
+            <Ionicons name="close" size={22} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
       </SafeAreaView>
 
-      {/* Tap zones: left = prev, right = next */}
       <Pressable
         style={styles.tapLeft}
         onPress={() => advance(-1)}
@@ -323,7 +312,6 @@ export default function StatusViewerScreen() {
         onPressOut={resume}
       />
 
-      {/* Bottom: reply bar (if not mine) */}
       {!isMine && (
         <SafeAreaView style={styles.bottomArea} edges={['bottom']}>
           <View style={styles.replyBar}>
@@ -351,27 +339,26 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
-    padding: SPACING.xl,
+    gap: 14,
+    padding: SPACING.lg,
   },
   emptyText: {
     color: COLORS.mist,
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: FONTS.body,
   },
   emptyBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 999,
     backgroundColor: COLORS.violet,
   },
   emptyBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Media
   media: {
     width: SCREEN_W,
     height: SCREEN_H,
@@ -386,33 +373,31 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: SPACING.xxl,
+    padding: SPACING.xl,
   },
   textContent: {
     color: '#FFFFFF',
-    fontSize: 28,
+    fontSize: 24,
     fontFamily: FONTS.displayBold,
     textAlign: 'center',
-    lineHeight: 36,
+    lineHeight: 32,
   },
 
-  // Gradients
   topGradient: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: 200,
+    height: 180,
   },
   bottomGradient: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 200,
+    height: 180,
   },
 
-  // Top area
   topArea: {
     position: 'absolute',
     top: 0,
@@ -421,8 +406,8 @@ const styles = StyleSheet.create({
   },
   progressRow: {
     flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: SPACING.md,
+    gap: 3,
+    paddingHorizontal: SPACING.sm,
     paddingTop: SPACING.sm,
   },
   progressSegment: {
@@ -437,13 +422,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.sm,
   },
   headerInfo: {
     flex: 1,
@@ -455,25 +439,24 @@ const styles = StyleSheet.create({
   },
   headerName: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13.5,
     fontFamily: FONTS.bodySemiBold,
     flexShrink: 1,
   },
   headerTime: {
     color: 'rgba(255,255,255,0.75)',
-    fontSize: 11.5,
+    fontSize: 11,
     fontFamily: FONTS.body,
     marginTop: 1,
   },
   headerIconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  // Tap zones
   tapLeft: {
     position: 'absolute',
     top: 100,
@@ -489,24 +472,23 @@ const styles = StyleSheet.create({
     width: '30%',
   },
 
-  // Bottom reply
   bottomArea: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    padding: SPACING.md,
+    padding: SPACING.sm,
   },
   replyBar: {
     borderRadius: 999,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.5)',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
   },
   replyPlaceholder: {
     color: 'rgba(255,255,255,0.75)',
-    fontSize: 14,
+    fontSize: 13.5,
     fontFamily: FONTS.body,
   },
 });
