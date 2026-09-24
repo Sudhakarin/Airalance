@@ -57,6 +57,113 @@ function formatCount(n: number): string {
   return fmt(n / 1_000_000, 'M');
 }
 
+function SkeletonBlock({
+  width,
+  height,
+  borderRadius = 6,
+  style,
+}: {
+  width: number | string;
+  height: number;
+  borderRadius?: number;
+  style?: any;
+}) {
+  return (
+    <View
+      style={[
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: 'rgba(255,255,255,0.08)',
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+function ProfileSkeleton() {
+  return (
+    <View style={styles.skeletonContainer}>
+      {/* Top Section */}
+      <View style={styles.skeletonTopSection}>
+        <SkeletonBlock width={80} height={80} borderRadius={40} />
+        <View style={styles.skeletonRightCol}>
+          <SkeletonBlock
+            width="60%"
+            height={20}
+            borderRadius={6}
+            style={{ marginBottom: 10 }}
+          />
+          <View style={styles.skeletonStatsGrid}>
+            {[1, 2, 3].map((i) => (
+              <View key={i} style={styles.skeletonStatItem}>
+                <SkeletonBlock width={30} height={18} borderRadius={4} />
+                <SkeletonBlock
+                  width={50}
+                  height={12}
+                  borderRadius={4}
+                  style={{ marginTop: 4 }}
+                />
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      {/* Bio Block */}
+      <View style={styles.skeletonBioBlock}>
+        <SkeletonBlock width="30%" height={16} borderRadius={4} />
+        <SkeletonBlock
+          width="80%"
+          height={14}
+          borderRadius={4}
+          style={{ marginTop: 10 }}
+        />
+        <SkeletonBlock
+          width="60%"
+          height={14}
+          borderRadius={4}
+          style={{ marginTop: 6 }}
+        />
+      </View>
+
+      {/* Info Card */}
+      <View style={styles.skeletonCard}>
+        {[1, 2, 3, 4].map((i) => (
+          <View key={i} style={styles.skeletonRow}>
+            <SkeletonBlock width={80} height={14} borderRadius={4} />
+            <SkeletonBlock width={120} height={14} borderRadius={4} />
+          </View>
+        ))}
+      </View>
+
+      {/* Bio Input Card */}
+      <View style={styles.skeletonCard}>
+        <View style={styles.skeletonRow}>
+          <SkeletonBlock width={60} height={14} borderRadius={4} />
+          <SkeletonBlock width={40} height={10} borderRadius={4} />
+        </View>
+        <SkeletonBlock
+          width="100%"
+          height={60}
+          borderRadius={8}
+          style={{ marginHorizontal: 18, marginBottom: 12 }}
+        />
+      </View>
+
+      {/* Save Button */}
+      <SkeletonBlock
+        width="100%"
+        height={48}
+        borderRadius={24}
+        style={{ marginTop: 10 }}
+      />
+    </View>
+  );
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -342,9 +449,16 @@ export default function ProfileScreen() {
   if (loading || !profile) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator color={COLORS.violet} />
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Airalance!</Text>
+          <View style={styles.headerBtn} />
         </View>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+        >
+          <ProfileSkeleton />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -1105,5 +1219,48 @@ const styles = StyleSheet.create({
   },
   followBtnSmallTextFollowing: {
     color: '#FFFFFF',
+  },
+
+  // Skeleton styles
+  skeletonContainer: {
+    paddingHorizontal: 18,
+    paddingTop: 10,
+  },
+  skeletonTopSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 12,
+  },
+  skeletonRightCol: {
+    flex: 1,
+    gap: 10,
+  },
+  skeletonStatsGrid: {
+    flexDirection: 'row',
+  },
+  skeletonStatItem: {
+    flex: 1,
+    gap: 2,
+  },
+  skeletonBioBlock: {
+    marginTop: 8,
+    marginBottom: 16,
+    gap: 6,
+  },
+  skeletonCard: {
+    backgroundColor: '#121212',
+    borderWidth: 1,
+    borderColor: '#1F1F23',
+    borderRadius: RADII.xl,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
   },
 });

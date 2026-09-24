@@ -248,8 +248,6 @@ export default function ChatsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.glowTop} />
-
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Chats</Text>
         <TouchableOpacity
@@ -257,7 +255,7 @@ export default function ChatsScreen() {
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="create-outline" size={22} color={COLORS.text} />
+          <Ionicons name="create-outline" size={20} color={COLORS.text} />
         </TouchableOpacity>
       </View>
 
@@ -376,33 +374,23 @@ export default function ChatsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
 
-  glowTop: {
-    position: 'absolute',
-    top: -200,
-    left: -100,
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    backgroundColor: 'rgba(124, 92, 255, 0.08)',
-  },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   headerBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -410,7 +398,7 @@ const styles = StyleSheet.create({
 
   listContent: {
     paddingHorizontal: SPACING.sm,
-    paddingBottom: SPACING.xl,
+    paddingBottom: SPACING.lg,
     flexGrow: 1,
   },
 
