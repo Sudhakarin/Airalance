@@ -812,13 +812,13 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
   } as any,
   badgeWrap: {
-    marginLeft: 3,
+    marginLeft: 4,
     marginTop: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   badgeWrapSmall: {
-    marginLeft: 2,
+    marginLeft: 3,
     marginTop: 1,
     justifyContent: 'center',
     alignItems: 'center',
