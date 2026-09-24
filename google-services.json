@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "8351937127",
+    "project_id": "airalance-main",
+    "storage_bucket": "airalance-main.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:8351937127:android:04661176733ffd43c49ac2",
+        "android_client_info": {
+          "package_name": "com.airalance.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD_mYy6d19nlB8Ll4LiVnDaQn4jAB_ZirQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
