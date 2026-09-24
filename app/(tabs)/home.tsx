@@ -1,15 +1,16 @@
 // app/(tabs)/home.tsx
 // Home screen — welcome + news feed with categories + live section + skeleton
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, memo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   Image,
   RefreshControl,
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -49,6 +50,53 @@ const CATEGORY_GRADIENTS: Record<string, [string, string]> = {
   Awareness: ['#F4607A', '#D66BE0'],
 };
 
+const ArticleRow = memo(function ArticleRow({
+  article,
+  onPress,
+}: {
+  article: NewsArticle;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.articleRow}
+      onPress={onPress}
+      activeOpacity={0.75}
+    >
+      {article.image_url ? (
+        <Image
+          source={{ uri: article.image_url }}
+          style={styles.articleThumb}
+          resizeMode="cover"
+        />
+      ) : (
+        <LinearGradient
+          colors={
+            CATEGORY_GRADIENTS[article.category] ?? ['#7C5CFF', '#5B3FE0']
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.articleThumb}
+        >
+          <Text style={styles.articleEmoji}>{article.emoji ?? '📰'}</Text>
+        </LinearGradient>
+      )}
+
+      <View style={styles.articleInfo}>
+        <Text style={styles.articleCategory}>
+          {article.category?.toUpperCase()}
+        </Text>
+        <Text style={styles.articleTitle} numberOfLines={3}>
+          {article.title}
+        </Text>
+        <Text style={styles.articleMeta}>
+          {article.source} · {article.read_time}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
 function SkeletonBlock({
   width,
   height,
@@ -84,7 +132,6 @@ function HomeSkeleton() {
         borderRadius={RADII.xl}
         style={{ marginBottom: SPACING.md }}
       />
-
       <View style={{ marginBottom: SPACING.md }}>
         <View
           style={{
@@ -98,13 +145,8 @@ function HomeSkeleton() {
           <SkeletonBlock width={8} height={8} borderRadius={4} />
           <SkeletonBlock width={40} height={14} borderRadius={6} />
         </View>
-        <SkeletonBlock
-          width="100%"
-          height={170}
-          borderRadius={RADII.xl}
-        />
+        <SkeletonBlock width="100%" height={170} borderRadius={RADII.xl} />
       </View>
-
       {[0, 1, 2, 3].map((i) => (
         <View
           key={i}
@@ -191,13 +233,167 @@ export default function HomeScreen() {
     filteredArticles.find((a) => a.is_featured) ?? filteredArticles[0];
   const rest = filteredArticles.filter((a) => a.id !== featured?.id);
 
+  const ListHeader = (
+    <>
+      <View style={styles.welcomeCard}>
+        <View style={styles.welcomeIcon}>
+          <LinearGradient
+            colors={['#9C82FF', '#22D3B8']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.welcomeIconGradient}
+          >
+            <Ionicons name="chatbubble" size={30} color="#FFFFFF" />
+          </LinearGradient>
+        </View>
+        <Text style={styles.welcomeTitle}>Welcome to Airalance!</Text>
+        <Text style={styles.welcomeSubtitle}>
+          Let's connect. Real conversations, real time.
+        </Text>
+        <TouchableOpacity
+          style={styles.welcomeBtn}
+          onPress={() => router.push('/(tabs)/search')}
+          activeOpacity={0.85}
+        >
+          <LinearGradient
+            colors={['#9C82FF', '#7C5CFF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.welcomeBtnGradient}
+          >
+            <Text style={styles.welcomeBtnText}>Start a conversation</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.newsSection}>
+        <View style={styles.newsHeader}>
+          <Text style={styles.newsTitle}>News for you</Text>
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoriesRow}
+        >
+          {CATEGORIES.map((cat) => {
+            const isActive = selectedCategory === cat;
+            return (
+              <TouchableOpacity
+                key={cat}
+                onPress={() => setSelectedCategory(cat)}
+                activeOpacity={0.8}
+                style={styles.categoryWrap}
+              >
+                {isActive ? (
+                  <LinearGradient
+                    colors={['#9C82FF', '#7C5CFF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.categoryPill}
+                  >
+                    <Text style={styles.categoryTextActive}>{cat}</Text>
+                  </LinearGradient>
+                ) : (
+                  <View style={styles.categoryPillInactive}>
+                    <Text style={styles.categoryTextInactive}>{cat}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {loading ? (
+          <HomeSkeleton />
+        ) : filteredArticles.length === 0 ? (
+          <View style={styles.emptyWrap}>
+            <Ionicons name="newspaper-outline" size={44} color={COLORS.mist} />
+            <Text style={styles.emptyText}>
+              No {selectedCategory === 'For you' ? 'news' : selectedCategory} articles yet.
+            </Text>
+            <Text style={styles.emptySubtext}>Check back soon.</Text>
+          </View>
+        ) : (
+          <>
+            {featured && (
+              <TouchableOpacity
+                style={styles.featuredCard}
+                onPress={() => router.push(`/news/${featured.id}`)}
+                activeOpacity={0.9}
+              >
+                {featured.image_url ? (
+                  <Image
+                    source={{ uri: featured.image_url }}
+                    style={styles.featuredImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <LinearGradient
+                    colors={
+                      CATEGORY_GRADIENTS[featured.category] ?? [
+                        '#7C5CFF',
+                        '#5B3FE0',
+                      ]
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.featuredImage}
+                  >
+                    <Text style={styles.featuredEmoji}>
+                      {featured.emoji ?? '📰'}
+                    </Text>
+                  </LinearGradient>
+                )}
+
+                <LinearGradient
+                  colors={['transparent', 'rgba(10,12,18,0.95)']}
+                  style={styles.featuredOverlay}
+                />
+
+                <View style={styles.featuredContent}>
+                  <View style={styles.featuredBadge}>
+                    <Text style={styles.featuredBadgeText}>
+                      FEATURED · {featured.category}
+                    </Text>
+                  </View>
+                  <Text style={styles.featuredTitle} numberOfLines={3}>
+                    {featured.title}
+                  </Text>
+                  <View style={styles.featuredMeta}>
+                    <Text style={styles.featuredMetaText}>
+                      {featured.source} · {featured.read_time}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.liveSection}>
+              <View style={styles.liveHeader}>
+                <View style={styles.livePulse} />
+                <View style={styles.livePulseInner} />
+                <Text style={styles.liveTitle}>Live</Text>
+              </View>
+              <View style={styles.liveBox}>
+                <Ionicons name="radio-outline" size={44} color={COLORS.mist} />
+                <Text style={styles.liveText}>
+                  Live stream will appear here
+                </Text>
+              </View>
+            </View>
+          </>
+        )}
+      </View>
+    </>
+  );
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
 
       <View style={styles.header}>
         <Text style={styles.brandText}>Airalance!</Text>
-
         <TouchableOpacity
           style={styles.bellBtn}
           onPress={() => router.push('/notifications')}
@@ -214,9 +410,27 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
+      <FlatList
+        data={loading || rest.length === 0 ? [] : rest}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => (
+          <>
+            <ArticleRow
+              article={item}
+              onPress={() => router.push(`/news/${item.id}`)}
+            />
+            {index < rest.length - 1 && (
+              <View style={styles.articleDivider} />
+            )}
+          </>
+        )}
+        ListHeaderComponent={ListHeader}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        initialNumToRender={4}
+        maxToRenderPerBatch={4}
+        windowSize={5}
+        removeClippedSubviews={true}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -225,210 +439,7 @@ export default function HomeScreen() {
             colors={[COLORS.violet]}
           />
         }
-      >
-        <View style={styles.welcomeCard}>
-          <View style={styles.welcomeIcon}>
-            <LinearGradient
-              colors={['#9C82FF', '#22D3B8']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.welcomeIconGradient}
-            >
-              <Ionicons name="chatbubble" size={30} color="#FFFFFF" />
-            </LinearGradient>
-          </View>
-          <Text style={styles.welcomeTitle}>Welcome to Airalance!</Text>
-          <Text style={styles.welcomeSubtitle}>
-            Let's connect. Real conversations, real time.
-          </Text>
-          <TouchableOpacity
-            style={styles.welcomeBtn}
-            onPress={() => router.push('/(tabs)/search')}
-            activeOpacity={0.85}
-          >
-            <LinearGradient
-              colors={['#9C82FF', '#7C5CFF']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.welcomeBtnGradient}
-            >
-              <Text style={styles.welcomeBtnText}>Start a conversation</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.newsSection}>
-          <View style={styles.newsHeader}>
-            <Text style={styles.newsTitle}>News for you</Text>
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoriesRow}
-          >
-            {CATEGORIES.map((cat) => {
-              const isActive = selectedCategory === cat;
-              return (
-                <TouchableOpacity
-                  key={cat}
-                  onPress={() => setSelectedCategory(cat)}
-                  activeOpacity={0.8}
-                  style={styles.categoryWrap}
-                >
-                  {isActive ? (
-                    <LinearGradient
-                      colors={['#9C82FF', '#7C5CFF']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.categoryPill}
-                    >
-                      <Text style={styles.categoryTextActive}>{cat}</Text>
-                    </LinearGradient>
-                  ) : (
-                    <View style={styles.categoryPillInactive}>
-                      <Text style={styles.categoryTextInactive}>{cat}</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {loading ? (
-            <HomeSkeleton />
-          ) : filteredArticles.length === 0 ? (
-            <View style={styles.emptyWrap}>
-              <Ionicons name="newspaper-outline" size={44} color={COLORS.mist} />
-              <Text style={styles.emptyText}>
-                No {selectedCategory === 'For you' ? 'news' : selectedCategory} articles yet.
-              </Text>
-              <Text style={styles.emptySubtext}>Check back soon.</Text>
-            </View>
-          ) : (
-            <>
-              {featured && (
-                <TouchableOpacity
-                  style={styles.featuredCard}
-                  onPress={() => router.push(`/news/${featured.id}`)}
-                  activeOpacity={0.9}
-                >
-                  {featured.image_url ? (
-                    <Image
-                      source={{ uri: featured.image_url }}
-                      style={styles.featuredImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <LinearGradient
-                      colors={
-                        CATEGORY_GRADIENTS[featured.category] ?? [
-                          '#7C5CFF',
-                          '#5B3FE0',
-                        ]
-                      }
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.featuredImage}
-                    >
-                      <Text style={styles.featuredEmoji}>
-                        {featured.emoji ?? '📰'}
-                      </Text>
-                    </LinearGradient>
-                  )}
-
-                  <LinearGradient
-                    colors={['transparent', 'rgba(10,12,18,0.95)']}
-                    style={styles.featuredOverlay}
-                  />
-
-                  <View style={styles.featuredContent}>
-                    <View style={styles.featuredBadge}>
-                      <Text style={styles.featuredBadgeText}>
-                        FEATURED · {featured.category}
-                      </Text>
-                    </View>
-                    <Text style={styles.featuredTitle} numberOfLines={3}>
-                      {featured.title}
-                    </Text>
-                    <View style={styles.featuredMeta}>
-                      <Text style={styles.featuredMetaText}>
-                        {featured.source} · {featured.read_time}
-                      </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              )}
-
-              <View style={styles.liveSection}>
-                <View style={styles.liveHeader}>
-                  <View style={styles.livePulse} />
-                  <View style={styles.livePulseInner} />
-                  <Text style={styles.liveTitle}>Live</Text>
-                </View>
-                <View style={styles.liveBox}>
-                  <Ionicons name="radio-outline" size={44} color={COLORS.mist} />
-                  <Text style={styles.liveText}>
-                    Live stream will appear here
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.listSection}>
-                {rest.map((article, index) => (
-                  <View key={article.id}>
-                    <TouchableOpacity
-                      style={styles.articleRow}
-                      onPress={() => router.push(`/news/${article.id}`)}
-                      activeOpacity={0.75}
-                    >
-                      {article.image_url ? (
-                        <Image
-                          source={{ uri: article.image_url }}
-                          style={styles.articleThumb}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <LinearGradient
-                          colors={
-                            CATEGORY_GRADIENTS[article.category] ?? [
-                              '#7C5CFF',
-                              '#5B3FE0',
-                            ]
-                          }
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.articleThumb}
-                        >
-                          <Text style={styles.articleEmoji}>
-                            {article.emoji ?? '📰'}
-                          </Text>
-                        </LinearGradient>
-                      )}
-
-                      <View style={styles.articleInfo}>
-                        <Text style={styles.articleCategory}>
-                          {article.category?.toUpperCase()}
-                        </Text>
-                        <Text style={styles.articleTitle} numberOfLines={3}>
-                          {article.title}
-                        </Text>
-                        <Text style={styles.articleMeta}>
-                          {article.source} · {article.read_time}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-
-                    {index < rest.length - 1 && (
-                      <View style={styles.articleDivider} />
-                    )}
-                  </View>
-                ))}
-              </View>
-            </>
-          )}
-        </View>
-      </ScrollView>
+      />
     </SafeAreaView>
   );
 }
@@ -698,7 +709,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
   },
 
-  listSection: { gap: 0 },
   articleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -706,11 +716,12 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
     paddingHorizontal: 4,
     borderRadius: RADII.lg,
+    marginHorizontal: 20,
   },
   articleDivider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.07)',
-    marginHorizontal: 4,
+    marginHorizontal: 24,
     marginVertical: 2,
   },
   articleThumb: {
