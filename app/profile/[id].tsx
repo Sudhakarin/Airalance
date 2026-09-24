@@ -403,7 +403,7 @@ export default function UserProfileScreen() {
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="chevron-back" size={26} color={COLORS.text} />
+          <Ionicons name="chevron-back" size={24} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerUsername} numberOfLines={1}>
           @{profile.username}
@@ -415,7 +415,7 @@ export default function UserProfileScreen() {
         >
           <Ionicons
             name="ellipsis-horizontal"
-            size={24}
+            size={22}
             color={COLORS.text}
           />
         </TouchableOpacity>
@@ -431,7 +431,7 @@ export default function UserProfileScreen() {
               name={profile.display_name}
               color={profile.avatar_color}
               avatarUrl={profile.avatar_url}
-              size={122}
+              size={100}
             />
           </View>
         </View>
@@ -441,7 +441,7 @@ export default function UserProfileScreen() {
             <Text style={styles.displayName} numberOfLines={2}>
               {profile.display_name}
             </Text>
-            {verified && <VerifiedBadge size={22} />}
+            {verified && <VerifiedBadge size={20} />}
           </View>
           <Text style={styles.username}>@{profile.username}</Text>
 
@@ -516,7 +516,7 @@ export default function UserProfileScreen() {
             >
               <Ionicons
                 name="person-add-outline"
-                size={24}
+                size={22}
                 color="#FFFFFF"
               />
             </TouchableOpacity>
@@ -528,7 +528,7 @@ export default function UserProfileScreen() {
               onPress={() => setConnectPopup('pending')}
               activeOpacity={0.85}
             >
-              <Ionicons name="time-outline" size={24} color="#FFFFFF" />
+              <Ionicons name="time-outline" size={22} color="#FFFFFF" />
             </TouchableOpacity>
           )}
 
@@ -540,7 +540,7 @@ export default function UserProfileScreen() {
             >
               <Ionicons
                 name="close-circle-outline"
-                size={24}
+                size={22}
                 color={COLORS.danger}
               />
             </TouchableOpacity>
@@ -554,7 +554,7 @@ export default function UserProfileScreen() {
             >
               <Ionicons
                 name="chatbubble-outline"
-                size={24}
+                size={22}
                 color="#FFFFFF"
               />
             </TouchableOpacity>
@@ -565,7 +565,7 @@ export default function UserProfileScreen() {
             onPress={() => setMenuOpen(true)}
             activeOpacity={0.85}
           >
-            <Ionicons name="ellipsis-vertical" size={22} color="#FFFFFF" />
+            <Ionicons name="ellipsis-vertical" size={20} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
@@ -575,7 +575,6 @@ export default function UserProfileScreen() {
         ) : null}
       </ScrollView>
 
-      {/* Connect modal */}
       {connectPopup && (
         <Modal
           visible
@@ -589,7 +588,7 @@ export default function UserProfileScreen() {
                 name={profile.display_name}
                 color={profile.avatar_color}
                 avatarUrl={profile.avatar_url}
-                size={84}
+                size={76}
               />
               <Text style={styles.modalName}>{profile.display_name}</Text>
               <Text style={styles.modalUsername}>@{profile.username}</Text>
@@ -672,7 +671,6 @@ export default function UserProfileScreen() {
         </Modal>
       )}
 
-      {/* Menu modal */}
       {menuOpen && (
         <Modal
           visible
@@ -694,7 +692,7 @@ export default function UserProfileScreen() {
               >
                 <Ionicons
                   name="ban-outline"
-                  size={24}
+                  size={22}
                   color={COLORS.danger}
                 />
                 <Text style={styles.menuItemText}>
@@ -718,7 +716,6 @@ export default function UserProfileScreen() {
         </Modal>
       )}
 
-      {/* Follow list modal */}
       {listTab && (
         <Modal
           visible
@@ -734,7 +731,7 @@ export default function UserProfileScreen() {
                   style={styles.listHeaderBtn}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="close" size={26} color="#FFFFFF" />
+                  <Ionicons name="close" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
                 <View style={styles.listTabs}>
                   <TouchableOpacity
@@ -783,7 +780,7 @@ export default function UserProfileScreen() {
                 <View style={styles.listEmpty}>
                   <Ionicons
                     name="people-outline"
-                    size={44}
+                    size={40}
                     color={COLORS.mist}
                   />
                   <Text style={styles.listEmptyText}>
@@ -810,7 +807,7 @@ export default function UserProfileScreen() {
                         name={item.display_name}
                         color={item.avatar_color}
                         avatarUrl={item.avatar_url}
-                        size={56}
+                        size={50}
                       />
                       <View style={styles.personInfo}>
                         <View style={styles.personNameRow}>
@@ -820,7 +817,7 @@ export default function UserProfileScreen() {
                           >
                             {item.display_name}
                           </Text>
-                          {isVerified(item) && <VerifiedBadge size={15} />}
+                          {isVerified(item) && <VerifiedBadge size={14} />}
                         </View>
                         <Text
                           style={styles.personUsername}
@@ -874,7 +871,7 @@ function StatItem({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
-  scroll: { paddingBottom: SPACING.xxl },
+  scroll: { paddingBottom: SPACING.xl },
 
   glowTop: {
     position: 'absolute',
@@ -891,28 +888,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     gap: SPACING.sm,
   },
-  // Header button — 46 (was 40)
   headerBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Header username — 17 (was 14)
   headerUsername: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mistLight,
   },
 
-  avatarWrap: { alignItems: 'center', marginTop: 16 },
+  avatarWrap: { alignItems: 'center', marginTop: 12 },
   avatarInner: {
     borderRadius: 999,
     padding: 4,
@@ -922,44 +917,40 @@ const styles = StyleSheet.create({
   nameBlock: {
     alignItems: 'center',
     paddingHorizontal: SPACING.lg,
-    marginTop: 16,
+    marginTop: 12,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Display name — 26 (was 22)
   displayName: {
-    fontSize: 26,
+    fontSize: 22,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     textAlign: 'center',
   },
-  // Username — 17 (was 14)
   username: {
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 4,
+    marginTop: 3,
   },
   statusPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginTop: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    gap: 6,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  // Status dot — 10 (was 8)
-  statusDot: { width: 10, height: 10, borderRadius: 5 },
-  // Status text — 15 (was 12)
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusText: {
-    fontSize: 15,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
   },
@@ -968,29 +959,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: SPACING.lg,
+    marginTop: SPACING.md,
   },
-  // Stat item — bigger padding
-  statItem: { alignItems: 'center', paddingHorizontal: 28 },
-  // Stat value — 22 (was 18)
+  statItem: { alignItems: 'center', paddingHorizontal: 20 },
   statValue: {
-    fontSize: 22,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
-  // Stat label — 13 (was 11)
   statLabel: {
-    fontSize: 13,
+    fontSize: 11,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
-    marginTop: 4,
+    marginTop: 3,
   },
-  // Stat divider — 40 (was 32)
   statDivider: {
     width: 1,
-    height: 40,
+    height: 32,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
 
@@ -998,15 +985,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
+    gap: 10,
     paddingHorizontal: SPACING.lg,
-    marginTop: SPACING.xl,
+    marginTop: SPACING.lg,
   },
-  // Follow button — 54 height, minWidth 190 (was 46/170)
   followBtn: {
-    minWidth: 190,
-    height: 54,
-    borderRadius: RADII.lg,
+    minWidth: 160,
+    height: 46,
+    borderRadius: RADII.md,
     backgroundColor: '#E54E60',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1016,17 +1002,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
-  // Follow btn text — 17 (was 15)
   followBtnText: {
     color: '#FFFFFF',
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
   },
-  // Icon buttons — 54 (was 46)
   iconBtn: {
-    width: 54,
-    height: 54,
-    borderRadius: RADII.lg,
+    width: 46,
+    height: 46,
+    borderRadius: RADII.md,
     backgroundColor: '#2E2E2E',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1034,28 +1018,26 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
   },
   iconBtnLoading: {
-    width: 54,
-    height: 54,
-    borderRadius: RADII.lg,
+    width: 46,
+    height: 46,
+    borderRadius: RADII.md,
     backgroundColor: '#2E2E2E',
     opacity: 0.5,
   },
 
-  // Bio — 17 (was 14), lineHeight 23
   bio: {
-    paddingHorizontal: SPACING.xl,
-    marginTop: SPACING.xl,
-    fontSize: 17,
+    paddingHorizontal: SPACING.lg,
+    marginTop: SPACING.lg,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
     textAlign: 'center',
-    lineHeight: 23,
+    lineHeight: 21,
   },
-  // Bio link — 16 (was 13)
   bioLink: {
-    paddingHorizontal: SPACING.xl,
-    marginTop: 10,
-    fontSize: 16,
+    paddingHorizontal: SPACING.lg,
+    marginTop: 8,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.teal,
     textAlign: 'center',
@@ -1068,63 +1050,58 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.7)',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: SPACING.xl,
+    padding: SPACING.lg,
   },
   modalCard: {
     width: '100%',
-    maxWidth: 380,
+    maxWidth: 360,
     backgroundColor: COLORS.ink800,
-    borderRadius: RADII.xxl,
-    padding: SPACING.xl,
+    borderRadius: RADII.xl,
+    padding: SPACING.lg,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
-  // Modal name — 21 (was 18)
   modalName: {
-    fontSize: 21,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
-    marginTop: SPACING.md,
+    marginTop: SPACING.sm,
     textAlign: 'center',
   },
-  // Modal username — 15 (was 13)
   modalUsername: {
-    fontSize: 15,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 3,
+    marginTop: 2,
   },
   modalDivider: {
     height: 1,
     width: '100%',
     backgroundColor: 'rgba(255,255,255,0.06)',
-    marginVertical: SPACING.lg,
+    marginVertical: SPACING.md,
   },
-  // Modal message — 17 (was 14)
   modalMessage: {
-    fontSize: 17,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
     textAlign: 'center',
-    lineHeight: 23,
-    marginBottom: SPACING.lg,
+    lineHeight: 20,
+    marginBottom: SPACING.md,
   },
-  modalRow: { flexDirection: 'row', gap: 12, width: '100%' },
-  // Modal cancel — 54 (was 46)
+  modalRow: { flexDirection: 'row', gap: 10, width: '100%' },
   modalCancel: {
     flex: 1,
-    height: 54,
+    height: 46,
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Modal cancel text — 17 (was 14)
   modalCancelText: {
     color: COLORS.mistLight,
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
   },
   modalPrimary: {
@@ -1133,19 +1110,18 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   modalPrimaryGradient: {
-    height: 54,
+    height: 46,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Modal primary text — 17 (was 14)
   modalPrimaryText: {
     color: '#FFFFFF',
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
   },
   modalFull: {
     width: '100%',
-    height: 54,
+    height: 46,
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
@@ -1155,43 +1131,40 @@ const styles = StyleSheet.create({
 
   menuCard: {
     position: 'absolute',
-    bottom: 40,
-    left: SPACING.xl,
-    right: SPACING.xl,
+    bottom: 30,
+    left: SPACING.lg,
+    right: SPACING.lg,
     backgroundColor: COLORS.ink800,
     borderRadius: RADII.xl,
-    padding: SPACING.md,
+    padding: SPACING.sm,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    paddingVertical: 18,
-    paddingHorizontal: SPACING.md,
+    gap: 12,
+    paddingVertical: 16,
+    paddingHorizontal: SPACING.sm,
   },
-  // Menu item text — 17 (was 15)
   menuItemText: {
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.danger,
   },
   menuCancel: {
-    marginTop: 6,
-    paddingVertical: 18,
+    marginTop: 4,
+    paddingVertical: 16,
     alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
   },
-  // Menu cancel text — 17 (was 14)
   menuCancelText: {
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mistLight,
   },
 
-  // Follow list modal
   listModalWrap: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
@@ -1199,23 +1172,22 @@ const styles = StyleSheet.create({
   },
   listModal: {
     backgroundColor: '#000000',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    height: '85%',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: '80%',
     borderTopWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
   listHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingTop: SPACING.md,
-    paddingBottom: 10,
+    paddingHorizontal: SPACING.sm,
+    paddingTop: SPACING.sm,
+    paddingBottom: 8,
   },
-  // List header btn — 46 (was 40)
   listHeaderBtn: {
-    width: 46,
-    height: 46,
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1223,26 +1195,24 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 32,
+    gap: 28,
   },
   listTabBtn: {
-    paddingVertical: 10,
+    paddingVertical: 8,
     alignItems: 'center',
     position: 'relative',
   },
-  // List tab text — 18 (was 15)
   listTabText: {
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mist,
   },
   listTabTextActive: { color: '#FFFFFF' },
-  // Underline — bigger
   listTabUnderline: {
     position: 'absolute',
     bottom: 0,
-    height: 2.5,
-    width: 50,
+    height: 2,
+    width: 40,
     borderRadius: 2,
     backgroundColor: COLORS.violetLight,
   },
@@ -1255,42 +1225,38 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 14,
+    gap: 12,
   },
-  // List empty text — 17.5 (was 14)
   listEmptyText: {
     color: COLORS.mist,
-    fontSize: 17.5,
+    fontSize: 15,
     fontFamily: FONTS.body,
   },
   listContent: {
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.sm,
     paddingTop: SPACING.sm,
-    paddingBottom: SPACING.xxl,
+    paddingBottom: SPACING.xl,
   },
-  // Person row — bigger
   personRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.md,
-    paddingVertical: 14,
+    gap: SPACING.sm,
+    paddingVertical: 12,
     paddingHorizontal: SPACING.sm,
     borderRadius: RADII.lg,
   },
   personInfo: { flex: 1, minWidth: 0 },
   personNameRow: { flexDirection: 'row', alignItems: 'center' },
-  // Person name — 17.5 (was 15)
   personName: {
-    fontSize: 17.5,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
-  // Person username — 15 (was 13)
   personUsername: {
-    fontSize: 15,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 3,
+    marginTop: 2,
   },
 });

@@ -1,15 +1,16 @@
 // app/(tabs)/home.tsx
 // Home screen — welcome + news feed with categories + live section + skeleton
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, memo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   Image,
   RefreshControl,
+  ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -49,7 +50,53 @@ const CATEGORY_GRADIENTS: Record<string, [string, string]> = {
   Awareness: ['#F4607A', '#D66BE0'],
 };
 
-// ===== Skeleton block (static — works on web + native) =====
+const ArticleRow = memo(function ArticleRow({
+  article,
+  onPress,
+}: {
+  article: NewsArticle;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.articleRow}
+      onPress={onPress}
+      activeOpacity={0.75}
+    >
+      {article.image_url ? (
+        <Image
+          source={{ uri: article.image_url }}
+          style={styles.articleThumb}
+          resizeMode="cover"
+        />
+      ) : (
+        <LinearGradient
+          colors={
+            CATEGORY_GRADIENTS[article.category] ?? ['#7C5CFF', '#5B3FE0']
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.articleThumb}
+        >
+          <Text style={styles.articleEmoji}>{article.emoji ?? '📰'}</Text>
+        </LinearGradient>
+      )}
+
+      <View style={styles.articleInfo}>
+        <Text style={styles.articleCategory}>
+          {article.category?.toUpperCase()}
+        </Text>
+        <Text style={styles.articleTitle} numberOfLines={3}>
+          {article.title}
+        </Text>
+        <Text style={styles.articleMeta}>
+          {article.source} · {article.read_time}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
 function SkeletonBlock({
   width,
   height,
@@ -79,53 +126,44 @@ function SkeletonBlock({
 function HomeSkeleton() {
   return (
     <View>
-      {/* Featured card skeleton */}
       <SkeletonBlock
         width="100%"
-        height={230}
+        height={200}
         borderRadius={RADII.xl}
-        style={{ marginBottom: SPACING.lg }}
+        style={{ marginBottom: SPACING.md }}
       />
-
-      {/* Live section skeleton */}
-      <View style={{ marginBottom: SPACING.lg }}>
+      <View style={{ marginBottom: SPACING.md }}>
         <View
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            gap: 10,
+            gap: 8,
             marginBottom: SPACING.sm,
             paddingHorizontal: 4,
           }}
         >
-          <SkeletonBlock width={10} height={10} borderRadius={5} />
-          <SkeletonBlock width={50} height={16} borderRadius={6} />
+          <SkeletonBlock width={8} height={8} borderRadius={4} />
+          <SkeletonBlock width={40} height={14} borderRadius={6} />
         </View>
-        <SkeletonBlock
-          width="100%"
-          height={200}
-          borderRadius={RADII.xl}
-        />
+        <SkeletonBlock width="100%" height={170} borderRadius={RADII.xl} />
       </View>
-
-      {/* Articles list skeleton — 4 rows */}
       {[0, 1, 2, 3].map((i) => (
         <View
           key={i}
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            gap: SPACING.md,
-            paddingVertical: SPACING.md,
+            gap: SPACING.sm,
+            paddingVertical: SPACING.sm,
             paddingHorizontal: 4,
           }}
         >
-          <SkeletonBlock width={84} height={84} borderRadius={RADII.lg} />
-          <View style={{ flex: 1, gap: 8 }}>
-            <SkeletonBlock width={60} height={12} borderRadius={4} />
-            <SkeletonBlock width="90%" height={16} borderRadius={5} />
-            <SkeletonBlock width="70%" height={16} borderRadius={5} />
-            <SkeletonBlock width={110} height={12} borderRadius={4} />
+          <SkeletonBlock width={74} height={74} borderRadius={RADII.lg} />
+          <View style={{ flex: 1, gap: 6 }}>
+            <SkeletonBlock width={50} height={10} borderRadius={4} />
+            <SkeletonBlock width="90%" height={14} borderRadius={5} />
+            <SkeletonBlock width="70%" height={14} borderRadius={5} />
+            <SkeletonBlock width={100} height={10} borderRadius={4} />
           </View>
         </View>
       ))}
@@ -195,20 +233,173 @@ export default function HomeScreen() {
     filteredArticles.find((a) => a.is_featured) ?? filteredArticles[0];
   const rest = filteredArticles.filter((a) => a.id !== featured?.id);
 
+  const ListHeader = (
+    <>
+      <View style={styles.welcomeCard}>
+        <View style={styles.welcomeIcon}>
+          <LinearGradient
+            colors={['#9C82FF', '#22D3B8']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.welcomeIconGradient}
+          >
+            <Ionicons name="chatbubble" size={30} color="#FFFFFF" />
+          </LinearGradient>
+        </View>
+        <Text style={styles.welcomeTitle}>Welcome to Airalance!</Text>
+        <Text style={styles.welcomeSubtitle}>
+          Let's connect. Real conversations, real time.
+        </Text>
+        <TouchableOpacity
+          style={styles.welcomeBtn}
+          onPress={() => router.push('/(tabs)/search')}
+          activeOpacity={0.85}
+        >
+          <LinearGradient
+            colors={['#9C82FF', '#7C5CFF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.welcomeBtnGradient}
+          >
+            <Text style={styles.welcomeBtnText}>Start a conversation</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.newsSection}>
+        <View style={styles.newsHeader}>
+          <Text style={styles.newsTitle}>News for you</Text>
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categoriesRow}
+        >
+          {CATEGORIES.map((cat) => {
+            const isActive = selectedCategory === cat;
+            return (
+              <TouchableOpacity
+                key={cat}
+                onPress={() => setSelectedCategory(cat)}
+                activeOpacity={0.8}
+                style={styles.categoryWrap}
+              >
+                {isActive ? (
+                  <LinearGradient
+                    colors={['#9C82FF', '#7C5CFF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.categoryPill}
+                  >
+                    <Text style={styles.categoryTextActive}>{cat}</Text>
+                  </LinearGradient>
+                ) : (
+                  <View style={styles.categoryPillInactive}>
+                    <Text style={styles.categoryTextInactive}>{cat}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {loading ? (
+          <HomeSkeleton />
+        ) : filteredArticles.length === 0 ? (
+          <View style={styles.emptyWrap}>
+            <Ionicons name="newspaper-outline" size={44} color={COLORS.mist} />
+            <Text style={styles.emptyText}>
+              No {selectedCategory === 'For you' ? 'news' : selectedCategory} articles yet.
+            </Text>
+            <Text style={styles.emptySubtext}>Check back soon.</Text>
+          </View>
+        ) : (
+          <>
+            {featured && (
+              <TouchableOpacity
+                style={styles.featuredCard}
+                onPress={() => router.push(`/news/${featured.id}`)}
+                activeOpacity={0.9}
+              >
+                {featured.image_url ? (
+                  <Image
+                    source={{ uri: featured.image_url }}
+                    style={styles.featuredImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <LinearGradient
+                    colors={
+                      CATEGORY_GRADIENTS[featured.category] ?? [
+                        '#7C5CFF',
+                        '#5B3FE0',
+                      ]
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.featuredImage}
+                  >
+                    <Text style={styles.featuredEmoji}>
+                      {featured.emoji ?? '📰'}
+                    </Text>
+                  </LinearGradient>
+                )}
+
+                <LinearGradient
+                  colors={['transparent', 'rgba(10,12,18,0.95)']}
+                  style={styles.featuredOverlay}
+                />
+
+                <View style={styles.featuredContent}>
+                  <View style={styles.featuredBadge}>
+                    <Text style={styles.featuredBadgeText}>
+                      FEATURED · {featured.category}
+                    </Text>
+                  </View>
+                  <Text style={styles.featuredTitle} numberOfLines={3}>
+                    {featured.title}
+                  </Text>
+                  <View style={styles.featuredMeta}>
+                    <Text style={styles.featuredMetaText}>
+                      {featured.source} · {featured.read_time}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.liveSection}>
+              <View style={styles.liveHeader}>
+                <View style={styles.livePulse} />
+                <View style={styles.livePulseInner} />
+                <Text style={styles.liveTitle}>Live</Text>
+              </View>
+              <View style={styles.liveBox}>
+                <Ionicons name="radio-outline" size={44} color={COLORS.mist} />
+                <Text style={styles.liveText}>
+                  Live stream will appear here
+                </Text>
+              </View>
+            </View>
+          </>
+        )}
+      </View>
+    </>
+  );
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.glowTop} />
 
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.brandText}>Airalance!</Text>
-
         <TouchableOpacity
           style={styles.bellBtn}
           onPress={() => router.push('/notifications')}
           activeOpacity={0.7}
         >
-          <Ionicons name="notifications-outline" size={24} color="#FFFFFF" />
+          <Ionicons name="notifications-outline" size={22} color="#FFFFFF" />
           {notifCount > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>
@@ -219,9 +410,27 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
+      <FlatList
+        data={loading || rest.length === 0 ? [] : rest}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => (
+          <>
+            <ArticleRow
+              article={item}
+              onPress={() => router.push(`/news/${item.id}`)}
+            />
+            {index < rest.length - 1 && (
+              <View style={styles.articleDivider} />
+            )}
+          </>
+        )}
+        ListHeaderComponent={ListHeader}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
+        initialNumToRender={4}
+        maxToRenderPerBatch={4}
+        windowSize={5}
+        removeClippedSubviews={true}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -230,219 +439,14 @@ export default function HomeScreen() {
             colors={[COLORS.violet]}
           />
         }
-      >
-        {/* Welcome Card */}
-        <View style={styles.welcomeCard}>
-          <View style={styles.welcomeIcon}>
-            <LinearGradient
-              colors={['#9C82FF', '#22D3B8']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.welcomeIconGradient}
-            >
-              <Ionicons name="chatbubble" size={34} color="#FFFFFF" />
-            </LinearGradient>
-          </View>
-          <Text style={styles.welcomeTitle}>Welcome to Airalance!</Text>
-          <Text style={styles.welcomeSubtitle}>
-            Let's connect. Real conversations, real time.
-          </Text>
-          <TouchableOpacity
-            style={styles.welcomeBtn}
-            onPress={() => router.push('/(tabs)/search')}
-            activeOpacity={0.85}
-          >
-            <LinearGradient
-              colors={['#9C82FF', '#7C5CFF']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.welcomeBtnGradient}
-            >
-              <Text style={styles.welcomeBtnText}>Start a conversation</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-
-        {/* News Section */}
-        <View style={styles.newsSection}>
-          <View style={styles.newsHeader}>
-            <Text style={styles.newsTitle}>News for you</Text>
-          </View>
-
-          {/* Categories */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoriesRow}
-          >
-            {CATEGORIES.map((cat) => {
-              const isActive = selectedCategory === cat;
-              return (
-                <TouchableOpacity
-                  key={cat}
-                  onPress={() => setSelectedCategory(cat)}
-                  activeOpacity={0.8}
-                  style={styles.categoryWrap}
-                >
-                  {isActive ? (
-                    <LinearGradient
-                      colors={['#9C82FF', '#7C5CFF']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.categoryPill}
-                    >
-                      <Text style={styles.categoryTextActive}>{cat}</Text>
-                    </LinearGradient>
-                  ) : (
-                    <View style={styles.categoryPillInactive}>
-                      <Text style={styles.categoryTextInactive}>{cat}</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {/* Loading → Skeleton */}
-          {loading ? (
-            <HomeSkeleton />
-          ) : filteredArticles.length === 0 ? (
-            <View style={styles.emptyWrap}>
-              <Ionicons name="newspaper-outline" size={50} color={COLORS.mist} />
-              <Text style={styles.emptyText}>
-                No {selectedCategory === 'For you' ? 'news' : selectedCategory} articles yet.
-              </Text>
-              <Text style={styles.emptySubtext}>Check back soon.</Text>
-            </View>
-          ) : (
-            <>
-              {/* Featured Article */}
-              {featured && (
-                <TouchableOpacity
-                  style={styles.featuredCard}
-                  onPress={() => router.push(`/news/${featured.id}`)}
-                  activeOpacity={0.9}
-                >
-                  {featured.image_url ? (
-                    <Image
-                      source={{ uri: featured.image_url }}
-                      style={styles.featuredImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <LinearGradient
-                      colors={
-                        CATEGORY_GRADIENTS[featured.category] ?? [
-                          '#7C5CFF',
-                          '#5B3FE0',
-                        ]
-                      }
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.featuredImage}
-                    >
-                      <Text style={styles.featuredEmoji}>
-                        {featured.emoji ?? '📰'}
-                      </Text>
-                    </LinearGradient>
-                  )}
-
-                  <LinearGradient
-                    colors={['transparent', 'rgba(10,12,18,0.95)']}
-                    style={styles.featuredOverlay}
-                  />
-
-                  <View style={styles.featuredContent}>
-                    <View style={styles.featuredBadge}>
-                      <Text style={styles.featuredBadgeText}>
-                        FEATURED · {featured.category}
-                      </Text>
-                    </View>
-                    <Text style={styles.featuredTitle} numberOfLines={3}>
-                      {featured.title}
-                    </Text>
-                    <View style={styles.featuredMeta}>
-                      <Text style={styles.featuredMetaText}>
-                        {featured.source} · {featured.read_time}
-                      </Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              )}
-
-              {/* Live Section */}
-              <View style={styles.liveSection}>
-                <View style={styles.liveHeader}>
-                  <View style={styles.livePulse} />
-                  <View style={styles.livePulseInner} />
-                  <Text style={styles.liveTitle}>Live</Text>
-                </View>
-                <View style={styles.liveBox}>
-                  <Ionicons name="radio-outline" size={50} color={COLORS.mist} />
-                  <Text style={styles.liveText}>
-                    Live stream will appear here
-                  </Text>
-                </View>
-              </View>
-
-              {/* Rest of Articles */}
-              <View style={styles.listSection}>
-                {rest.map((article) => (
-                  <TouchableOpacity
-                    key={article.id}
-                    style={styles.articleRow}
-                    onPress={() => router.push(`/news/${article.id}`)}
-                    activeOpacity={0.75}
-                  >
-                    {article.image_url ? (
-                      <Image
-                        source={{ uri: article.image_url }}
-                        style={styles.articleThumb}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <LinearGradient
-                        colors={
-                          CATEGORY_GRADIENTS[article.category] ?? [
-                            '#7C5CFF',
-                            '#5B3FE0',
-                          ]
-                        }
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.articleThumb}
-                      >
-                        <Text style={styles.articleEmoji}>
-                          {article.emoji ?? '📰'}
-                        </Text>
-                      </LinearGradient>
-                    )}
-
-                    <View style={styles.articleInfo}>
-                      <Text style={styles.articleCategory}>
-                        {article.category?.toUpperCase()}
-                      </Text>
-                      <Text style={styles.articleTitle} numberOfLines={3}>
-                        {article.title}
-                      </Text>
-                      <Text style={styles.articleMeta}>
-                        {article.source} · {article.read_time}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </>
-          )}
-        </View>
-      </ScrollView>
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
-  scroll: { paddingBottom: 48 },
+  scroll: { paddingBottom: 40 },
 
   glowTop: {
     position: 'absolute',
@@ -458,20 +462,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 18,
-    paddingBottom: 18,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 14,
   },
   brandText: {
-    fontSize: 34,
+    fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   bellBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -479,11 +483,11 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: 3,
-    right: 3,
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
+    top: 2,
+    right: 2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#EF4444',
     alignItems: 'center',
     justifyContent: 'center',
@@ -493,85 +497,85 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     color: '#FFFFFF',
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 13,
+    lineHeight: 11,
   },
 
   welcomeCard: {
     alignItems: 'center',
-    paddingHorizontal: SPACING.xl,
-    paddingTop: SPACING.xl,
-    paddingBottom: SPACING.xl,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.lg,
+    paddingBottom: SPACING.lg,
   },
   welcomeIcon: {
-    marginBottom: SPACING.lg,
-    borderRadius: 28,
+    marginBottom: SPACING.md,
+    borderRadius: 24,
     overflow: 'hidden',
     ...SHADOWS.card,
   },
   welcomeIconGradient: {
-    width: 96,
-    height: 96,
-    borderRadius: 28,
+    width: 80,
+    height: 80,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
   welcomeTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     textAlign: 'center',
   },
   welcomeSubtitle: {
-    marginTop: 8,
-    fontSize: 16,
+    marginTop: 6,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
-    paddingHorizontal: 20,
-    lineHeight: 22,
+    paddingHorizontal: 16,
+    lineHeight: 20,
   },
   welcomeBtn: {
-    marginTop: SPACING.xl,
+    marginTop: SPACING.lg,
     borderRadius: RADII.full,
     overflow: 'hidden',
     ...SHADOWS.buttonViolet,
   },
   welcomeBtnGradient: {
-    paddingVertical: 15,
-    paddingHorizontal: 30,
+    paddingVertical: 13,
+    paddingHorizontal: 26,
   },
   welcomeBtnText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  newsSection: { paddingHorizontal: 24, marginTop: SPACING.md },
+  newsSection: { paddingHorizontal: 20, marginTop: SPACING.sm },
   newsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 4,
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
   },
   newsTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
 
-  categoriesRow: { gap: 10, paddingRight: SPACING.lg, paddingBottom: SPACING.md },
-  categoryWrap: { marginRight: 8 },
+  categoriesRow: { gap: 8, paddingRight: SPACING.md, paddingBottom: SPACING.sm },
+  categoryWrap: { marginRight: 6 },
   categoryPill: {
-    paddingHorizontal: 18,
-    paddingVertical: 9,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
     borderRadius: RADII.full,
   },
   categoryPillInactive: {
-    paddingHorizontal: 18,
-    paddingVertical: 9,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
@@ -579,33 +583,33 @@ const styles = StyleSheet.create({
   },
   categoryTextActive: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
   },
   categoryTextInactive: {
     color: COLORS.mist,
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  emptyWrap: { paddingVertical: 70, alignItems: 'center', gap: 12 },
+  emptyWrap: { paddingVertical: 60, alignItems: 'center', gap: 10 },
   emptyText: {
     color: COLORS.text,
-    fontSize: 17,
+    fontSize: 15.5,
     fontFamily: FONTS.bodyMedium,
     textAlign: 'center',
   },
   emptySubtext: {
     color: COLORS.mist,
-    fontSize: 14.5,
+    fontSize: 13.5,
     fontFamily: FONTS.body,
   },
 
   featuredCard: {
-    height: 230,
+    height: 200,
     borderRadius: RADII.xl,
     overflow: 'hidden',
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.md,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
@@ -620,7 +624,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  featuredEmoji: { fontSize: 68, opacity: 0.85 },
+  featuredEmoji: { fontSize: 56, opacity: 0.85 },
   featuredOverlay: {
     position: 'absolute',
     left: 0,
@@ -633,113 +637,119 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    padding: SPACING.lg,
+    padding: SPACING.md,
   },
   featuredBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: RADII.full,
     backgroundColor: 'rgba(255,255,255,0.18)',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   featuredBadgeText: {
     color: '#FFFFFF',
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.5,
   },
   featuredTitle: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 16.5,
     fontFamily: FONTS.displayBold,
-    lineHeight: 24,
+    lineHeight: 22,
   },
-  featuredMeta: { marginTop: 8 },
+  featuredMeta: { marginTop: 6 },
   featuredMetaText: {
     color: 'rgba(255,255,255,0.75)',
-    fontSize: 13.5,
+    fontSize: 12.5,
     fontFamily: FONTS.body,
   },
 
-  liveSection: { marginBottom: SPACING.lg },
+  liveSection: { marginBottom: SPACING.md },
   liveHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: SPACING.md,
+    gap: 8,
+    marginBottom: SPACING.sm,
     paddingHorizontal: 4,
   },
   livePulse: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: COLORS.danger,
     opacity: 0.3,
     position: 'absolute',
   },
   livePulseInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: COLORS.danger,
   },
   liveTitle: {
     color: '#FFFFFF',
-    fontSize: 19,
+    fontSize: 17.5,
     fontFamily: FONTS.displayBold,
   },
   liveBox: {
-    height: 200,
+    height: 170,
     borderRadius: RADII.xl,
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 8,
   },
   liveText: {
     color: COLORS.mist,
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: FONTS.body,
   },
 
-  listSection: { gap: 6 },
   articleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.md,
-    paddingVertical: SPACING.md,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.sm,
     paddingHorizontal: 4,
     borderRadius: RADII.lg,
+    marginHorizontal: 20,
+  },
+  articleDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    marginHorizontal: 24,
+    marginVertical: 2,
   },
   articleThumb: {
-    width: 84,
-    height: 84,
+    width: 74,
+    height: 74,
     borderRadius: RADII.lg,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  articleEmoji: { fontSize: 34, opacity: 0.9 },
+  articleEmoji: { fontSize: 30, opacity: 0.9 },
   articleInfo: { flex: 1 },
   articleCategory: {
     color: COLORS.teal,
-    fontSize: 11.5,
+    fontSize: 10.5,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.6,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   articleTitle: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 21,
+    lineHeight: 20,
   },
   articleMeta: {
-    marginTop: 5,
+    marginTop: 4,
     color: COLORS.mist,
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: FONTS.body,
   },
 });

@@ -187,7 +187,6 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      {/* Background glows */}
       <View style={styles.glowTop} />
       <View style={styles.glowBottom} />
 
@@ -201,7 +200,6 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.card}>
-            {/* Header — back button + brand */}
             <View style={styles.headerRow}>
               {mode !== 'password' && (
                 <TouchableOpacity
@@ -211,7 +209,7 @@ export default function LoginScreen() {
                 >
                   <Ionicons
                     name="chevron-back"
-                    size={24}
+                    size={22}
                     color={COLORS.mist}
                   />
                 </TouchableOpacity>
@@ -221,7 +219,7 @@ export default function LoginScreen() {
                   <View style={styles.brandIcon}>
                     <Ionicons
                       name="chatbubble"
-                      size={22}
+                      size={20}
                       color="#FFFFFF"
                     />
                   </View>
@@ -239,7 +237,6 @@ export default function LoginScreen() {
               </Text>
             )}
 
-            {/* ====== PASSWORD LOGIN ====== */}
             {mode === 'password' && (
               <>
                 <Text style={styles.h1}>Welcome back</Text>
@@ -247,13 +244,13 @@ export default function LoginScreen() {
                   Log in to continue chatting.
                 </Text>
 
-                <View style={{ marginTop: SPACING.xl }}>
+                <View style={{ marginTop: SPACING.lg }}>
                   <Field
                     label="Email"
                     icon={
                       <Ionicons
                         name="mail-outline"
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     }
@@ -279,7 +276,7 @@ export default function LoginScreen() {
                     icon={
                       <Ionicons
                         name="lock-closed-outline"
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     }
@@ -321,7 +318,7 @@ export default function LoginScreen() {
                     >
                       <Ionicons
                         name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     </TouchableOpacity>
@@ -369,7 +366,7 @@ export default function LoginScreen() {
                   >
                     <Ionicons
                       name="mail-outline"
-                      size={20}
+                      size={18}
                       color="#FFFFFF"
                     />
                     <Text style={styles.secondaryBtnText}>
@@ -387,7 +384,6 @@ export default function LoginScreen() {
               </>
             )}
 
-            {/* ====== OTP LOGIN - EMAIL ====== */}
             {mode === 'otp-email' && (
               <>
                 <Text style={styles.h1}>Log in with OTP</Text>
@@ -395,13 +391,13 @@ export default function LoginScreen() {
                   We'll send a 6-digit code to your email.
                 </Text>
 
-                <View style={{ marginTop: SPACING.xl }}>
+                <View style={{ marginTop: SPACING.lg }}>
                   <Field
                     label="Email"
                     icon={
                       <Ionicons
                         name="mail-outline"
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     }
@@ -451,7 +447,6 @@ export default function LoginScreen() {
               </>
             )}
 
-            {/* ====== OTP VERIFY ====== */}
             {mode === 'otp-verify' && (
               <>
                 <Text style={styles.h1}>Enter your code</Text>
@@ -463,7 +458,7 @@ export default function LoginScreen() {
                   .
                 </Text>
 
-                <View style={{ marginTop: SPACING.xl }}>
+                <View style={{ marginTop: SPACING.lg }}>
                   <OtpBoxes value={otp} onChange={setOtp} autoFocus />
 
                   {error && (
@@ -498,7 +493,6 @@ export default function LoginScreen() {
               </>
             )}
 
-            {/* ====== FORGOT - EMAIL ====== */}
             {mode === 'forgot-email' && (
               <>
                 <Text style={styles.h1}>Reset password</Text>
@@ -506,13 +500,13 @@ export default function LoginScreen() {
                   Enter your email — we'll send a verification code.
                 </Text>
 
-                <View style={{ marginTop: SPACING.xl }}>
+                <View style={{ marginTop: SPACING.lg }}>
                   <Field
                     label="Email"
                     icon={
                       <Ionicons
                         name="mail-outline"
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     }
@@ -564,7 +558,6 @@ export default function LoginScreen() {
               </>
             )}
 
-            {/* ====== FORGOT - OTP VERIFY ====== */}
             {mode === 'forgot-otp' && (
               <>
                 <Text style={styles.h1}>Enter your code</Text>
@@ -576,7 +569,7 @@ export default function LoginScreen() {
                   .
                 </Text>
 
-                <View style={{ marginTop: SPACING.xl }}>
+                <View style={{ marginTop: SPACING.lg }}>
                   <OtpBoxes value={otp} onChange={setOtp} autoFocus />
 
                   {error && (
@@ -613,7 +606,6 @@ export default function LoginScreen() {
               </>
             )}
 
-            {/* ====== FORGOT - NEW PASSWORD ====== */}
             {mode === 'forgot-newpass' && (
               <>
                 <Text style={styles.h1}>Set new password</Text>
@@ -621,13 +613,13 @@ export default function LoginScreen() {
                   Choose a strong new password.
                 </Text>
 
-                <View style={{ marginTop: SPACING.xl }}>
+                <View style={{ marginTop: SPACING.lg }}>
                   <Field
                     label="New password"
                     icon={
                       <Ionicons
                         name="lock-closed-outline"
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     }
@@ -652,7 +644,7 @@ export default function LoginScreen() {
                     icon={
                       <Ionicons
                         name="lock-closed-outline"
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     }
@@ -714,8 +706,8 @@ const styles = StyleSheet.create({
   scroll: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: SPACING.xxl,
+    paddingHorizontal: 20,
+    paddingVertical: SPACING.xl,
   },
 
   glowTop: {
@@ -739,23 +731,22 @@ const styles = StyleSheet.create({
 
   card: {
     backgroundColor: 'rgba(16,19,28,0.85)',
-    borderRadius: 32,
+    borderRadius: 28,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
-    padding: 28,
+    padding: 22,
     ...SHADOWS.card,
   },
 
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
-  // Back btn — 44 (was 36)
   backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -763,13 +754,12 @@ const styles = StyleSheet.create({
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
-  // Brand icon — 46 (was 36)
   brandIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
@@ -779,83 +769,74 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
-  // Brand text — 24 (was 18)
   brandText: {
-    fontSize: 24,
+    fontSize: 22,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   brandTextGradient: {
     color: COLORS.violetLight,
   },
-  // Tagline — 16 (was 13)
   brandTagline: {
-    marginTop: 8,
-    fontSize: 16,
+    marginTop: 6,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: 'rgba(139,143,163,0.75)',
   },
 
-  // H1 — 32 (was 24)
   h1: {
-    marginTop: SPACING.xxl,
-    fontSize: 32,
+    marginTop: SPACING.xl,
+    fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
-  // Subtitle — 17 (was 14)
   subtitle: {
-    marginTop: 8,
-    fontSize: 17,
+    marginTop: 6,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    lineHeight: 23,
+    lineHeight: 21,
   },
 
-  // Input — 18 (was 15), bigger padding
   input: {
     width: '100%',
     backgroundColor: COLORS.ink800,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     borderRadius: RADII.xl,
-    paddingHorizontal: 18,
-    paddingVertical: 17,
-    fontSize: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
   },
-  // Icon padding — 54 (was 44)
   inputWithIcon: {
-    paddingLeft: 54,
+    paddingLeft: 48,
   },
   inputWithIconRight: {
-    paddingRight: 54,
+    paddingRight: 48,
   },
   eyeBtn: {
     position: 'absolute',
-    right: 16,
+    right: 14,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
   },
 
-  // Error box — bigger
   errorBox: {
     backgroundColor: 'rgba(239,68,68,0.10)',
     borderRadius: RADII.md,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: SPACING.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: SPACING.sm,
   },
-  // Error text — 15.5 (was 12.5)
   errorText: {
     color: '#FCA5A5',
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.bodyMedium,
   },
 
-  // Primary btn — bigger padding
   primaryBtn: {
     borderRadius: RADII.xl,
     overflow: 'hidden',
@@ -866,74 +847,66 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
-  // Primary button inner — 19 pv (was 15)
   primaryBtnInner: {
-    paddingVertical: 19,
+    paddingVertical: 15,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Primary btn text — 18 (was 15)
   primaryBtnText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
   },
 
-  // Secondary btn — bigger
   secondaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
+    gap: 8,
     borderRadius: RADII.xl,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     backgroundColor: 'rgba(255,255,255,0.03)',
-    paddingVertical: 18,
+    paddingVertical: 14,
   },
-  // Secondary btn text — 17 (was 14)
   secondaryBtnText: {
     color: '#FFFFFF',
-    fontSize: 17,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
   },
 
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    marginVertical: SPACING.lg,
+    gap: 12,
+    marginVertical: SPACING.md,
   },
   dividerLine: {
     flex: 1,
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.10)',
   },
-  // Divider text — 14.5 (was 12)
   dividerText: {
-    fontSize: 14.5,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
 
-  // Link small — 14.5 (was 12)
   linkSmall: {
-    fontSize: 14.5,
+    fontSize: 13,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.violetLight,
   },
-  // Link text — 17 (was 14)
   linkText: {
-    fontSize: 17,
+    fontSize: 15.5,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.violetLight,
   },
-  // Footer — 16.5 (was 14)
   footerText: {
-    marginTop: SPACING.xxl,
+    marginTop: SPACING.xl,
     textAlign: 'center',
-    fontSize: 16.5,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },

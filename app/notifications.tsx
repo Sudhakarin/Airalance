@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Swipeable } from 'react-native-gesture-handler';
 import { COLORS, FONTS, RADII, SPACING } from '../constants/theme';
 import { supabase } from '../lib/supabase';
 import Avatar from '../components/Avatar';
@@ -185,6 +186,11 @@ export default function NotificationsScreen() {
     load();
   }
 
+  async function deleteNotification(id: string) {
+    setAppNotifs((prev) => prev.filter((n) => n.id !== id));
+    await supabase.from('app_notifications').delete().eq('id', id);
+  }
+
   function formatTime(iso: string) {
     const diff = Date.now() - new Date(iso).getTime();
     const min = Math.floor(diff / 60000);
@@ -209,16 +215,13 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.glowTop} />
-
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerBtn}
           onPress={() => router.back()}
           activeOpacity={0.7}
         >
-          <Ionicons name="chevron-back" size={26} color={COLORS.text} />
+          <Ionicons name="chevron-back" size={22} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Notifications</Text>
         {appNotifs.some((n) => !n.read) ? (
@@ -258,7 +261,7 @@ export default function NotificationsScreen() {
               <View style={styles.emptyIconWrap}>
                 <Ionicons
                   name="notifications-outline"
-                  size={50}
+                  size={36}
                   color={COLORS.mist}
                 />
               </View>
@@ -279,7 +282,7 @@ export default function NotificationsScreen() {
                   name={p?.display_name ?? 'User'}
                   color={p?.avatar_color ?? COLORS.violet}
                   avatarUrl={p?.avatar_url ?? null}
-                  size={54}
+                  size={40}
                 />
                 <View style={styles.cardBody}>
                   <Text style={styles.cardTitle}>
@@ -319,41 +322,47 @@ export default function NotificationsScreen() {
 
           const n = entry.item;
           const ap = n.actor_profile;
-          return (
+
+          const renderRightActions = () => (
             <TouchableOpacity
-              style={styles.card}
-              activeOpacity={0.75}
-              onPress={() => {}}
+              style={styles.deleteAction}
+              onPress={() => deleteNotification(n.id)}
+              activeOpacity={0.8}
             >
-              {n.type === 'verified' ? (
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(124,92,255,0.18)' }]}>
-                  <VerifiedBadge size={28} />
-                </View>
-              ) : n.type === 'status_like' ? (
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(239,68,68,0.18)' }]}>
-                  <Ionicons name="heart" size={26} color="#EF4444" />
-                </View>
-              ) : n.type === 'follow' ? (
-                <View style={[styles.iconCircle, { backgroundColor: 'rgba(34,211,184,0.18)' }]}>
-                  <Ionicons name="person-add" size={26} color={COLORS.teal} />
-                </View>
-              ) : ap ? (
-                <Avatar
-                  name={ap.display_name}
-                  color={ap.avatar_color}
-                  avatarUrl={ap.avatar_url}
-                  size={54}
-                />
-              ) : (
-                <View style={styles.iconCircle}>
-                  <Ionicons name="notifications" size={26} color={COLORS.violetLight} />
-                </View>
-              )}
-              <View style={styles.cardBody}>
-                <Text style={styles.cardTitle}>{n.body}</Text>
-                <Text style={styles.cardSub}>{formatTime(n.created_at)}</Text>
-              </View>
+              <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
             </TouchableOpacity>
+          );
+
+          return (
+            <Swipeable renderRightActions={renderRightActions}>
+              <TouchableOpacity
+                style={styles.card}
+                activeOpacity={0.75}
+                onPress={() => {}}
+              >
+                {ap ? (
+                  <Avatar
+                    name={ap.display_name}
+                    color={ap.avatar_color}
+                    avatarUrl={ap.avatar_url}
+                    size={40}
+                  />
+                ) : (
+                  <View style={styles.iconCircle}>
+                    <Ionicons name="notifications" size={20} color={COLORS.violetLight} />
+                  </View>
+                )}
+                <View style={styles.cardBody}>
+                  <View style={styles.cardTitleRow}>
+                    <Text style={styles.cardTitle}>{n.body}</Text>
+                    {ap?.verified && (
+                      <VerifiedBadge size={13} style={{ marginLeft: 5 }} />
+                    )}
+                  </View>
+                  <Text style={styles.cardSub}>{formatTime(n.created_at)}</Text>
+                </View>
+              </TouchableOpacity>
+            </Swipeable>
           );
         }}
       />
@@ -364,151 +373,147 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  glowTop: {
-    position: 'absolute',
-    top: -200,
-    left: -100,
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    backgroundColor: 'rgba(124,92,255,0.10)',
-  },
 
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingVertical: 10,
   },
-  // Header button — 46 (was 40)
   headerBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Header title — 22 (was 17)
   headerTitle: {
-    fontSize: 22,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   markReadBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minWidth: 80,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minWidth: 75,
     alignItems: 'flex-end',
   },
-  // Mark read text — 16 (was 13)
   markReadText: {
     color: COLORS.violetLight,
-    fontSize: 16,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  list: { paddingHorizontal: 18, paddingBottom: SPACING.xxl, flexGrow: 1 },
+  list: { paddingHorizontal: 16, paddingBottom: SPACING.lg, flexGrow: 1 },
 
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 14,
-    padding: 18,
-    borderRadius: RADII.xl,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    gap: 10,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: '#121212',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    marginBottom: 12,
+    borderColor: '#1F1F23',
+    marginBottom: 8,
   },
-  // Icon circle — 54 (was 44)
   iconCircle: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#1A1C23',
   },
   cardBody: { flex: 1, minWidth: 0 },
-  // Card title — 16.5 (was 14), lineHeight 23
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
   cardTitle: {
     color: '#FFFFFF',
-    fontSize: 16.5,
+    fontSize: 13.5,
     fontFamily: FONTS.body,
-    lineHeight: 23,
+    lineHeight: 19,
   },
   bold: { fontFamily: FONTS.bodySemiBold },
-  // Card sub — 14.5 (was 12)
   cardSub: {
     color: COLORS.mist,
-    fontSize: 14.5,
+    fontSize: 12,
     fontFamily: FONTS.body,
-    marginTop: 5,
+    marginTop: 2,
   },
   requestActions: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
+    gap: 6,
+    marginTop: 8,
   },
   acceptBtn: { borderRadius: 999, overflow: 'hidden', flex: 1 },
   acceptBtnInner: {
-    paddingVertical: 11,
+    paddingVertical: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Accept text — 15.5 (was 13)
   acceptText: {
     color: '#FFFFFF',
-    fontSize: 15.5,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
   },
   declineBtn: {
     flex: 1,
-    paddingVertical: 11,
+    paddingVertical: 7,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
+    borderColor: '#2A2A30',
   },
-  // Decline text — 15.5 (was 13)
   declineText: {
     color: COLORS.mistLight,
-    fontSize: 15.5,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
+  },
+
+  deleteAction: {
+    width: 60,
+    height: '80%',
+    backgroundColor: COLORS.danger,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+    marginTop: 2,
   },
 
   emptyWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 110,
-    gap: 14,
+    paddingTop: 80,
+    gap: 10,
   },
-  // Empty icon circle — 100 (was 88)
   emptyIconWrap: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: '#121212',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
   },
-  // Empty title — 20 (was 17)
   emptyTitle: {
-    fontSize: 20,
+    fontSize: 16.5,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
-  // Empty sub — 15.5 (was 13)
   emptySub: {
-    fontSize: 15.5,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
-    paddingHorizontal: 40,
-    lineHeight: 22,
+    paddingHorizontal: 30,
+    lineHeight: 18,
   },
 });

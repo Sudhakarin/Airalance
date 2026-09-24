@@ -49,7 +49,6 @@ export default function CallScreen() {
       setProfile(data as Profile);
       setLoading(false);
 
-      // Simulate "connected" after 2 seconds
       setTimeout(() => setCallState('connected'), 2000);
     }
     load();
@@ -77,13 +76,11 @@ export default function CallScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Background glow */}
       <View style={styles.glowTop} />
       <View style={styles.glowBottom} />
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.body}>
-          {/* Avatar */}
           <View style={styles.avatarWrap}>
             <View
               style={[
@@ -95,18 +92,17 @@ export default function CallScreen() {
                 name={profile.display_name}
                 color={profile.avatar_color}
                 avatarUrl={profile.avatar_url}
-                size={120}
+                size={100}
               />
             </View>
           </View>
 
-          {/* Name */}
           <View style={styles.nameRow}>
             <Text style={styles.name}>{profile.display_name}</Text>
             {profile.verified && (
               <Ionicons
                 name="checkmark-circle"
-                size={18}
+                size={16}
                 color={COLORS.violetLight}
                 style={{ marginLeft: 6 }}
               />
@@ -114,13 +110,11 @@ export default function CallScreen() {
           </View>
           <Text style={styles.username}>@{profile.username}</Text>
 
-          {/* Status */}
           <Text style={styles.status}>
             {callState === 'calling' ? 'Calling…' : formatTime(seconds)}
           </Text>
         </View>
 
-        {/* Controls */}
         <View style={styles.controls}>
           <TouchableOpacity
             style={styles.iconBtn}
@@ -129,7 +123,7 @@ export default function CallScreen() {
           >
             <Ionicons
               name={micOn ? 'mic-outline' : 'mic-off-outline'}
-              size={24}
+              size={22}
               color={micOn ? '#FFFFFF' : COLORS.danger}
             />
           </TouchableOpacity>
@@ -141,7 +135,7 @@ export default function CallScreen() {
           >
             <Ionicons
               name="call"
-              size={26}
+              size={24}
               color="#FFFFFF"
               style={{ transform: [{ rotate: '135deg' }] }}
             />
@@ -154,7 +148,7 @@ export default function CallScreen() {
           >
             <Ionicons
               name="volume-high-outline"
-              size={24}
+              size={22}
               color="#FFFFFF"
             />
           </TouchableOpacity>
@@ -199,13 +193,13 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: SPACING.xl,
+    paddingHorizontal: SPACING.lg,
   },
   avatarWrap: {
-    marginBottom: SPACING.xl,
+    marginBottom: SPACING.lg,
   },
   avatarRing: {
-    padding: 6,
+    padding: 5,
     borderRadius: 999,
     borderWidth: 2,
     borderColor: 'rgba(124,92,255,0.4)',
@@ -218,34 +212,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   name: {
-    fontSize: 22,
+    fontSize: 20,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   username: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 4,
+    marginTop: 3,
   },
   status: {
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.teal,
-    marginTop: SPACING.lg,
+    marginTop: SPACING.md,
   },
 
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 24,
-    paddingBottom: SPACING.xxl,
+    gap: 20,
+    paddingBottom: SPACING.xl,
   },
   iconBtn: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -253,9 +247,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.10)',
   },
   hangupBtn: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: COLORS.danger,
     alignItems: 'center',
     justifyContent: 'center',

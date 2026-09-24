@@ -37,7 +37,6 @@ export default function CreateStatusScreen() {
   const [color, setColor] = useState(STATUS_COLORS[0]);
   const [uploading, setUploading] = useState(false);
 
-  // Post text status
   async function postTextStatus() {
     if (!text.trim()) return;
     setUploading(true);
@@ -61,7 +60,6 @@ export default function CreateStatusScreen() {
     }
   }
 
-  // Pick + upload image/video
   async function pickMedia() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
@@ -133,14 +131,13 @@ export default function CreateStatusScreen() {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.headerBtn}
             activeOpacity={0.7}
           >
-            <Ionicons name="close" size={26} color="#FFFFFF" />
+            <Ionicons name="close" size={24} color="#FFFFFF" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>New status</Text>
           <TouchableOpacity
@@ -149,11 +146,10 @@ export default function CreateStatusScreen() {
             disabled={uploading}
             activeOpacity={0.7}
           >
-            <Ionicons name="image-outline" size={24} color="#FFFFFF" />
+            <Ionicons name="image-outline" size={22} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
-        {/* Text input */}
         <ScrollView
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="handled"
@@ -169,7 +165,6 @@ export default function CreateStatusScreen() {
           />
         </ScrollView>
 
-        {/* Color picker + Post */}
         <View style={styles.footer}>
           <ScrollView
             horizontal
@@ -217,50 +212,50 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.sm,
   },
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
   body: {
     flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: SPACING.xxl,
+    padding: SPACING.xl,
   },
   textInput: {
     color: '#FFFFFF',
-    fontSize: 28,
+    fontSize: 24,
     fontFamily: FONTS.displayBold,
     textAlign: 'center',
-    minHeight: 120,
+    minHeight: 100,
     width: '100%',
-    lineHeight: 36,
+    lineHeight: 32,
   },
   footer: {
-    paddingHorizontal: SPACING.md,
-    paddingBottom: SPACING.xl,
-    gap: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    paddingBottom: SPACING.lg,
+    gap: SPACING.sm,
   },
   colorRow: {
-    gap: 10,
+    gap: 8,
     paddingHorizontal: 4,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   colorDot: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     borderWidth: 2,
     borderColor: 'transparent',
   },
@@ -271,7 +266,7 @@ const styles = StyleSheet.create({
   postBtn: {
     backgroundColor: 'rgba(255,255,255,0.20)',
     borderRadius: 999,
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -282,7 +277,7 @@ const styles = StyleSheet.create({
   },
   postBtnText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
 });
