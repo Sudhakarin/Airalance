@@ -28,7 +28,6 @@ import { supabase } from '../lib/supabase';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-// === Push notification handler ===
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: true,
@@ -41,8 +40,8 @@ Notifications.setNotificationHandler({
 export default function RootLayout() {
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
 
-  // Hide scrollbars globally on web
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     if (typeof document === 'undefined') return;
@@ -98,20 +97,29 @@ export default function RootLayout() {
 
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(() => {
-      if (mounted) setAuthReady(true);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (mounted) {
+        setUserId(session?.user?.id ?? null);
+        setAuthReady(true);
+      }
     });
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
-      if (mounted) setAuthReady(true);
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (mounted) {
+          setUserId(session?.user?.id ?? null);
+          setAuthReady(true);
+        }
+      }
+    );
     return () => {
       mounted = false;
       listener.subscription.unsubscribe();
     };
   }, []);
 
-  // === Push notification token register ===
   useEffect(() => {
+    if (!authReady || !userId) return;
+
     async function registerForPushNotificationsAsync() {
       if (Platform.OS === 'web') return;
 
@@ -157,8 +165,14 @@ export default function RootLayout() {
 
         console.log('[push] Expo Push Token:', token);
 
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        console.log('[push] Current user:', user?.id ?? 'null', 'Error:', userError);
+        const { data: { user }, error: userError } =
+          await supabase.auth.getUser();
+        console.log(
+          '[push] Current user:',
+          user?.id ?? 'null',
+          'Error:',
+          userError
+        );
 
         if (user && token) {
           const { error: updateError } = await supabase
@@ -180,7 +194,7 @@ export default function RootLayout() {
     }
 
     registerForPushNotificationsAsync();
-  }, [authReady]);
+  }, [authReady, userId]);
 
   useEffect(() => {
     if (fontsLoaded && authReady) {
