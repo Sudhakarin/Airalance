@@ -19,7 +19,7 @@ export default function TabsLayout() {
         tabBarItemStyle: styles.tabItem,
         tabBarAllowFontScaling: false,
         tabBarHideOnKeyboard: true,
-        sceneStyle: { backgroundColor: COLORS.ink900 },
+        sceneStyle: { backgroundColor: '#000000' },
       }}
     >
       <Tabs.Screen
@@ -27,7 +27,7 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon tab="home" active={focused} color={color} size={22} />
+            <TabIcon tab="home" active={focused} color={color} size={28} />
           ),
         }}
       />
@@ -36,7 +36,7 @@ export default function TabsLayout() {
         options={{
           title: 'Status',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon tab="status" active={focused} color={color} size={22} />
+            <TabIcon tab="status" active={focused} color={color} size={28} />
           ),
         }}
       />
@@ -45,7 +45,7 @@ export default function TabsLayout() {
         options={{
           title: 'Chats',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon tab="chats" active={focused} color={color} size={22} />
+            <TabIcon tab="chats" active={focused} color={color} size={28} />
           ),
         }}
       />
@@ -54,7 +54,7 @@ export default function TabsLayout() {
         options={{
           title: 'Search',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon tab="search" active={focused} color={color} size={22} />
+            <TabIcon tab="search" active={focused} color={color} size={28} />
           ),
         }}
       />
@@ -63,7 +63,7 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon tab="profile" active={focused} color={color} size={22} />
+            <TabIcon tab="profile" active={focused} color={color} size={28} />
           ),
         }}
       />
@@ -73,29 +73,29 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: '#0A0C12',
-    borderTopWidth: 0,
+    backgroundColor: '#000000',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 0,
-    // Better height for labels
-    height: 82,
-    paddingBottom: 10,
-    paddingTop: 10,
+    // Bigger height for bigger icons + bold labels
+    height: 96,
+    paddingBottom: 14,
+    paddingTop: 12,
   },
   tabItem: {
-    // Ensure proper spacing for icon + label
-    paddingVertical: 4,
-    height: 62,
+    paddingVertical: 6,
+    height: 72,
   },
+  // Tab label — 14px bold (was 11)
   tabLabel: {
-    fontSize: 11,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
-    letterSpacing: 0.2,
-    marginTop: 4,
-    // Better visibility
+    letterSpacing: 0.3,
+    marginTop: 6,
     color: '#FFFFFF',
   },
 });
