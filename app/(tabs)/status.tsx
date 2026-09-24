@@ -197,8 +197,6 @@ export default function StatusScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.glowTop} />
-
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Status</Text>
         <TouchableOpacity
@@ -206,7 +204,7 @@ export default function StatusScreen() {
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="add" size={24} color={COLORS.text} />
+          <Ionicons name="add" size={22} color={COLORS.text} />
         </TouchableOpacity>
       </View>
 
@@ -240,7 +238,7 @@ export default function StatusScreen() {
                   name={myProfile.display_name}
                   color={myProfile.avatar_color}
                   avatarUrl={myProfile.avatar_url}
-                  size={64}
+                  size={58}
                 />
               )}
             </StatusRing>
@@ -250,7 +248,7 @@ export default function StatusScreen() {
                 onPress={openCreateStatus}
                 activeOpacity={0.85}
               >
-                <Ionicons name="add" size={14} color="#FFFFFF" />
+                <Ionicons name="add" size={13} color="#FFFFFF" />
               </TouchableOpacity>
             )}
           </View>
@@ -274,7 +272,7 @@ export default function StatusScreen() {
             >
               <Ionicons
                 name="text-outline"
-                size={20}
+                size={18}
                 color={COLORS.violetLight}
               />
             </TouchableOpacity>
@@ -298,7 +296,7 @@ export default function StatusScreen() {
                       name={group.profile?.display_name ?? 'Unknown'}
                       color={group.profile?.avatar_color ?? COLORS.violet}
                       avatarUrl={group.profile?.avatar_url ?? null}
-                      size={64}
+                      size={58}
                     />
                   </StatusRing>
                   <View style={styles.statusInfo}>
@@ -341,7 +339,7 @@ export default function StatusScreen() {
                       name={group.profile?.display_name ?? 'Unknown'}
                       color={group.profile?.avatar_color ?? COLORS.violet}
                       avatarUrl={group.profile?.avatar_url ?? null}
-                      size={64}
+                      size={58}
                     />
                   </StatusRing>
                   <View style={styles.statusInfo}>
@@ -379,7 +377,7 @@ export default function StatusScreen() {
               <View style={styles.emptyIconWrap}>
                 <Ionicons
                   name="ellipse-outline"
-                  size={44}
+                  size={36}
                   color={COLORS.mist}
                 />
               </View>
@@ -403,33 +401,25 @@ export default function StatusScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
-  scroll: { paddingBottom: SPACING.xl },
-  glowTop: {
-    position: 'absolute',
-    top: -200,
-    left: -100,
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    backgroundColor: 'rgba(124, 92, 255, 0.10)',
-  },
+  scroll: { paddingBottom: SPACING.lg },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   headerBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -439,17 +429,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
   },
   myStatusAvatarWrap: { position: 'relative' },
   addBadge: {
     position: 'absolute',
     bottom: 2,
     right: 2,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
@@ -458,21 +448,21 @@ const styles = StyleSheet.create({
   },
   myStatusInfo: { flex: 1 },
   myStatusTitle: {
-    fontSize: 17.5,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
-    marginBottom: 3,
+    marginBottom: 2,
   },
   myStatusSubtitle: {
-    fontSize: 13.5,
+    fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
   myStatusIcons: { flexDirection: 'row', gap: 6 },
   iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(124, 92, 255, 0.1)',
@@ -481,7 +471,7 @@ const styles = StyleSheet.create({
   thickDivider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.08)',
-    marginHorizontal: 20,
+    marginHorizontal: 18,
     marginTop: SPACING.sm,
     marginBottom: SPACING.sm,
   },
@@ -490,12 +480,12 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
   },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mist,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    paddingHorizontal: 20,
+    paddingHorizontal: 18,
     paddingBottom: SPACING.sm,
     opacity: 0.7,
   },
@@ -504,20 +494,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
   },
   statusInfo: { flex: 1, minWidth: 0 },
   statusNameRow: { flexDirection: 'row', alignItems: 'center' },
   statusName: {
-    fontSize: 17.5,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
   statusNameViewed: { color: COLORS.mistLight },
   statusTime: {
-    fontSize: 13.5,
+    fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginTop: 2,
@@ -526,54 +516,54 @@ const styles = StyleSheet.create({
   separator: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: 96,
-    marginRight: 20,
+    marginLeft: 88,
+    marginRight: 18,
   },
 
   loadingWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 14,
+    gap: 12,
   },
   emptyWrap: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 30,
     paddingTop: 60,
-    gap: 12,
+    gap: 10,
   },
   emptyIconWrap: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: '#121212',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
   },
   emptyTitle: {
-    fontSize: 18,
+    fontSize: 16.5,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   emptySubtitle: {
-    fontSize: 13.5,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 18,
   },
   emptyBtn: {
     marginTop: SPACING.sm,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: RADII.full,
     backgroundColor: COLORS.violet,
   },
   emptyBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
   },
 });
