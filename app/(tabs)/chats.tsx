@@ -11,10 +11,9 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter,(async useFocusEffect } from 'expo-router';
-import { Ionicons () } from '@ =>expo/vector-icons';
-import { {
- COLORS, FONTS,    RADII, SPACING } from '../../ ifconstants/theme';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
@@ -37,7 +36,6 @@ type Conversation = {
   unread_count: number;
 };
 
-// ===== Skeleton block (static — no animation, works on web + native) =====
 function SkeletonBlock({
   width,
   height,
@@ -106,7 +104,8 @@ export default function ChatsScreen() {
     });
   }, []);
 
-  const loadConversations = useCallback (!myId) return;
+  const loadConversations = useCallback(async () => {
+    if (!myId) return;
 
     try {
       const { data: participantRows, error: pError } = await supabase
@@ -491,7 +490,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-  // ===== Skeleton =====
   skeletonWrap: {
     paddingHorizontal: SPACING.md,
     paddingTop: SPACING.sm,
