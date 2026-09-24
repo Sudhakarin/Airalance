@@ -1,5 +1,5 @@
 // app/_layout.tsx
-// Root layout — fonts, auth, theme, navigation stack
+// Root layout — fonts, auth, theme, navigation stack, push notifications
 
 import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
@@ -9,6 +9,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Font from 'expo-font';
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -24,6 +27,17 @@ import { COLORS } from '../constants/theme';
 import { supabase } from '../lib/supabase';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// === Push notification handler ===
+// Foreground mein bhi notification banner dikhe
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 export default function RootLayout() {
   const [fontsLoaded, setFontsLoaded] = useState(false);
@@ -96,6 +110,77 @@ export default function RootLayout() {
       listener.subscription.unsubscribe();
     };
   }, []);
+
+  // === Push notification token register ===
+  useEffect(() => {
+    async function registerForPushNotificationsAsync() {
+      // Web pe push notifications skip karo
+      if (Platform.OS === 'web') return;
+
+      // Real device check (emulator pe push kaam nahi karti)
+      if (!Device.isDevice) {
+        console.log('[push] Must use physical device for push notifications');
+        return;
+      }
+
+      // Android pe notification channel banao
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'default',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#7C5CFF',
+        });
+      }
+
+      // Permission maango
+      const { status: existingStatus } =
+        await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      if (finalStatus !== 'granted') {
+        console.log('[push] Permission not granted');
+        return;
+      }
+
+      // Expo Push Token lo
+      try {
+        const projectId =
+          Constants.expoConfig?.extra?.eas?.projectId ??
+          Constants.easConfig?.projectId;
+
+        if (!projectId) {
+          console.warn('[push] No projectId found');
+          return;
+        }
+
+        const token = (
+          await Notifications.getExpoPushTokenAsync({ projectId })
+        ).data;
+
+        console.log('[push] Expo Push Token:', token);
+
+        // Supabase mein save karo
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user && token) {
+          await supabase
+            .from('profiles')
+            .update({ expo_push_token: token })
+            .eq('id', user.id);
+          console.log('[push] Token saved to Supabase');
+        }
+      } catch (err) {
+        console.warn('[push] Token registration failed:', err);
+      }
+    }
+
+    registerForPushNotificationsAsync();
+  }, [authReady]);
 
   useEffect(() => {
     if (fontsLoaded && authReady) {
@@ -176,7 +261,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 20,
   },
-  // Loading text — 24 (was 18)
+  // Loading text — 24
   loadingText: {
     color: COLORS.text,
     fontSize: 24,
