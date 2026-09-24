@@ -375,49 +375,54 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.listSection}>
-                {rest.map((article) => (
-                  <TouchableOpacity
-                    key={article.id}
-                    style={styles.articleRow}
-                    onPress={() => router.push(`/news/${article.id}`)}
-                    activeOpacity={0.75}
-                  >
-                    {article.image_url ? (
-                      <Image
-                        source={{ uri: article.image_url }}
-                        style={styles.articleThumb}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <LinearGradient
-                        colors={
-                          CATEGORY_GRADIENTS[article.category] ?? [
-                            '#7C5CFF',
-                            '#5B3FE0',
-                          ]
-                        }
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.articleThumb}
-                      >
-                        <Text style={styles.articleEmoji}>
-                          {article.emoji ?? '📰'}
-                        </Text>
-                      </LinearGradient>
-                    )}
+                {rest.map((article, index) => (
+                  <View key={article.id}>
+                    <TouchableOpacity
+                      style={styles.articleRow}
+                      onPress={() => router.push(`/news/${article.id}`)}
+                      activeOpacity={0.75}
+                    >
+                      {article.image_url ? (
+                        <Image
+                          source={{ uri: article.image_url }}
+                          style={styles.articleThumb}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <LinearGradient
+                          colors={
+                            CATEGORY_GRADIENTS[article.category] ?? [
+                              '#7C5CFF',
+                              '#5B3FE0',
+                            ]
+                          }
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.articleThumb}
+                        >
+                          <Text style={styles.articleEmoji}>
+                            {article.emoji ?? '📰'}
+                          </Text>
+                        </LinearGradient>
+                      )}
 
-                    <View style={styles.articleInfo}>
-                      <Text style={styles.articleCategory}>
-                        {article.category?.toUpperCase()}
-                      </Text>
-                      <Text style={styles.articleTitle} numberOfLines={3}>
-                        {article.title}
-                      </Text>
-                      <Text style={styles.articleMeta}>
-                        {article.source} · {article.read_time}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
+                      <View style={styles.articleInfo}>
+                        <Text style={styles.articleCategory}>
+                          {article.category?.toUpperCase()}
+                        </Text>
+                        <Text style={styles.articleTitle} numberOfLines={3}>
+                          {article.title}
+                        </Text>
+                        <Text style={styles.articleMeta}>
+                          {article.source} · {article.read_time}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    {index < rest.length - 1 && (
+                      <View style={styles.articleDivider} />
+                    )}
+                  </View>
                 ))}
               </View>
             </>
@@ -693,7 +698,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
   },
 
-  listSection: { gap: 4 },
+  listSection: { gap: 0 },
   articleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -701,6 +706,12 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.sm,
     paddingHorizontal: 4,
     borderRadius: RADII.lg,
+  },
+  articleDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    marginHorizontal: 4,
+    marginVertical: 2,
   },
   articleThumb: {
     width: 74,
