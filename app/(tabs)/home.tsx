@@ -1,7 +1,7 @@
 // app/(tabs)/home.tsx
 // Home screen — welcome + news feed with categories + live section + skeleton
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  ActivityIndicator,
   RefreshControl,
-  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -51,7 +49,7 @@ const CATEGORY_GRADIENTS: Record<string, [string, string]> = {
   Awareness: ['#F4607A', '#D66BE0'],
 };
 
-// ===== Skeleton component (pulse/shimmer effect) =====
+// ===== Skeleton block (static — works on web + native) =====
 function SkeletonBlock({
   width,
   height,
@@ -63,36 +61,14 @@ function SkeletonBlock({
   borderRadius?: number;
   style?: any;
 }) {
-  const opacity = useRef(new Animated.Value(0.3)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 1,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.3,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity]);
-
   return (
-    <Animated.View
+    <View
       style={[
         {
           width,
           height,
           borderRadius,
           backgroundColor: 'rgba(255,255,255,0.08)',
-          opacity,
         },
         style,
       ]}
@@ -144,7 +120,7 @@ function HomeSkeleton() {
             paddingHorizontal: 4,
           }}
         >
-          <SkeletonBlock width={80} height={80} borderRadius={RADII.lg} />
+          <SkeletonBlock width={84} height={84} borderRadius={RADII.lg} />
           <View style={{ flex: 1, gap: 8 }}>
             <SkeletonBlock width={60} height={12} borderRadius={4} />
             <SkeletonBlock width="90%" height={16} borderRadius={5} />
@@ -486,14 +462,12 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 18,
   },
-  // Brand — 34px (was 28)
   brandText: {
     fontSize: 34,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
-  // Bell button — 46 (was 42)
   bellBtn: {
     width: 46,
     height: 46,
@@ -536,7 +510,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...SHADOWS.card,
   },
-  // Welcome icon — bigger
   welcomeIconGradient: {
     width: 96,
     height: 96,
@@ -544,14 +517,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Welcome title — 28px (was 22)
   welcomeTitle: {
     fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     textAlign: 'center',
   },
-  // Welcome subtitle — 16px (was 13)
   welcomeSubtitle: {
     marginTop: 8,
     fontSize: 16,
@@ -571,7 +542,6 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     paddingHorizontal: 30,
   },
-  // Welcome button — 16px (was 14)
   welcomeBtnText: {
     color: '#FFFFFF',
     fontSize: 16,
@@ -586,7 +556,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     marginBottom: SPACING.md,
   },
-  // News title — 20px (was 16)
   newsTitle: {
     fontSize: 20,
     fontFamily: FONTS.displayBold,
@@ -608,7 +577,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
     backgroundColor: 'rgba(255,255,255,0.03)',
   },
-  // Category text — 14px (was 12)
   categoryTextActive: {
     color: '#FFFFFF',
     fontSize: 14,
@@ -621,21 +589,18 @@ const styles = StyleSheet.create({
   },
 
   emptyWrap: { paddingVertical: 70, alignItems: 'center', gap: 12 },
-  // Empty text — 17px (was 14)
   emptyText: {
     color: COLORS.text,
     fontSize: 17,
     fontFamily: FONTS.bodyMedium,
     textAlign: 'center',
   },
-  // Empty subtext — 14.5px (was 12)
   emptySubtext: {
     color: COLORS.mist,
     fontSize: 14.5,
     fontFamily: FONTS.body,
   },
 
-  // Featured card — bigger
   featuredCard: {
     height: 230,
     borderRadius: RADII.xl,
@@ -655,7 +620,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Featured emoji — bigger
   featuredEmoji: { fontSize: 68, opacity: 0.85 },
   featuredOverlay: {
     position: 'absolute',
@@ -679,14 +643,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.18)',
     marginBottom: 10,
   },
-  // Featured badge — 11px (was 9)
   featuredBadgeText: {
     color: '#FFFFFF',
     fontSize: 11,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.5,
   },
-  // Featured title — 18px (was 15)
   featuredTitle: {
     color: '#FFFFFF',
     fontSize: 18,
@@ -694,7 +656,6 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   featuredMeta: { marginTop: 8 },
-  // Featured meta — 13.5px (was 11)
   featuredMetaText: {
     color: 'rgba(255,255,255,0.75)',
     fontSize: 13.5,
@@ -723,13 +684,11 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: COLORS.danger,
   },
-  // Live title — 19px (was 15)
   liveTitle: {
     color: '#FFFFFF',
     fontSize: 19,
     fontFamily: FONTS.displayBold,
   },
-  // Live box — taller
   liveBox: {
     height: 200,
     borderRadius: RADII.xl,
@@ -740,7 +699,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
   },
-  // Live text — 15px (was 12)
   liveText: {
     color: COLORS.mist,
     fontSize: 15,
@@ -756,7 +714,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     borderRadius: RADII.lg,
   },
-  // Article thumb — 80 (was 70)
   articleThumb: {
     width: 84,
     height: 84,
@@ -764,10 +721,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Article emoji — bigger
   articleEmoji: { fontSize: 34, opacity: 0.9 },
   articleInfo: { flex: 1 },
-  // Article category — 11.5px (was 9.5)
   articleCategory: {
     color: COLORS.teal,
     fontSize: 11.5,
@@ -775,14 +730,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     marginBottom: 4,
   },
-  // Article title — 16px (was 13.5)
   articleTitle: {
     color: '#FFFFFF',
     fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     lineHeight: 21,
   },
-  // Article meta — 13px (was 11)
   articleMeta: {
     marginTop: 5,
     color: COLORS.mist,
