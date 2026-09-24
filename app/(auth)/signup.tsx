@@ -13,7 +13,6 @@ import {
   Platform,
   ScrollView,
   Pressable,
-  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, Link } from 'expo-router';
@@ -97,7 +96,6 @@ export default function SignupScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      {/* Background glows */}
       <View style={styles.glowTop} />
       <View style={styles.glowBottom} />
 
@@ -111,13 +109,12 @@ export default function SignupScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.card}>
-            {/* Brand */}
             <Link href="/" asChild>
               <Pressable style={styles.brandRow}>
                 <View style={styles.brandIcon}>
                   <Ionicons
                     name="chatbubble"
-                    size={22}
+                    size={20}
                     color="#FFFFFF"
                   />
                 </View>
@@ -129,7 +126,6 @@ export default function SignupScreen() {
             </Link>
 
             {done ? (
-              /* ====== SUCCESS STATE ====== */
               <>
                 <Text style={styles.h1}>Check your inbox</Text>
                 <Text style={styles.subtitle}>
@@ -156,21 +152,19 @@ export default function SignupScreen() {
                 </TouchableOpacity>
               </>
             ) : (
-              /* ====== SIGNUP FORM ====== */
               <>
                 <Text style={styles.h1}>Create your account</Text>
                 <Text style={styles.subtitle}>
                   Takes less than a minute.
                 </Text>
 
-                <View style={{ marginTop: SPACING.xl }}>
-                  {/* Username */}
+                <View style={{ marginTop: SPACING.lg }}>
                   <Field
                     label="Username"
                     icon={
                       <Ionicons
                         name="at-outline"
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     }
@@ -190,13 +184,12 @@ export default function SignupScreen() {
                     />
                   </Field>
 
-                  {/* Display name */}
                   <Field
                     label="Display name"
                     icon={
                       <Ionicons
                         name="person-outline"
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     }
@@ -215,13 +208,12 @@ export default function SignupScreen() {
                     />
                   </Field>
 
-                  {/* Email */}
                   <Field
                     label="Email"
                     icon={
                       <Ionicons
                         name="mail-outline"
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     }
@@ -242,13 +234,12 @@ export default function SignupScreen() {
                     />
                   </Field>
 
-                  {/* Password */}
                   <Field
                     label="Password"
                     icon={
                       <Ionicons
                         name="lock-closed-outline"
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     }
@@ -278,13 +269,12 @@ export default function SignupScreen() {
                     >
                       <Ionicons
                         name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                        size={22}
+                        size={20}
                         color={COLORS.mist}
                       />
                     </TouchableOpacity>
                   </Field>
 
-                  {/* Privacy checkbox */}
                   <Pressable
                     style={styles.checkboxRow}
                     onPress={() => setAgreedToPolicy((v) => !v)}
@@ -298,7 +288,7 @@ export default function SignupScreen() {
                       {agreedToPolicy && (
                         <Ionicons
                           name="checkmark"
-                          size={18}
+                          size={16}
                           color="#FFFFFF"
                         />
                       )}
@@ -311,14 +301,12 @@ export default function SignupScreen() {
                     </Text>
                   </Pressable>
 
-                  {/* Error */}
                   {error && (
                     <View style={styles.errorBox}>
                       <Text style={styles.errorText}>{error}</Text>
                     </View>
                   )}
 
-                  {/* Submit button */}
                   <TouchableOpacity
                     style={[
                       styles.primaryBtn,
@@ -344,7 +332,6 @@ export default function SignupScreen() {
                     </LinearGradient>
                   </TouchableOpacity>
 
-                  {/* Footer */}
                   <Text style={styles.footerText}>
                     Already have an account?{' '}
                     <Link href="/(auth)/login" asChild>
@@ -366,8 +353,8 @@ const styles = StyleSheet.create({
   scroll: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: SPACING.xxl,
+    paddingHorizontal: 20,
+    paddingVertical: SPACING.xl,
   },
 
   glowTop: {
@@ -391,23 +378,22 @@ const styles = StyleSheet.create({
 
   card: {
     backgroundColor: 'rgba(16,19,28,0.85)',
-    borderRadius: 32,
+    borderRadius: 28,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
-    padding: 28,
+    padding: 22,
     ...SHADOWS.card,
   },
 
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
-  // Brand icon — 46 (was 36)
   brandIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
@@ -417,9 +403,8 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
-  // Brand text — 24 (was 18)
   brandText: {
-    fontSize: 24,
+    fontSize: 22,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
@@ -427,63 +412,57 @@ const styles = StyleSheet.create({
     color: COLORS.violetLight,
   },
 
-  // H1 — 32 (was 24)
   h1: {
-    marginTop: SPACING.xxl,
-    fontSize: 32,
+    marginTop: SPACING.xl,
+    fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
-  // Subtitle — 17 (was 14)
   subtitle: {
-    marginTop: 8,
-    fontSize: 17,
+    marginTop: 6,
+    fontSize: 15,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    lineHeight: 23,
+    lineHeight: 21,
   },
 
-  // Input — 18 (was 15)
   input: {
     width: '100%',
     backgroundColor: COLORS.ink800,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     borderRadius: RADII.xl,
-    paddingHorizontal: 18,
-    paddingVertical: 17,
-    fontSize: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
   },
-  // Icon padding — 54 (was 44)
   inputWithIcon: {
-    paddingLeft: 54,
+    paddingLeft: 48,
   },
   inputWithIconRight: {
-    paddingRight: 54,
+    paddingRight: 48,
   },
   eyeBtn: {
     position: 'absolute',
-    right: 16,
+    right: 14,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
   },
 
-  // Checkbox — bigger
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
+    gap: 10,
     marginTop: SPACING.sm,
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
   },
-  // Checkbox — 24 (was 18)
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 7,
+    width: 22,
+    height: 22,
+    borderRadius: 6,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.25)',
     backgroundColor: COLORS.ink800,
@@ -495,31 +474,27 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.violet,
     borderColor: COLORS.violet,
   },
-  // Checkbox text — 15 (was 12)
   checkboxText: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    lineHeight: 21,
+    lineHeight: 20,
   },
 
-  // Error box
   errorBox: {
     backgroundColor: 'rgba(239,68,68,0.10)',
     borderRadius: RADII.md,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: SPACING.md,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: SPACING.sm,
   },
-  // Error text — 15.5 (was 12.5)
   errorText: {
     color: '#FCA5A5',
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.bodyMedium,
   },
 
-  // Primary btn — bigger
   primaryBtn: {
     borderRadius: RADII.xl,
     overflow: 'hidden',
@@ -530,36 +505,31 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
-  // Primary button inner — 19 pv (was 15)
   primaryBtnInner: {
-    paddingVertical: 19,
+    paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Primary btn text — 18 (was 15)
   primaryBtnText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
   },
 
-  // Links
   linkText: {
     color: COLORS.violetLight,
     fontFamily: FONTS.bodyMedium,
   },
-  // Link text bold — 17 (was 14)
   linkTextBold: {
-    fontSize: 17,
+    fontSize: 15.5,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.violetLight,
   },
-  // Footer — 16.5 (was 14)
   footerText: {
-    marginTop: SPACING.xxl,
+    marginTop: SPACING.xl,
     textAlign: 'center',
-    fontSize: 16.5,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
