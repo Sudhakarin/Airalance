@@ -179,7 +179,7 @@ export default function RootLayout() {
       }
     }
 
-    registerPushNotificationsAsync();
+    registerForPushNotificationsAsync();
   }, [authReady]);
 
   useEffect(() => {
