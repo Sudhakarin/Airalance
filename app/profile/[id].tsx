@@ -929,13 +929,13 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
   } as any,
   badgeWrap: {
-    marginLeft: 6,
+    marginLeft: 4,
     marginTop: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
   badgeWrapSmall: {
-    marginLeft: 5,
+    marginLeft: 3,
     marginTop: 1,
     justifyContent: 'center',
     alignItems: 'center',
