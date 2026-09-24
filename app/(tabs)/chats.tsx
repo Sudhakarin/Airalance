@@ -67,22 +67,22 @@ function ChatListSkeleton() {
     <View style={styles.skeletonWrap}>
       {[0, 1, 2, 3, 4, 5, 6].map((i) => (
         <View key={i} style={styles.skeletonRow}>
-          <SkeletonBlock width={64} height={64} borderRadius={32} />
+          <SkeletonBlock width={54} height={54} borderRadius={27} />
 
           <View style={styles.skeletonInfo}>
             <View style={styles.skeletonTop}>
               <SkeletonBlock
                 width={`${45 + ((i * 13) % 25)}%`}
-                height={16}
+                height={14}
                 borderRadius={5}
               />
-              <SkeletonBlock width={36} height={12} borderRadius={4} />
+              <SkeletonBlock width={32} height={10} borderRadius={4} />
             </View>
             <SkeletonBlock
               width={`${55 + ((i * 17) % 30)}%`}
-              height={14}
+              height={12}
               borderRadius={4}
-              style={{ marginTop: 10 }}
+              style={{ marginTop: 8 }}
             />
           </View>
         </View>
@@ -257,7 +257,7 @@ export default function ChatsScreen() {
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
-          <Ionicons name="create-outline" size={24} color={COLORS.text} />
+          <Ionicons name="create-outline" size={22} color={COLORS.text} />
         </TouchableOpacity>
       </View>
 
@@ -281,7 +281,7 @@ export default function ChatsScreen() {
               <View style={styles.emptyIconWrap}>
                 <Ionicons
                   name="chatbubbles-outline"
-                  size={52}
+                  size={44}
                   color={COLORS.mist}
                 />
               </View>
@@ -316,7 +316,7 @@ export default function ChatsScreen() {
                     name={displayName}
                     color={color}
                     avatarUrl={item.other_profile?.avatar_url ?? null}
-                    size={64}
+                    size={54}
                   />
 
                   <View style={styles.rowInfo}>
@@ -326,7 +326,7 @@ export default function ChatsScreen() {
                           {displayName}
                         </Text>
                         {item.other_profile?.verified && (
-                          <VerifiedBadge size={16} />
+                          <VerifiedBadge size={14} />
                         )}
                       </View>
                       <Text
@@ -390,35 +390,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
   },
   headerTitle: {
-    fontSize: 34,
+    fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
   },
   headerBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   listContent: {
-    paddingHorizontal: SPACING.md,
-    paddingBottom: SPACING.xxl,
+    paddingHorizontal: SPACING.sm,
+    paddingBottom: SPACING.xl,
     flexGrow: 1,
   },
 
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.md,
-    paddingVertical: 16,
+    gap: SPACING.sm,
+    paddingVertical: 12,
     paddingHorizontal: SPACING.sm,
   },
   rowInfo: { flex: 1, minWidth: 0 },
@@ -426,7 +426,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   rowNameWrap: {
     flexDirection: 'row',
@@ -435,13 +435,13 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   rowName: {
-    fontSize: 18.5,
+    fontSize: 16.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     flexShrink: 1,
   },
   rowTime: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginLeft: 8,
@@ -457,10 +457,10 @@ const styles = StyleSheet.create({
   },
   rowMessage: {
     flex: 1,
-    fontSize: 15.5,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginRight: 10,
+    marginRight: 8,
   },
   rowMessageUnread: {
     color: COLORS.text,
@@ -470,35 +470,35 @@ const styles = StyleSheet.create({
   separator: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: 96,
+    marginLeft: 78,
     marginRight: 0,
   },
 
   unreadBadge: {
-    minWidth: 26,
-    height: 26,
-    paddingHorizontal: 8,
-    borderRadius: 13,
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
     backgroundColor: COLORS.teal,
     alignItems: 'center',
     justifyContent: 'center',
   },
   unreadText: {
     color: '#0A0C12',
-    fontSize: 13,
+    fontSize: 11,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 16,
+    lineHeight: 13,
   },
 
   skeletonWrap: {
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.sm,
     paddingTop: SPACING.sm,
   },
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.md,
-    paddingVertical: 16,
+    gap: SPACING.sm,
+    paddingVertical: 12,
     paddingHorizontal: SPACING.sm,
   },
   skeletonInfo: {
@@ -515,41 +515,41 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 40,
-    paddingTop: 80,
-    gap: 14,
+    paddingHorizontal: 30,
+    paddingTop: 60,
+    gap: 12,
   },
   emptyIconWrap: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     backgroundColor: 'rgba(255,255,255,0.04)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   emptyTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   emptySubtitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     textAlign: 'center',
-    lineHeight: 21,
+    lineHeight: 20,
   },
   emptyBtn: {
-    marginTop: SPACING.md,
-    paddingHorizontal: 28,
-    paddingVertical: 14,
+    marginTop: SPACING.sm,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: RADII.full,
     backgroundColor: COLORS.violet,
   },
   emptyBtnText: {
     color: '#FFFFFF',
-    fontSize: 15.5,
+    fontSize: 14.5,
     fontFamily: FONTS.bodySemiBold,
   },
-});
+ terminal});
