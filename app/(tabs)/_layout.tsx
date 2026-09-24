@@ -74,12 +74,13 @@ export default function TabsLayout() {
 const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: '#000000',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    // ✅ No white line, no shadow — clean black merge with content
+    borderTopWidth: 0,
+    borderTopColor: 'transparent',
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
     elevation: 0,
     // Bigger height for bigger icons + bold labels
     height: 96,
@@ -90,7 +91,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     height: 72,
   },
-  // Tab label — 14px bold (was 11)
+  // Tab label — 14px bold
   tabLabel: {
     fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
