@@ -718,7 +718,8 @@ function VerificationPanel({
     <View style={{ gap: 16 }}>
       <View style={styles.infoCard}>
         <View style={[styles.rowIcon, { backgroundColor: '#3EE0C4' }]}>
-          <Ionicons name="badge-outline" size={20} color="#fff" />
+          {/* ✅ FIXED: badge-outline → ribbon-outline */}
+          <Ionicons name="ribbon-outline" size={20} color="#fff" />
         </View>
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={styles.rowTitle}>Get verified</Text>
