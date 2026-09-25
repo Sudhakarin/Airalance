@@ -13,12 +13,14 @@ import {
   Alert,
   Modal,
   FlatList,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import * as Notifications from 'expo-notifications';
 import {
   COLORS,
   FONTS,
@@ -86,7 +88,6 @@ function SkeletonBlock({
 function ProfileSkeleton() {
   return (
     <View style={styles.skeletonContainer}>
-      {/* Top Section */}
       <View style={styles.skeletonTopSection}>
         <SkeletonBlock width={80} height={80} borderRadius={40} />
         <View style={styles.skeletonRightCol}>
@@ -112,7 +113,6 @@ function ProfileSkeleton() {
         </View>
       </View>
 
-      {/* Bio Block */}
       <View style={styles.skeletonBioBlock}>
         <SkeletonBlock width="30%" height={16} borderRadius={4} />
         <SkeletonBlock
@@ -129,7 +129,6 @@ function ProfileSkeleton() {
         />
       </View>
 
-      {/* Info Card */}
       <View style={styles.skeletonCard}>
         {[1, 2, 3, 4].map((i) => (
           <View key={i} style={styles.skeletonRow}>
@@ -139,7 +138,6 @@ function ProfileSkeleton() {
         ))}
       </View>
 
-      {/* Bio Input Card */}
       <View style={styles.skeletonCard}>
         <View style={styles.skeletonRow}>
           <SkeletonBlock width={60} height={14} borderRadius={4} />
@@ -153,7 +151,6 @@ function ProfileSkeleton() {
         />
       </View>
 
-      {/* Save Button */}
       <SkeletonBlock
         width="100%"
         height={48}
@@ -177,6 +174,7 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<string>('undetermined');
 
   const [listTab, setListTab] = useState<ListTab | null>(null);
   const [listUsers, setListUsers] = useState<Profile[]>([]);
@@ -239,6 +237,11 @@ export default function ProfileScreen() {
         (followingRes.data ?? []).map((r: any) => r.followed_id)
       );
       setMyFollowingIds(ids);
+
+      if (Platform.OS !== 'web') {
+        const { status } = await Notifications.getPermissionsAsync();
+        setNotifPermission(status);
+      }
     } catch (err) {
       console.warn('Load profile error:', err);
     } finally {
@@ -431,6 +434,28 @@ export default function ProfileScreen() {
     }
   }
 
+  async function requestNotificationPermission() {
+    if (Platform.OS === 'web') return;
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    if (existing === 'granted') {
+      Alert.alert('Notifications', 'Notifications are already enabled!');
+      return;
+    }
+    const { status } = await Notifications.requestPermissionsAsync();
+    setNotifPermission(status);
+    if (status === 'granted') {
+      Alert.alert(
+        'Success',
+        'Notifications enabled! Please restart the app for full effect.'
+      );
+    } else {
+      Alert.alert(
+        'Permission Denied',
+        'Please enable notifications from phone settings: Settings → Apps → Airalance → Notifications.'
+      );
+    }
+  }
+
   async function handleLogout() {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -591,6 +616,24 @@ export default function ProfileScreen() {
               )}
             </View>
           </View>
+
+          <View style={styles.divider} />
+
+          <TouchableOpacity
+            style={styles.infoRow}
+            onPress={requestNotificationPermission}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.infoLabel}>Notifications</Text>
+            <Text
+              style={[
+                styles.infoValue,
+                notifPermission === 'granted' && { color: COLORS.teal },
+              ]}
+            >
+              {notifPermission === 'granted' ? 'Enabled ✓' : 'Tap to enable'}
+            </Text>
+          </TouchableOpacity>
 
           <View style={styles.divider} />
 
@@ -1221,7 +1264,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // Skeleton styles
   skeletonContainer: {
     paddingHorizontal: 18,
     paddingTop: 10,
