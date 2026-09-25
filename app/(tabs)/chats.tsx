@@ -106,73 +106,90 @@ function ChatListSkeleton() {
   );
 }
 
-// ---------- Memoized Chat Row (prevents re-render storm) ----------
-const ChatRow = memo(function ChatRow({
-  item,
-  onPress,
-  showSeparator,
-}: {
-  item: Conversation;
-  onPress: (id: string) => void;
-  showSeparator: boolean;
-}) {
-  const displayName = item.is_group
-    ? item.name ?? 'Group'
-    : item.other_profile?.display_name ?? 'Unknown';
-  const color = item.other_profile?.avatar_color ?? COLORS.violet;
-  const hasUnread = item.unread_count > 0;
+// ---------- Memoized Chat Row with custom comparator ----------
+// Comparator ensures only rows whose VISIBLE content changed re-render.
+// Without it, every setConversations(newArray) would re-render all 100 rows.
+const ChatRow = memo(
+  function ChatRow({
+    item,
+    onPress,
+    showSeparator,
+  }: {
+    item: Conversation;
+    onPress: (id: string) => void;
+    showSeparator: boolean;
+  }) {
+    const displayName = item.is_group
+      ? item.name ?? 'Group'
+      : item.other_profile?.display_name ?? 'Unknown';
+    const color = item.other_profile?.avatar_color ?? COLORS.violet;
+    const hasUnread = item.unread_count > 0;
 
-  return (
-    <View style={styles.rowContainer}>
-      <TouchableOpacity
-        style={styles.row}
-        onPress={() => onPress(item.id)}
-        activeOpacity={0.6}
-      >
-        <Avatar
-          name={displayName}
-          color={color}
-          avatarUrl={item.other_profile?.avatar_url ?? null}
-          size={54}
-        />
+    return (
+      <View style={styles.rowContainer}>
+        <TouchableOpacity
+          style={styles.row}
+          onPress={() => onPress(item.id)}
+          activeOpacity={0.6}
+        >
+          <Avatar
+            name={displayName}
+            color={color}
+            avatarUrl={item.other_profile?.avatar_url ?? null}
+            size={54}
+          />
 
-        <View style={styles.rowInfo}>
-          <View style={styles.rowTop}>
-            <View style={styles.rowNameWrap}>
-              <Text style={styles.rowName} numberOfLines={1}>
-                {displayName}
-              </Text>
-              {item.other_profile?.verified && <VerifiedBadge size={14} />}
-            </View>
-            <Text
-              style={[styles.rowTime, hasUnread && styles.rowTimeUnread]}
-            >
-              {formatTime(item.last_at)}
-            </Text>
-          </View>
-
-          <View style={styles.rowBottom}>
-            <Text
-              style={[styles.rowMessage, hasUnread && styles.rowMessageUnread]}
-              numberOfLines={1}
-            >
-              {item.last_message}
-            </Text>
-            {hasUnread && (
-              <View style={styles.unreadBadge}>
-                <Text style={styles.unreadText}>
-                  {item.unread_count > 99 ? '99+' : item.unread_count}
+          <View style={styles.rowInfo}>
+            <View style={styles.rowTop}>
+              <View style={styles.rowNameWrap}>
+                <Text style={styles.rowName} numberOfLines={1}>
+                  {displayName}
                 </Text>
+                {item.other_profile?.verified && <VerifiedBadge size={14} />}
               </View>
-            )}
-          </View>
-        </View>
-      </TouchableOpacity>
+              <Text
+                style={[styles.rowTime, hasUnread && styles.rowTimeUnread]}
+              >
+                {formatTime(item.last_at)}
+              </Text>
+            </View>
 
-      {showSeparator && <View style={styles.separator} />}
-    </View>
-  );
-});
+            <View style={styles.rowBottom}>
+              <Text
+                style={[styles.rowMessage, hasUnread && styles.rowMessageUnread]}
+                numberOfLines={1}
+              >
+                {item.last_message}
+              </Text>
+              {hasUnread && (
+                <View style={styles.unreadBadge}>
+                  <Text style={styles.unreadText}>
+                    {item.unread_count > 99 ? '99+' : item.unread_count}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {showSeparator && <View style={styles.separator} />}
+      </View>
+    );
+  },
+  (prev, next) =>
+    prev.item.id === next.item.id &&
+    prev.item.last_at === next.item.last_at &&
+    prev.item.last_message === next.item.last_message &&
+    prev.item.unread_count === next.item.unread_count &&
+    prev.item.other_profile?.display_name ===
+      next.item.other_profile?.display_name &&
+    prev.item.other_profile?.avatar_url ===
+      next.item.other_profile?.avatar_url &&
+    prev.item.other_profile?.avatar_color ===
+      next.item.other_profile?.avatar_color &&
+    prev.item.other_profile?.verified === next.item.other_profile?.verified &&
+    prev.showSeparator === next.showSeparator
+);
 
 // ---------- Screen ----------
 export default function ChatsScreen() {
