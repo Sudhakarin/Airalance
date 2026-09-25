@@ -21,7 +21,7 @@ import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const { width: SCREEN_W } = Dimensions.get('window');
 const STATUS_DURATION_MS = 15000;
 
 type Profile = {
@@ -254,39 +254,8 @@ export default function StatusViewerScreen() {
 
   return (
     <View style={styles.container}>
-      {current.media_type === 'video' && current.media_url ? (
-        <View style={styles.mediaWrap}>
-          <Image
-            source={{ uri: current.media_url }}
-            style={styles.media}
-            resizeMode="contain"
-          />
-        </View>
-      ) : current.media_url ? (
-        <Image
-          source={{ uri: current.media_url }}
-          style={styles.media}
-          resizeMode="contain"
-        />
-      ) : (
-        <LinearGradient
-          colors={[current.bg_color ?? COLORS.violet, '#0A0C12']}
-          style={styles.textBg}
-        >
-          <Text style={styles.textContent}>{current.text_content}</Text>
-        </LinearGradient>
-      )}
-
-      <LinearGradient
-        colors={['rgba(0,0,0,0.75)', 'transparent']}
-        style={styles.topGradient}
-      />
-      <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.75)']}
-        style={styles.bottomGradient}
-      />
-
-      <View style={[styles.topArea, { paddingTop: insets.top + 6 }]}>
+      {/* ---------- Fixed header block (own space, never overlaps content) ---------- */}
+      <View style={[styles.headerBlock, { paddingTop: insets.top + 6 }]}>
         <View style={styles.progressRow}>
           {statuses.map((s, i) => (
             <View key={s.id} style={styles.progressSegment}>
@@ -350,50 +319,84 @@ export default function StatusViewerScreen() {
         </View>
       </View>
 
-      <Pressable
-        style={styles.tapLeft}
-        onPress={() => advance(-1)}
-        onLongPress={pause}
-        onPressOut={resume}
-      />
-      <Pressable
-        style={styles.tapRight}
-        onPress={() => advance(1)}
-        onLongPress={pause}
-        onPressOut={resume}
-      />
+      {/* ---------- Separator between header and status content ---------- */}
+      <View style={styles.separator} />
 
-      {!isMine && (
-        <View
-          style={[
-            styles.bottomArea,
-            { paddingBottom: insets.bottom + SPACING.sm },
-          ]}
-        >
-          <View style={styles.bottomRow}>
-            <TouchableOpacity
-              style={styles.replyBar}
-              activeOpacity={0.7}
-              onPress={() => {}}
-            >
-              <Text style={styles.replyPlaceholder}>Reply to status…</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.heartBtn, liked && styles.heartBtnActive]}
-              onPress={toggleLike}
-              activeOpacity={0.7}
-              disabled={likeLoading}
-            >
-              <Ionicons
-                name={liked ? 'heart' : 'heart-outline'}
-                size={22}
-                color={liked ? '#EF4444' : '#FFFFFF'}
-              />
-            </TouchableOpacity>
+      {/* ---------- Status content area (media / text), sits below header ---------- */}
+      <View style={styles.contentArea}>
+        {current.media_type === 'video' && current.media_url ? (
+          <View style={styles.mediaWrap}>
+            <Image
+              source={{ uri: current.media_url }}
+              style={styles.media}
+              resizeMode="contain"
+            />
           </View>
-        </View>
-      )}
+        ) : current.media_url ? (
+          <Image
+            source={{ uri: current.media_url }}
+            style={styles.media}
+            resizeMode="contain"
+          />
+        ) : (
+          <LinearGradient
+            colors={[current.bg_color ?? COLORS.violet, '#0A0C12']}
+            style={styles.textBg}
+          >
+            <Text style={styles.textContent}>{current.text_content}</Text>
+          </LinearGradient>
+        )}
+
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.75)']}
+          style={styles.bottomGradient}
+        />
+
+        <Pressable
+          style={styles.tapLeft}
+          onPress={() => advance(-1)}
+          onLongPress={pause}
+          onPressOut={resume}
+        />
+        <Pressable
+          style={styles.tapRight}
+          onPress={() => advance(1)}
+          onLongPress={pause}
+          onPressOut={resume}
+        />
+
+        {!isMine && (
+          <View
+            style={[
+              styles.bottomArea,
+              { paddingBottom: insets.bottom + SPACING.sm },
+            ]}
+          >
+            <View style={styles.bottomRow}>
+              <TouchableOpacity
+                style={styles.replyBar}
+                activeOpacity={0.7}
+                onPress={() => {}}
+              >
+                <Text style={styles.replyPlaceholder}>Reply to status…</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.heartBtn, liked && styles.heartBtnActive]}
+                onPress={toggleLike}
+                activeOpacity={0.7}
+                disabled={likeLoading}
+              >
+                <Ionicons
+                  name={liked ? 'heart' : 'heart-outline'}
+                  size={22}
+                  color={liked ? '#EF4444' : '#FFFFFF'}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -434,18 +437,36 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
+  // Header now lives in normal flow, own solid background — never overlaps content
+  headerBlock: {
+    backgroundColor: '#0A0C12',
+    paddingBottom: SPACING.sm,
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth * 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+
+  contentArea: {
+    flex: 1,
+    backgroundColor: '#000',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+
   media: {
-    width: SCREEN_W,
-    height: SCREEN_H,
+    width: '100%',
+    height: '100%',
   },
   mediaWrap: {
-    width: SCREEN_W,
-    height: SCREEN_H,
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
   textBg: {
     flex: 1,
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     padding: SPACING.xl,
@@ -458,27 +479,14 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
 
-  topGradient: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 180,
-  },
   bottomGradient: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 180,
+    height: 140,
   },
 
-  topArea: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-  },
   progressRow: {
     flexDirection: 'row',
     gap: 3,
@@ -534,15 +542,15 @@ const styles = StyleSheet.create({
 
   tapLeft: {
     position: 'absolute',
-    top: 100,
-    bottom: 100,
+    top: 0,
+    bottom: 90,
     left: 0,
     width: '30%',
   },
   tapRight: {
     position: 'absolute',
-    top: 100,
-    bottom: 100,
+    top: 0,
+    bottom: 90,
     right: 0,
     width: '30%',
   },
