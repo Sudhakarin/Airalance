@@ -1,17 +1,17 @@
 // app/(tabs)/home.tsx
-// Home screen — welcome + news feed with categories + live section + skeleton
+// Home screen — welcome + news feed with categories + live section (optimized)
 
-import { useEffect, useState, useCallback, memo } from 'react';
+import { useEffect, useState, useCallback, useMemo, memo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Image,
   RefreshControl,
   ScrollView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -50,53 +50,59 @@ const CATEGORY_GRADIENTS: Record<string, [string, string]> = {
   Awareness: ['#F4607A', '#D66BE0'],
 };
 
-const ArticleRow = memo(function ArticleRow({
-  article,
-  onPress,
-}: {
-  article: NewsArticle;
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      style={styles.articleRow}
-      onPress={onPress}
-      activeOpacity={0.75}
-    >
-      {article.image_url ? (
-        <Image
-          source={{ uri: article.image_url }}
-          style={styles.articleThumb}
-          resizeMode="cover"
-        />
-      ) : (
-        <LinearGradient
-          colors={
-            CATEGORY_GRADIENTS[article.category] ?? ['#7C5CFF', '#5B3FE0']
-          }
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.articleThumb}
-        >
-          <Text style={styles.articleEmoji}>{article.emoji ?? '📰'}</Text>
-        </LinearGradient>
-      )}
+// ---------- Memoized article row ----------
+const ArticleRow = memo(
+  function ArticleRow({
+    article,
+    onPress,
+  }: {
+    article: NewsArticle;
+    onPress: (id: string) => void;
+  }) {
+    return (
+      <TouchableOpacity
+        style={styles.articleRow}
+        onPress={() => onPress(article.id)}
+        activeOpacity={0.75}
+      >
+        {article.image_url ? (
+          <Image
+            source={{ uri: article.image_url }}
+            style={styles.articleThumb}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={120}
+            recyclingKey={article.id}
+          />
+        ) : (
+          <LinearGradient
+            colors={CATEGORY_GRADIENTS[article.category] ?? ['#7C5CFF', '#5B3FE0']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.articleThumb}
+          >
+            <Text style={styles.articleEmoji}>{article.emoji ?? '📰'}</Text>
+          </LinearGradient>
+        )}
 
-      <View style={styles.articleInfo}>
-        <Text style={styles.articleCategory}>
-          {article.category?.toUpperCase()}
-        </Text>
-        <Text style={styles.articleTitle} numberOfLines={3}>
-          {article.title}
-        </Text>
-        <Text style={styles.articleMeta}>
-          {article.source} · {article.read_time}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-});
+        <View style={styles.articleInfo}>
+          <Text style={styles.articleCategory}>
+            {article.category?.toUpperCase()}
+          </Text>
+          <Text style={styles.articleTitle} numberOfLines={3}>
+            {article.title}
+          </Text>
+          <Text style={styles.articleMeta}>
+            {article.source} · {article.read_time}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  },
+  (prev, next) => prev.article.id === next.article.id
+);
 
+// ---------- Skeleton ----------
 function SkeletonBlock({
   width,
   height,
@@ -111,12 +117,7 @@ function SkeletonBlock({
   return (
     <View
       style={[
-        {
-          width,
-          height,
-          borderRadius,
-          backgroundColor: 'rgba(255,255,255,0.08)',
-        },
+        { width, height, borderRadius, backgroundColor: 'rgba(255,255,255,0.08)' },
         style,
       ]}
     />
@@ -171,69 +172,61 @@ function HomeSkeleton() {
   );
 }
 
-export default function HomeScreen() {
-  const router = useRouter();
-  const [articles, setArticles] = useState<NewsArticle[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState('For you');
-  const [notifCount, setNotifCount] = useState(0);
+// ---------- Memoized category pill ----------
+const CategoryPill = memo(function CategoryPill({
+  label,
+  isActive,
+  onPress,
+}: {
+  label: string;
+  isActive: boolean;
+  onPress: (label: string) => void;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={() => onPress(label)}
+      activeOpacity={0.8}
+      style={styles.categoryWrap}
+    >
+      {isActive ? (
+        <LinearGradient
+          colors={['#9C82FF', '#7C5CFF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.categoryPill}
+        >
+          <Text style={styles.categoryTextActive}>{label}</Text>
+        </LinearGradient>
+      ) : (
+        <View style={styles.categoryPillInactive}>
+          <Text style={styles.categoryTextInactive}>{label}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+});
 
-  const fetchNews = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from('news_articles')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(20);
+// ---------- List header component (memoized) ----------
+type HeaderProps = {
+  loading: boolean;
+  selectedCategory: string;
+  onSelectCategory: (cat: string) => void;
+  onStartConversation: () => void;
+  featured: NewsArticle | null;
+  onOpenArticle: (id: string) => void;
+  filteredLength: number;
+};
 
-      if (error) {
-        console.warn('News fetch error:', error.message);
-        setArticles([]);
-      } else {
-        setArticles((data ?? []) as NewsArticle[]);
-      }
-    } catch (err) {
-      console.warn('News fetch crashed:', err);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  const fetchNotificationCount = useCallback(async () => {
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return;
-    const { count } = await supabase
-      .from('app_notifications')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', auth.user.id)
-      .eq('read', false);
-    setNotifCount(count ?? 0);
-  }, []);
-
-  useEffect(() => {
-    fetchNews();
-    fetchNotificationCount();
-  }, [fetchNews, fetchNotificationCount]);
-
-  async function onRefresh() {
-    setRefreshing(true);
-    await Promise.all([fetchNews(), fetchNotificationCount()]);
-  }
-
-  const filteredArticles =
-    selectedCategory === 'For you'
-      ? articles
-      : articles.filter(
-          (a) => a.category?.toLowerCase() === selectedCategory.toLowerCase()
-        );
-
-  const featured =
-    filteredArticles.find((a) => a.is_featured) ?? filteredArticles[0];
-  const rest = filteredArticles.filter((a) => a.id !== featured?.id);
-
-  const ListHeader = (
+const ListHeader = memo(function ListHeader({
+  loading,
+  selectedCategory,
+  onSelectCategory,
+  onStartConversation,
+  featured,
+  onOpenArticle,
+  filteredLength,
+}: HeaderProps) {
+  return (
     <>
       <View style={styles.welcomeCard}>
         <View style={styles.welcomeIcon}>
@@ -252,7 +245,7 @@ export default function HomeScreen() {
         </Text>
         <TouchableOpacity
           style={styles.welcomeBtn}
-          onPress={() => router.push('/(tabs)/search')}
+          onPress={onStartConversation}
           activeOpacity={0.85}
         >
           <LinearGradient
@@ -276,37 +269,19 @@ export default function HomeScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.categoriesRow}
         >
-          {CATEGORIES.map((cat) => {
-            const isActive = selectedCategory === cat;
-            return (
-              <TouchableOpacity
-                key={cat}
-                onPress={() => setSelectedCategory(cat)}
-                activeOpacity={0.8}
-                style={styles.categoryWrap}
-              >
-                {isActive ? (
-                  <LinearGradient
-                    colors={['#9C82FF', '#7C5CFF']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.categoryPill}
-                  >
-                    <Text style={styles.categoryTextActive}>{cat}</Text>
-                  </LinearGradient>
-                ) : (
-                  <View style={styles.categoryPillInactive}>
-                    <Text style={styles.categoryTextInactive}>{cat}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            );
-          })}
+          {CATEGORIES.map((cat) => (
+            <CategoryPill
+              key={cat}
+              label={cat}
+              isActive={selectedCategory === cat}
+              onPress={onSelectCategory}
+            />
+          ))}
         </ScrollView>
 
         {loading ? (
           <HomeSkeleton />
-        ) : filteredArticles.length === 0 ? (
+        ) : filteredLength === 0 ? (
           <View style={styles.emptyWrap}>
             <Ionicons name="newspaper-outline" size={40} color={COLORS.mist} />
             <Text style={styles.emptyText}>
@@ -319,22 +294,22 @@ export default function HomeScreen() {
             {featured && (
               <TouchableOpacity
                 style={styles.featuredCard}
-                onPress={() => router.push(`/news/${featured.id}`)}
+                onPress={() => onOpenArticle(featured.id)}
                 activeOpacity={0.9}
               >
                 {featured.image_url ? (
                   <Image
                     source={{ uri: featured.image_url }}
                     style={styles.featuredImage}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={120}
+                    recyclingKey={featured.id}
                   />
                 ) : (
                   <LinearGradient
                     colors={
-                      CATEGORY_GRADIENTS[featured.category] ?? [
-                        '#7C5CFF',
-                        '#5B3FE0',
-                      ]
+                      CATEGORY_GRADIENTS[featured.category] ?? ['#7C5CFF', '#5B3FE0']
                     }
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
@@ -387,6 +362,128 @@ export default function HomeScreen() {
       </View>
     </>
   );
+});
+
+// ---------- Screen ----------
+export default function HomeScreen() {
+  const router = useRouter();
+  const [articles, setArticles] = useState<NewsArticle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState('For you');
+  const [notifCount, setNotifCount] = useState(0);
+
+  const fetchNews = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('news_articles')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.warn('News fetch error:', error.message);
+        setArticles([]);
+      } else {
+        setArticles((data ?? []) as NewsArticle[]);
+      }
+    } catch (err) {
+      console.warn('News fetch crashed:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  // Use session (no extra network) instead of getUser()
+  const fetchNotificationCount = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
+    const { count } = await supabase
+      .from('app_notifications')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', session.user.id)
+      .eq('read', false);
+    setNotifCount(count ?? 0);
+  }, []);
+
+  useEffect(() => {
+    fetchNews();
+    fetchNotificationCount();
+  }, [fetchNews, fetchNotificationCount]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([fetchNews(), fetchNotificationCount()]);
+  }, [fetchNews, fetchNotificationCount]);
+
+  // Memoized derivations
+  const filteredArticles = useMemo(() => {
+    if (selectedCategory === 'For you') return articles;
+    const lower = selectedCategory.toLowerCase();
+    return articles.filter((a) => a.category?.toLowerCase() === lower);
+  }, [articles, selectedCategory]);
+
+  const featured = useMemo(
+    () => filteredArticles.find((a) => a.is_featured) ?? filteredArticles[0] ?? null,
+    [filteredArticles]
+  );
+
+  const rest = useMemo(
+    () => filteredArticles.filter((a) => a.id !== featured?.id),
+    [filteredArticles, featured]
+  );
+
+  // Stable callbacks
+  const openArticle = useCallback(
+    (id: string) => router.push(`/news/${id}`),
+    [router]
+  );
+
+  const onSelectCategory = useCallback(
+    (cat: string) => setSelectedCategory(cat),
+    []
+  );
+
+  const onStartConversation = useCallback(
+    () => router.push('/(tabs)/search'),
+    [router]
+  );
+
+  const renderItem = useCallback(
+    ({ item, index }: { item: NewsArticle; index: number }) => (
+      <>
+        <ArticleRow article={item} onPress={openArticle} />
+        {index < rest.length - 1 && <View style={styles.articleDivider} />}
+      </>
+    ),
+    [openArticle, rest.length]
+  );
+
+  const keyExtractor = useCallback((item: NewsArticle) => item.id, []);
+
+  const listHeader = useMemo(
+    () => (
+      <ListHeader
+        loading={loading}
+        selectedCategory={selectedCategory}
+        onSelectCategory={onSelectCategory}
+        onStartConversation={onStartConversation}
+        featured={featured}
+        onOpenArticle={openArticle}
+        filteredLength={filteredArticles.length}
+      />
+    ),
+    [
+      loading,
+      selectedCategory,
+      onSelectCategory,
+      onStartConversation,
+      featured,
+      openArticle,
+      filteredArticles.length,
+    ]
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -409,25 +506,16 @@ export default function HomeScreen() {
       </View>
 
       <FlatList
-        data={loading || rest.length === 0 ? [] : rest}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item, index }) => (
-          <>
-            <ArticleRow
-              article={item}
-              onPress={() => router.push(`/news/${item.id}`)}
-            />
-            {index < rest.length - 1 && (
-              <View style={styles.articleDivider} />
-            )}
-          </>
-        )}
-        ListHeaderComponent={ListHeader}
+        data={loading ? [] : rest}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        ListHeaderComponent={listHeader}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         initialNumToRender={4}
         maxToRenderPerBatch={4}
         windowSize={5}
+        updateCellsBatchingPeriod={50}
         removeClippedSubviews={true}
         refreshControl={
           <RefreshControl
@@ -442,6 +530,7 @@ export default function HomeScreen() {
   );
 }
 
+// ---------- Styles (unchanged) ----------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
   scroll: { paddingBottom: 40 },
@@ -530,10 +619,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...SHADOWS.buttonViolet,
   },
-  welcomeBtnGradient: {
-    paddingVertical: 9,
-    paddingHorizontal: 20,
-  },
+  welcomeBtnGradient: { paddingVertical: 9, paddingHorizontal: 20 },
   welcomeBtnText: {
     color: '#FFFFFF',
     fontSize: 13,
@@ -587,11 +673,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyMedium,
     textAlign: 'center',
   },
-  emptySubtext: {
-    color: COLORS.mist,
-    fontSize: 12,
-    fontFamily: FONTS.body,
-  },
+  emptySubtext: { color: COLORS.mist, fontSize: 12, fontFamily: FONTS.body },
 
   featuredCard: {
     height: 150,
