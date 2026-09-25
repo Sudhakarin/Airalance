@@ -23,6 +23,7 @@ import {
   Poppins_600SemiBold,
   Poppins_700Bold,
 } from '@expo-google-fonts/poppins';
+import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono';
 import { COLORS } from '../constants/theme';
 import { supabase } from '../lib/supabase';
 
@@ -85,6 +86,7 @@ export default function RootLayout() {
           Poppins_500Medium,
           Poppins_600SemiBold,
           Poppins_700Bold,
+          JetBrainsMono_400Regular,
         });
       } catch (e) {
         console.warn('Font loading failed', e);
