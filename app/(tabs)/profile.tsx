@@ -708,7 +708,7 @@ export default function ProfileScreen() {
           onRequestClose={() => setListTab(null)}
         >
           <View style={styles.listModalWrap}>
-            <View style={styles.listModal}>
+            <SafeAreaView style={styles.listModal} edges={['top']}>
               <View style={styles.listHeader}>
                 <TouchableOpacity
                   onPress={() => setListTab(null)}
@@ -863,7 +863,7 @@ export default function ProfileScreen() {
                   }}
                 />
               )}
-            </View>
+            </SafeAreaView>
           </View>
         </Modal>
       )}
