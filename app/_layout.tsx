@@ -1,10 +1,16 @@
 // app/_layout.tsx
-// Root layout — fonts, auth, theme, navigation stack, push notifications
+// Root layout — fonts, auth, theme, navigation stack, push notifications (optimized)
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator, StyleSheet, Text, Platform } from 'react-native';
+import {
+  View,
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  Platform,
+} from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
@@ -38,99 +44,102 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// Fonts object — declared once, reused
+const FONT_MAP = {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Poppins_400Regular,
+  Poppins_500Medium,
+  Poppins_600SemiBold,
+  Poppins_700Bold,
+  JetBrainsMono_400Regular,
+};
+
 export default function RootLayout() {
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const pushRegisteredRef = useRef(false);
 
+  // ---------- Web-only: hide scrollbars (runs once, only on web) ----------
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     if (typeof document === 'undefined') return;
+    if (document.getElementById('hide-scrollbars')) return;
 
     const style = document.createElement('style');
     style.id = 'hide-scrollbars';
     style.innerHTML = `
-      * {
-        scrollbar-width: none !important;
-        -ms-overflow-style: none !important;
-      }
-      *::-webkit-scrollbar {
-        display: none !important;
-        width: 0 !important;
-        height: 0 !important;
-      }
-      html, body {
-        scrollbar-width: none !important;
-        -ms-overflow-style: none !important;
-      }
-      html::-webkit-scrollbar,
-      body::-webkit-scrollbar {
-        display: none !important;
-        width: 0 !important;
-        height: 0 !important;
-      }
+      * { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+      *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+      html, body { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+      html::-webkit-scrollbar, body::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
     `;
-    if (!document.getElementById('hide-scrollbars')) {
-      document.head.appendChild(style);
-    }
+    document.head.appendChild(style);
   }, []);
 
+  // ---------- Load fonts (once, cached by expo-font) ----------
   useEffect(() => {
-    async function loadFonts() {
+    let mounted = true;
+    (async () => {
       try {
-        await Font.loadAsync({
-          Inter_400Regular,
-          Inter_500Medium,
-          Inter_600SemiBold,
-          Poppins_400Regular,
-          Poppins_500Medium,
-          Poppins_600SemiBold,
-          Poppins_700Bold,
-          JetBrainsMono_400Regular,
-        });
+        // Check if fonts already loaded (they will be on warm start)
+        const allLoaded = Object.keys(FONT_MAP).every((f) =>
+          Font.isLoaded(f)
+        );
+        if (!allLoaded) {
+          await Font.loadAsync(FONT_MAP);
+        }
       } catch (e) {
         console.warn('Font loading failed', e);
       } finally {
-        setFontsLoaded(true);
+        if (mounted) setFontsLoaded(true);
       }
-    }
-    loadFonts();
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
+  // ---------- Auth: single source of truth ----------
   useEffect(() => {
     let mounted = true;
+
+    // Initial session (AsyncStorage read — fast)
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (mounted) {
+      if (!mounted) return;
+      setUserId(session?.user?.id ?? null);
+      setAuthReady(true);
+    });
+
+    // Subsequent auth changes
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!mounted) return;
         setUserId(session?.user?.id ?? null);
         setAuthReady(true);
       }
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (mounted) {
-          setUserId(session?.user?.id ?? null);
-          setAuthReady(true);
-        }
-      }
     );
+
     return () => {
       mounted = false;
       listener.subscription.unsubscribe();
     };
   }, []);
 
+  // ---------- Push registration (once per user session) ----------
   useEffect(() => {
     if (!authReady || !userId) return;
+    if (Platform.OS === 'web') return;
+    if (pushRegisteredRef.current) return;
 
-    async function registerForPushNotificationsAsync() {
-      if (Platform.OS === 'web') return;
+    let cancelled = false;
 
-      if (!Device.isDevice) {
-        console.log('[push] Must use physical device for push notifications');
-        return;
-      }
+    async function registerPush() {
+      if (!Device.isDevice) return;
 
-      // ALWAYS register Android channel FIRST (needed for Settings to show Notifications section)
+      // Android channel — FIRST, always
       if (Platform.OS === 'android') {
         try {
           await Notifications.setNotificationChannelAsync('default', {
@@ -140,74 +149,55 @@ export default function RootLayout() {
             lightColor: '#7C5CFF',
             sound: 'default',
           });
-          console.log('[push] Android channel registered');
-        } catch (channelErr) {
-          console.warn('[push] Channel register failed:', channelErr);
+        } catch (e) {
+          console.warn('[push] Channel register failed:', e);
         }
       }
 
-      // Then check/request permission
-      const { status: existingStatus } =
-        await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
+      // Permission
+      let { status } = await Notifications.getPermissionsAsync();
+      if (status !== 'granted') {
+        const res = await Notifications.requestPermissionsAsync();
+        status = res.status;
       }
+      if (status !== 'granted') return;
+      if (cancelled) return;
 
-      if (finalStatus !== 'granted') {
-        console.log('[push] Permission not granted');
-        return;
-      }
-
+      // Token
       try {
         const projectId =
           Constants.expoConfig?.extra?.eas?.projectId ??
           Constants.easConfig?.projectId;
-
-        if (!projectId) {
-          console.warn('[push] No projectId found');
-          return;
-        }
+        if (!projectId) return;
 
         const token = (
           await Notifications.getExpoPushTokenAsync({ projectId })
         ).data;
+        if (cancelled) return;
 
-        console.log('[push] Expo Push Token:', token);
+        // Save to profiles (userId already known — no extra getUser call)
+        const { error } = await supabase
+          .from('profiles')
+          .update({ expo_push_token: token })
+          .eq('id', userId);
 
-        const { data: { user }, error: userError } =
-          await supabase.auth.getUser();
-        console.log(
-          '[push] Current user:',
-          user?.id ?? 'null',
-          'Error:',
-          userError
-        );
-
-        if (user && token) {
-          const { error: updateError } = await supabase
-            .from('profiles')
-            .update({ expo_push_token: token })
-            .eq('id', user.id);
-
-          if (updateError) {
-            console.error('[push] Token save FAILED:', updateError);
-          } else {
-            console.log('[push] Token SAVED successfully to Supabase');
-          }
-        } else {
-          console.warn('[push] Skipped saving: user or token is missing');
+        if (!error) {
+          pushRegisteredRef.current = true;
+          console.log('[push] Token saved');
         }
       } catch (err) {
         console.warn('[push] Token registration failed:', err);
       }
     }
 
-    registerForPushNotificationsAsync();
+    registerPush();
+
+    return () => {
+      cancelled = true;
+    };
   }, [authReady, userId]);
 
+  // ---------- Hide splash when ready ----------
   useEffect(() => {
     if (fontsLoaded && authReady) {
       SplashScreen.hideAsync().catch(() => {});
@@ -231,44 +221,22 @@ export default function RootLayout() {
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: '#000000' },
-            animation: 'fade',
+            // Faster transition (was 'fade' = 300ms)
+            animation: 'slide_from_right',
+            animationDuration: 220,
           }}
         >
           <Stack.Screen name="index" options={{ animation: 'none' }} />
-          <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
-          <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
-          <Stack.Screen
-            name="chat/[id]"
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="profile/[id]"
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="status/[userId]"
-            options={{ animation: 'fade' }}
-          />
-          <Stack.Screen
-            name="status/create"
-            options={{ animation: 'slide_from_bottom' }}
-          />
-          <Stack.Screen
-            name="news/[id]"
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="settings/index"
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="notifications"
-            options={{ animation: 'slide_from_right' }}
-          />
-          <Stack.Screen
-            name="call/[id]"
-            options={{ animation: 'fade', presentation: 'modal' }}
-          />
+          <Stack.Screen name="(auth)" options={{ animation: 'fade', animationDuration: 200 }} />
+          <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 200 }} />
+          <Stack.Screen name="chat/[id]" options={{ animation: 'slide_from_right', animationDuration: 220 }} />
+          <Stack.Screen name="profile/[id]" options={{ animation: 'slide_from_right', animationDuration: 220 }} />
+          <Stack.Screen name="status/[userId]" options={{ animation: 'fade', animationDuration: 200 }} />
+          <Stack.Screen name="status/create" options={{ animation: 'slide_from_bottom', animationDuration: 240 }} />
+          <Stack.Screen name="news/[id]" options={{ animation: 'slide_from_right', animationDuration: 220 }} />
+          <Stack.Screen name="settings/index" options={{ animation: 'slide_from_right', animationDuration: 220 }} />
+          <Stack.Screen name="notifications" options={{ animation: 'slide_from_right', animationDuration: 220 }} />
+          <Stack.Screen name="call/[id]" options={{ animation: 'fade', animationDuration: 200, presentation: 'modal' }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -276,10 +244,7 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
+  root: { flex: 1, backgroundColor: '#000000' },
   loadingContainer: {
     flex: 1,
     backgroundColor: '#000000',
