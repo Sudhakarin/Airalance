@@ -220,13 +220,14 @@ export const PHOTO_FILTERS = [
 ] as const;
 
 // ===== Verified usernames (from website logic) =====
-export const VERIFIED_USERNAMES = [
+// ✅ FIXED: type widened to readonly string[] so .includes(string) works everywhere
+export const VERIFIED_USERNAMES: readonly string[] = [
   'sudhakarin',
   'tanushree2251',
   'airalance',
   'shikhamishra',
   'manjumishra',
-] as const;
+];
 
 // ===== Storage keys =====
 export const STORAGE_KEYS = {
