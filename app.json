@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Airalance",
-    "slug": "airalance-new",
+    "slug": "airalance-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -44,17 +44,12 @@
     "plugins": [
       "expo-router",
       "expo-notifications",
-<<<<<<< HEAD
-      "expo-asset",
-      "expo-audio"
-=======
       [
         "expo-audio",
         {
           "microphonePermission": "Allow Airalance to access your microphone."
         }
       ]
->>>>>>> b766d1bbc25a42ea51b5d2bb4ccb482c30a05e7f
     ],
     "extra": {
       "router": {
