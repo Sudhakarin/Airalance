@@ -182,10 +182,13 @@ export default function ProfileScreen() {
   const [myFollowingIds, setMyFollowingIds] = useState<Set<string>>(new Set());
   const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
 
+  // ✅ FIXED: cast VERIFIED_USERNAMES to readonly string[] for .includes()
   const isVerified = (p: Profile | null) =>
     !!p &&
     (!!p.verified ||
-      VERIFIED_USERNAMES.includes(p.username?.toLowerCase() ?? ''));
+      (VERIFIED_USERNAMES as readonly string[]).includes(
+        p.username?.toLowerCase() ?? ''
+      ));
 
   const loadProfile = useCallback(async () => {
     try {
