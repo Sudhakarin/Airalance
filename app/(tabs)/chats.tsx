@@ -1,7 +1,7 @@
 // app/(tabs)/chats.tsx
-// Chats list — shows all conversations with last message + unread count + skeleton
+// Chats list — optimized with debounced realtime, limited queries, memoized rows
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
   View,
   Text,
@@ -18,24 +18,45 @@ import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 
+type OtherProfile = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_color: string;
+  avatar_url: string | null;
+  verified: boolean | null;
+  last_seen?: string | null;
+};
+
 type Conversation = {
   id: string;
   is_group: boolean;
   name: string | null;
-  other_profile: {
-    id: string;
-    username: string;
-    display_name: string;
-    avatar_color: string;
-    avatar_url: string | null;
-    verified: boolean | null;
-    last_seen?: string | null;
-  } | null;
+  other_profile: OtherProfile | null;
   last_message: string;
   last_at: string;
   unread_count: number;
 };
 
+// Fixed row height for getItemLayout (avatar 54 + paddingVertical 12×2)
+const ROW_HEIGHT = 78;
+
+function formatTime(iso: string) {
+  if (!iso) return '';
+  const date = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return 'now';
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d`;
+  return date.toLocaleDateString();
+}
+
+// ---------- Skeleton ----------
 function SkeletonBlock({
   width,
   height,
@@ -50,12 +71,7 @@ function SkeletonBlock({
   return (
     <View
       style={[
-        {
-          width,
-          height,
-          borderRadius,
-          backgroundColor: 'rgba(255,255,255,0.08)',
-        },
+        { width, height, borderRadius, backgroundColor: 'rgba(255,255,255,0.08)' },
         style,
       ]}
     />
@@ -68,7 +84,6 @@ function ChatListSkeleton() {
       {[0, 1, 2, 3, 4, 5, 6].map((i) => (
         <View key={i} style={styles.skeletonRow}>
           <SkeletonBlock width={54} height={54} borderRadius={27} />
-
           <View style={styles.skeletonInfo}>
             <View style={styles.skeletonTop}>
               <SkeletonBlock
@@ -91,6 +106,75 @@ function ChatListSkeleton() {
   );
 }
 
+// ---------- Memoized Chat Row (prevents re-render storm) ----------
+const ChatRow = memo(function ChatRow({
+  item,
+  onPress,
+  showSeparator,
+}: {
+  item: Conversation;
+  onPress: (id: string) => void;
+  showSeparator: boolean;
+}) {
+  const displayName = item.is_group
+    ? item.name ?? 'Group'
+    : item.other_profile?.display_name ?? 'Unknown';
+  const color = item.other_profile?.avatar_color ?? COLORS.violet;
+  const hasUnread = item.unread_count > 0;
+
+  return (
+    <View style={styles.rowContainer}>
+      <TouchableOpacity
+        style={styles.row}
+        onPress={() => onPress(item.id)}
+        activeOpacity={0.6}
+      >
+        <Avatar
+          name={displayName}
+          color={color}
+          avatarUrl={item.other_profile?.avatar_url ?? null}
+          size={54}
+        />
+
+        <View style={styles.rowInfo}>
+          <View style={styles.rowTop}>
+            <View style={styles.rowNameWrap}>
+              <Text style={styles.rowName} numberOfLines={1}>
+                {displayName}
+              </Text>
+              {item.other_profile?.verified && <VerifiedBadge size={14} />}
+            </View>
+            <Text
+              style={[styles.rowTime, hasUnread && styles.rowTimeUnread]}
+            >
+              {formatTime(item.last_at)}
+            </Text>
+          </View>
+
+          <View style={styles.rowBottom}>
+            <Text
+              style={[styles.rowMessage, hasUnread && styles.rowMessageUnread]}
+              numberOfLines={1}
+            >
+              {item.last_message}
+            </Text>
+            {hasUnread && (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadText}>
+                  {item.unread_count > 99 ? '99+' : item.unread_count}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {showSeparator && <View style={styles.separator} />}
+    </View>
+  );
+});
+
+// ---------- Screen ----------
 export default function ChatsScreen() {
   const router = useRouter();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -98,16 +182,24 @@ export default function ChatsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [myId, setMyId] = useState<string | null>(null);
 
+  // Refs to guard against overlapping loads & debounce realtime
+  const realtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLoadingRef = useRef(false);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) setMyId(data.user.id);
     });
   }, []);
 
+  // ---------- Load conversations (optimized) ----------
   const loadConversations = useCallback(async () => {
     if (!myId) return;
+    if (isLoadingRef.current) return; // prevent overlap
+    isLoadingRef.current = true;
 
     try {
+      // 1. Which conversations am I in?
       const { data: participantRows, error: pError } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
@@ -118,65 +210,74 @@ export default function ChatsScreen() {
       const convoIds = (participantRows ?? []).map((r) => r.conversation_id);
       if (convoIds.length === 0) {
         setConversations([]);
-        setLoading(false);
-        setRefreshing(false);
         return;
       }
 
-      const { data: convos } = await supabase
-        .from('conversations')
-        .select('id, is_group, name')
-        .in('id', convoIds);
+      // 2. Fetch everything in parallel
+      const [convosRes, othersRes, unreadRes, lastMsgRes] = await Promise.all([
+        supabase
+          .from('conversations')
+          .select('id, is_group, name')
+          .in('id', convoIds),
 
-      const { data: otherParticipants } = await supabase
-        .from('conversation_participants')
-        .select('conversation_id, user_id, profiles(*)')
-        .in('conversation_id', convoIds)
-        .neq('user_id', myId);
+        supabase
+          .from('conversation_participants')
+          .select(
+            'conversation_id, user_id, profiles(id, username, display_name, avatar_color, avatar_url, verified, last_seen)'
+          )
+          .in('conversation_id', convoIds)
+          .neq('user_id', myId),
 
-      const { data: lastMessages } = await supabase
-        .from('messages')
-        .select('conversation_id, content, message_type, created_at, is_deleted')
-        .in('conversation_id', convoIds)
-        .order('created_at', { ascending: false });
+        supabase
+          .from('messages')
+          .select('id, conversation_id')
+          .in('conversation_id', convoIds)
+          .neq('sender_id', myId)
+          .is('read_at', null),
 
-      const { data: unreadRows } = await supabase
-        .from('messages')
-        .select('id, conversation_id')
-        .in('conversation_id', convoIds)
-        .neq('sender_id', myId)
-        .is('read_at', null);
+        // Only grab the most recent few per conversation — not ALL history
+        supabase
+          .from('messages')
+          .select('conversation_id, content, message_type, created_at, is_deleted')
+          .in('conversation_id', convoIds)
+          .order('created_at', { ascending: false })
+          .limit(Math.max(convoIds.length * 2, 40)),
+      ]);
 
+      const convos = convosRes.data ?? [];
+      const otherParticipants = othersRes.data ?? [];
+      const unreadRows = unreadRes.data ?? [];
+      const lastMessages = lastMsgRes.data ?? [];
+
+      // Unread counts per conversation
       const unreadCounts: Record<string, number> = {};
-      (unreadRows ?? []).forEach((m: any) => {
+      for (const m of unreadRows as any[]) {
         unreadCounts[m.conversation_id] =
           (unreadCounts[m.conversation_id] || 0) + 1;
-      });
+      }
 
-      const rows: Conversation[] = (convos ?? []).map((c) => {
-        const other = (otherParticipants ?? []).find(
-          (p: any) => p.conversation_id === c.id
+      // Pick latest message per conversation from the limited set
+      const lastPerConvo = new Map<string, any>();
+      for (const m of lastMessages as any[]) {
+        if (!lastPerConvo.has(m.conversation_id)) {
+          lastPerConvo.set(m.conversation_id, m);
+        }
+      }
+
+      const rows: Conversation[] = convos.map((c) => {
+        const other = (otherParticipants as any[]).find(
+          (p) => p.conversation_id === c.id
         );
-        const last = (lastMessages ?? []).find(
-          (m: any) => m.conversation_id === c.id
-        );
+        const last = lastPerConvo.get(c.id);
 
         let preview = 'Say hello 👋';
         if (last) {
-          if (last.is_deleted) {
-            preview = 'This message was deleted';
-          } else if (last.message_type === 'image') {
-            preview = '📷 Photo';
-          } else if (last.message_type === 'voice') {
-            preview = '🎤 Voice message';
-          } else if (
-            last.content &&
-            last.content.startsWith('[STATUS_REPLY]')
-          ) {
+          if (last.is_deleted) preview = 'This message was deleted';
+          else if (last.message_type === 'image') preview = '📷 Photo';
+          else if (last.message_type === 'voice') preview = '🎤 Voice message';
+          else if (last.content?.startsWith('[STATUS_REPLY]'))
             preview = '↩️ Replied to your status';
-          } else {
-            preview = last.content || '';
-          }
+          else preview = last.content || '';
         }
 
         return {
@@ -195,6 +296,7 @@ export default function ChatsScreen() {
     } catch (err) {
       console.warn('Load conversations error:', err);
     } finally {
+      isLoadingRef.current = false;
       setLoading(false);
       setRefreshing(false);
     }
@@ -204,51 +306,71 @@ export default function ChatsScreen() {
     loadConversations();
   }, [loadConversations]);
 
+  // ---------- Debounced realtime (500ms batch) ----------
   useEffect(() => {
     if (!myId) return;
+
+    const scheduleReload = () => {
+      if (realtimeTimeoutRef.current) clearTimeout(realtimeTimeoutRef.current);
+      realtimeTimeoutRef.current = setTimeout(() => {
+        loadConversations();
+      }, 500);
+    };
 
     const channel = supabase
       .channel('chats-list-realtime')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
-        () => loadConversations()
+        scheduleReload
       )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
-        () => loadConversations()
+        scheduleReload
       )
       .subscribe();
 
     return () => {
+      if (realtimeTimeoutRef.current) clearTimeout(realtimeTimeoutRef.current);
       supabase.removeChannel(channel);
     };
   }, [myId, loadConversations]);
 
-  async function onRefresh() {
+  // ---------- Handlers (stable refs for FlatList) ----------
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadConversations();
-  }
+  }, [loadConversations]);
 
-  function formatTime(iso: string) {
-    if (!iso) return '';
-    const date = new Date(iso);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
-    if (diffMin < 1) return 'now';
-    if (diffMin < 60) return `${diffMin}m`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h`;
-    const diffDay = Math.floor(diffHr / 24);
-    if (diffDay < 7) return `${diffDay}d`;
-    return date.toLocaleDateString();
-  }
+  const openChat = useCallback(
+    (convoId: string) => {
+      router.push(`/chat/${convoId}`);
+    },
+    [router]
+  );
 
-  function openChat(convoId: string) {
-    router.push(`/chat/${convoId}`);
-  }
+  const renderItem = useCallback(
+    ({ item, index }: { item: Conversation; index: number }) => (
+      <ChatRow
+        item={item}
+        onPress={openChat}
+        showSeparator={index < conversations.length - 1}
+      />
+    ),
+    [openChat, conversations.length]
+  );
+
+  const keyExtractor = useCallback((item: Conversation) => item.id, []);
+
+  const getItemLayout = useCallback(
+    (_: any, index: number) => ({
+      length: ROW_HEIGHT,
+      offset: ROW_HEIGHT * index,
+      index,
+    }),
+    []
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -268,8 +390,18 @@ export default function ChatsScreen() {
       ) : (
         <FlatList
           data={conversations}
-          keyExtractor={(item) => item.id}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          getItemLayout={getItemLayout}
           contentContainerStyle={styles.listContent}
+          // -------- Performance props --------
+          initialNumToRender={12}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={true}
+          keyboardShouldPersistTaps="handled"
+          // -----------------------------------
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -300,81 +432,13 @@ export default function ChatsScreen() {
               </TouchableOpacity>
             </View>
           }
-          renderItem={({ item, index }) => {
-            const displayName = item.is_group
-              ? item.name ?? 'Group'
-              : item.other_profile?.display_name ?? 'Unknown';
-            const color = item.other_profile?.avatar_color ?? COLORS.violet;
-            const hasUnread = item.unread_count > 0;
-
-            return (
-              <View>
-                <TouchableOpacity
-                  style={styles.row}
-                  onPress={() => openChat(item.id)}
-                  activeOpacity={0.6}
-                >
-                  <Avatar
-                    name={displayName}
-                    color={color}
-                    avatarUrl={item.other_profile?.avatar_url ?? null}
-                    size={54}
-                  />
-
-                  <View style={styles.rowInfo}>
-                    <View style={styles.rowTop}>
-                      <View style={styles.rowNameWrap}>
-                        <Text style={styles.rowName} numberOfLines={1}>
-                          {displayName}
-                        </Text>
-                        {item.other_profile?.verified && (
-                          <VerifiedBadge size={14} />
-                        )}
-                      </View>
-                      <Text
-                        style={[
-                          styles.rowTime,
-                          hasUnread && styles.rowTimeUnread,
-                        ]}
-                      >
-                        {formatTime(item.last_at)}
-                      </Text>
-                    </View>
-
-                    <View style={styles.rowBottom}>
-                      <Text
-                        style={[
-                          styles.rowMessage,
-                          hasUnread && styles.rowMessageUnread,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {item.last_message}
-                      </Text>
-
-                      {hasUnread && (
-                        <View style={styles.unreadBadge}>
-                          <Text style={styles.unreadText}>
-                            {item.unread_count > 99 ? '99+' : item.unread_count}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                </TouchableOpacity>
-
-                {index < conversations.length - 1 && (
-                  <View style={styles.separator} />
-                )}
-              </View>
-            );
-          }}
         />
       )}
     </SafeAreaView>
   );
 }
 
+// ---------- Styles ----------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
 
@@ -406,7 +470,12 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
+  rowContainer: {
+    height: ROW_HEIGHT,
+    position: 'relative',
+  },
   row: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: SPACING.sm,
@@ -460,10 +529,12 @@ const styles = StyleSheet.create({
   },
 
   separator: {
+    position: 'absolute',
+    left: 78,
+    right: 0,
+    bottom: 0,
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    marginLeft: 78,
-    marginRight: 0,
   },
 
   unreadBadge: {
@@ -493,10 +564,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: SPACING.sm,
   },
-  skeletonInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
+  skeletonInfo: { flex: 1, minWidth: 0 },
   skeletonTop: {
     flexDirection: 'row',
     alignItems: 'center',
