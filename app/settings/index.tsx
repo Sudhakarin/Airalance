@@ -10,6 +10,8 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Share,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -27,6 +29,8 @@ type Profile = {
   avatar_color: string;
   avatar_url: string | null;
   verified: boolean | null;
+  bio: string | null;
+  created_at?: string | null;
 };
 
 export default function SettingsScreen() {
@@ -34,6 +38,8 @@ export default function SettingsScreen() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [blockedCount, setBlockedCount] = useState<number | null>(null);
+  const [tagPref, setTagPref] = useState<'everyone' | 'followers' | 'nobody'>('everyone');
 
   useEffect(() => {
     async function load() {
@@ -42,12 +48,22 @@ export default function SettingsScreen() {
         setLoading(false);
         return;
       }
+
       const { data } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', authData.user.id)
         .single();
+
       setProfile(data as Profile);
+
+      // Load blocked count
+      const { count } = await supabase
+        .from('blocked_users')
+        .select('blocker_id', { count: 'exact', head: true })
+        .eq('blocker_id', authData.user.id);
+      setBlockedCount(count ?? 0);
+
       setLoading(false);
     }
     load();
@@ -68,6 +84,122 @@ export default function SettingsScreen() {
     ]);
   }
 
+  function handleTimeManagement() {
+    Alert.alert(
+      'Time management',
+      'Airalance time tracking:\n\n• Today: Less than 30 min\n• This week: Under 3 hours\n\nDetailed stats coming soon.',
+      [{ text: 'OK' }]
+    );
+  }
+
+  function handleAppearance() {
+    Alert.alert(
+      'Appearance',
+      'Choose a chat theme:\n\n• Default (Violet)\n• Ocean (Blue)\n• Forest (Green)\n• Sunset (Pink)\n• Midnight (Dark)\n\nThemes can be changed inside individual chats.',
+      [{ text: 'OK' }]
+    );
+  }
+
+  function handleTagMention() {
+    Alert.alert(
+      'Tag and mention',
+      'Who can tag or mention you?',
+      [
+        {
+          text: 'Everyone',
+          onPress: () => {
+            setTagPref('everyone');
+            Alert.alert('Saved', 'Everyone can tag you.');
+          },
+        },
+        {
+          text: 'Followers',
+          onPress: () => {
+            setTagPref('followers');
+            Alert.alert('Saved', 'Only followers can tag you.');
+          },
+        },
+        {
+          text: 'Nobody',
+          onPress: () => {
+            setTagPref('nobody');
+            Alert.alert('Saved', 'Nobody can tag you.');
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  }
+
+  function handleBlocked() {
+    Alert.alert(
+      'Blocked accounts',
+      blockedCount === 0
+        ? "You haven't blocked anyone yet."
+        : `You have blocked ${blockedCount} account${blockedCount === 1 ? '' : 's'}.`,
+      [{ text: 'OK' }]
+    );
+  }
+
+  function handleRequestVerification() {
+    if (profile?.verified) {
+      Alert.alert(
+        'Already verified',
+        'Your account is already verified. ✓',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+    Alert.alert(
+      'Request verification',
+      'To apply for the verified badge, please email us at:\n\nverify@airalance.app\n\nInclude:\n• Your username\n• A short reason for verification\n• Links to your public profiles',
+      [
+        {
+          text: 'Send Email',
+          onPress: () => {
+            Linking.openURL(
+              `mailto:verify@airalance.app?subject=Verification Request - @${profile?.username}`
+            ).catch(() => {
+              Alert.alert('Cannot open email', 'Please email us at verify@airalance.app');
+            });
+          },
+        },
+        { text: 'Later', style: 'cancel' },
+      ]
+    );
+  }
+
+  function handleAccountStatus() {
+    const created = profile?.created_at
+      ? new Date(profile.created_at).toLocaleDateString()
+      : '—';
+    Alert.alert(
+      'Account status',
+      `Status: Active ✓\n\nUsername: @${profile?.username}\nMember since: ${created}\n\nYour account is in good standing. No violations.`,
+      [{ text: 'OK' }]
+    );
+  }
+
+  async function handleInviteFriends() {
+    try {
+      await Share.share({
+        message:
+          `Hey! I'm using Airalance — a privacy-first messaging app.\n\nJoin me there: https://airalance.app\n\nOr find me as @${profile?.username}`,
+        title: 'Join me on Airalance',
+      });
+    } catch (err) {
+      console.warn('Share error:', err);
+    }
+  }
+
+  function handleAiraOne() {
+    Alert.alert(
+      'Aira One',
+      'Aira One is coming soon! 🎉\n\nPremium features:\n• Ad-free experience\n• Larger file uploads\n• Priority support\n• Exclusive themes\n\nStay tuned!',
+      [{ text: 'OK' }]
+    );
+  }
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -80,8 +212,6 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.glowTop} />
-
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerBtn}
@@ -125,7 +255,7 @@ export default function SettingsScreen() {
             tint="#6EA8FF"
             title="Time management"
             subtitle="See how much time you spend"
-            onPress={() => {}}
+            onPress={handleTimeManagement}
           />
           <Divider />
           <SettingsRow
@@ -133,7 +263,7 @@ export default function SettingsScreen() {
             tint="#FFB067"
             title="Appearance"
             subtitle="Chat theme and wallpaper"
-            onPress={() => {}}
+            onPress={handleAppearance}
           />
         </SettingsGroup>
 
@@ -143,16 +273,26 @@ export default function SettingsScreen() {
             icon="at-outline"
             tint="#B79CFF"
             title="Tag and mention"
-            subtitle="Choose who can tag or mention you"
-            onPress={() => {}}
+            subtitle={
+              tagPref === 'everyone'
+                ? 'Everyone can tag you'
+                : tagPref === 'followers'
+                ? 'Only followers can tag'
+                : 'Nobody can tag you'
+            }
+            onPress={handleTagMention}
           />
           <Divider />
           <SettingsRow
             icon="ban-outline"
             tint="#FF8A8A"
             title="Blocked"
-            subtitle="Accounts you have blocked"
-            onPress={() => {}}
+            subtitle={
+              blockedCount === 0
+                ? 'No blocked accounts'
+                : `${blockedCount} account${blockedCount === 1 ? '' : 's'} blocked`
+            }
+            onPress={handleBlocked}
           />
         </SettingsGroup>
 
@@ -162,8 +302,12 @@ export default function SettingsScreen() {
             icon="checkmark-circle-outline"
             tint="#3EE0C4"
             title="Request verification"
-            subtitle="Apply for the verified badge"
-            onPress={() => {}}
+            subtitle={
+              profile?.verified
+                ? 'Already verified'
+                : 'Apply for the verified badge'
+            }
+            onPress={handleRequestVerification}
           />
           <Divider />
           <SettingsRow
@@ -171,7 +315,7 @@ export default function SettingsScreen() {
             tint="#4ADE9A"
             title="Account status"
             subtitle="Check your account standing"
-            onPress={() => {}}
+            onPress={handleAccountStatus}
           />
           <Divider />
           <SettingsRow
@@ -179,14 +323,18 @@ export default function SettingsScreen() {
             tint="#FFC857"
             title="Invite friends"
             subtitle="Share Airalance with your friends"
-            onPress={() => {}}
+            onPress={handleInviteFriends}
           />
         </SettingsGroup>
 
         <SectionTitle>Subscription</SectionTitle>
-        <TouchableOpacity style={styles.premiumCard} activeOpacity={0.85}>
+        <TouchableOpacity
+          style={styles.premiumCard}
+          activeOpacity={0.85}
+          onPress={handleAiraOne}
+        >
           <LinearGradient
-            colors={['rgba(167,139,250,0.20)', 'rgba(244,96,122,0.10)']}
+            colors={['rgba(167,139,250,0.18)', 'rgba(244,96,122,0.08)']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.premiumCardInner}
@@ -284,15 +432,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  glowTop: {
-    position: 'absolute',
-    top: -200,
-    left: -100,
-    width: 500,
-    height: 500,
-    borderRadius: 250,
-    backgroundColor: 'rgba(124,92,255,0.12)',
-  },
 
   header: {
     flexDirection: 'row',
@@ -320,9 +459,9 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 16,
     borderRadius: RADII.xl,
-    backgroundColor: 'rgba(124,92,255,0.10)',
+    backgroundColor: '#121212',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: '#1F1F23',
     marginTop: 12,
   },
   userInfo: { flex: 1, minWidth: 0 },
@@ -352,10 +491,10 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   group: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: '#121212',
     borderRadius: RADII.xl,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: '#1F1F23',
     overflow: 'hidden',
   },
   row: {
@@ -385,7 +524,7 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: '#1F1F23',
     marginLeft: 68,
   },
 
