@@ -46,7 +46,8 @@ export default function TabsLayout() {
         tabBarItemStyle: styles.tabItem,
         tabBarAllowFontScaling: false,
         tabBarHideOnKeyboard: true,
-        sceneContainerStyle: { backgroundColor: '#000000' },
+        // ✅ FIXED: sceneStyle (React Navigation v7) not sceneContainerStyle (v6)
+        sceneStyle: { backgroundColor: '#000000' },
       }}
     >
       <Tabs.Screen
