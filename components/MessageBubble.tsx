@@ -1,9 +1,19 @@
 // components/MessageBubble.tsx
-// Message bubble — text + image with proper spacing
+// Optimized: memoized, voice message support, expo-image with caching
 
-import { View, Text, Image, StyleSheet } from 'react-native';
+import { memo, useCallback, useMemo } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+  Platform,
+} from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { COLORS, FONTS, GRADIENTS, SPACING } from '../constants/theme';
 
 type Message = {
@@ -28,6 +38,7 @@ type Props = {
   myId: string;
 };
 
+// ---------- Pure helpers (outside component) ----------
 function formatTime(iso: string) {
   const d = new Date(iso);
   const h = d.getHours().toString().padStart(2, '0');
@@ -47,39 +58,133 @@ function dayLabel(iso: string) {
   return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
-export default function MessageBubble({
+function formatDuration(total: number) {
+  const s = Math.max(0, Math.floor(total));
+  const m = Math.floor(s / 60).toString().padStart(2, '0');
+  const sec = (s % 60).toString().padStart(2, '0');
+  return `${m}:${sec}`;
+}
+
+// ---------- Voice bubble (own component so it only re-renders when its message changes) ----------
+function VoiceBubble({
+  url,
+  duration,
+  isMine,
+}: {
+  url: string;
+  duration: number;
+  isMine: boolean;
+}) {
+  const player = useAudioPlayer(url);
+  const status = useAudioPlayerStatus(player);
+
+  const progress =
+    status.duration && status.duration > 0
+      ? Math.min(1, status.currentTime / status.duration)
+      : 0;
+
+  const toggle = useCallback(() => {
+    if (status.playing) {
+      player.pause();
+    } else {
+      if (status.didJustFinish || status.currentTime >= (status.duration || 0)) {
+        player.seekTo(0);
+      }
+      player.play();
+    }
+  }, [player, status.playing, status.didJustFinish, status.currentTime, status.duration]);
+
+  const shownDuration =
+    status.playing || status.currentTime > 0
+      ? Math.floor(status.currentTime || 0)
+      : duration;
+
+  return (
+    <View style={[styles.voiceWrap, isMine && styles.voiceWrapMine]}>
+      <TouchableOpacity
+        onPress={toggle}
+        activeOpacity={0.75}
+        style={[
+          styles.voicePlayBtn,
+          isMine ? styles.voicePlayBtnMine : styles.voicePlayBtnOther,
+        ]}
+      >
+        <Ionicons
+          name={status.playing ? 'pause' : 'play'}
+          size={16}
+          color={isMine ? '#FFFFFF' : COLORS.violet}
+        />
+      </TouchableOpacity>
+
+      <View style={styles.voiceBarWrap}>
+        <View
+          style={[
+            styles.voiceBarBg,
+            isMine && styles.voiceBarBgMine,
+          ]}
+        >
+          <View
+            style={[
+              styles.voiceBarFill,
+              { width: `${progress * 100}%` },
+              isMine ? styles.voiceBarFillMine : styles.voiceBarFillOther,
+            ]}
+          />
+        </View>
+      </View>
+
+      <Text
+        style={[
+          styles.voiceDuration,
+          isMine && styles.voiceDurationMine,
+        ]}
+      >
+        {formatDuration(shownDuration)}
+      </Text>
+    </View>
+  );
+}
+
+// ---------- Main component ----------
+function MessageBubbleBase({
   message,
   isMine,
   prevMessage,
   nextMessage,
 }: Props) {
-  const sameSenderAsPrev =
-    !!prevMessage && prevMessage.sender_id === message.sender_id;
-  const sameDayAsPrev =
-    !!prevMessage &&
-    dayLabel(prevMessage.created_at) === dayLabel(message.created_at);
+  // Memoize day labels (heavy computation, doesn't change per render)
+  const currentDay = useMemo(
+    () => dayLabel(message.created_at),
+    [message.created_at]
+  );
 
-  const timeGapMs = prevMessage
-    ? new Date(message.created_at).getTime() -
-      new Date(prevMessage.created_at).getTime()
-    : Infinity;
-  const withinTimeGap = timeGapMs < 2 * 60 * 1000;
+  const showDayDivider = useMemo(() => {
+    if (!prevMessage) return true;
+    return dayLabel(prevMessage.created_at) !== currentDay;
+  }, [prevMessage, currentDay]);
 
-  const showDayDivider =
-    !prevMessage ||
-    dayLabel(prevMessage.created_at) !== dayLabel(message.created_at);
+  const grouped = useMemo(() => {
+    if (!prevMessage) return false;
+    if (prevMessage.sender_id !== message.sender_id) return false;
+    const gap =
+      new Date(message.created_at).getTime() -
+      new Date(prevMessage.created_at).getTime();
+    if (gap >= 2 * 60 * 1000) return false;
+    return dayLabel(prevMessage.created_at) === currentDay;
+  }, [prevMessage, message.sender_id, message.created_at, currentDay]);
 
-  const grouped = sameSenderAsPrev && sameDayAsPrev && withinTimeGap;
-
-  const nextIsSameSender =
-    !!nextMessage &&
-    nextMessage.sender_id === message.sender_id &&
-    dayLabel(nextMessage.created_at) === dayLabel(message.created_at) &&
-    new Date(nextMessage.created_at).getTime() -
-      new Date(message.created_at).getTime() <
-      2 * 60 * 1000;
+  const nextIsSameSender = useMemo(() => {
+    if (!nextMessage) return false;
+    if (nextMessage.sender_id !== message.sender_id) return false;
+    const gap =
+      new Date(nextMessage.created_at).getTime() -
+      new Date(message.created_at).getTime();
+    if (gap >= 2 * 60 * 1000) return false;
+    return dayLabel(nextMessage.created_at) === currentDay;
+  }, [nextMessage, message.sender_id, message.created_at, currentDay]);
 
   const isImage = message.message_type === 'image' && !!message.media_url;
+  const isVoice = message.message_type === 'voice' && !!message.media_url;
   const isDeleted = !!message.is_deleted;
 
   return (
@@ -87,9 +192,7 @@ export default function MessageBubble({
       {showDayDivider && (
         <View style={styles.dayDividerWrap}>
           <View style={styles.dayDivider}>
-            <Text style={styles.dayDividerText}>
-              {dayLabel(message.created_at)}
-            </Text>
+            <Text style={styles.dayDividerText}>{currentDay}</Text>
           </View>
         </View>
       )}
@@ -104,64 +207,75 @@ export default function MessageBubble({
         <View
           style={[
             styles.bubbleWrap,
-            { maxWidth: '80%', alignItems: isMine ? 'flex-end' : 'flex-start' },
+            { alignItems: isMine ? 'flex-end' : 'flex-start' },
           ]}
         >
-          {isMine ? (
-            isImage ? (
-              <View style={styles.imageWrapMine}>
-                <Image
-                  source={{ uri: message.media_url! }}
-                  style={styles.image}
-                  resizeMode="cover"
-                />
-              </View>
-            ) : (
-              <LinearGradient
-                colors={GRADIENTS.bubbleMine as any}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[
-                  styles.bubble,
-                  styles.bubbleMine,
-                  nextIsSameSender && styles.bubbleMineTightBottom,
-                ]}
-              >
-                {isDeleted ? (
-                  <Text style={styles.deletedText}>
-                    This message was deleted
-                  </Text>
-                ) : (
-                  <Text style={styles.text}>{message.content}</Text>
-                )}
-              </LinearGradient>
-            )
+          {isDeleted ? (
+            <View
+              style={[
+                styles.bubble,
+                isMine ? styles.bubbleMinePlain : styles.bubbleOther,
+                nextIsSameSender &&
+                  (isMine
+                    ? styles.bubbleMineTightBottom
+                    : styles.bubbleOtherTightBottom),
+              ]}
+            >
+              <Text style={styles.deletedText}>This message was deleted</Text>
+            </View>
+          ) : isImage ? (
+            <View style={styles.imageWrap}>
+              <Image
+                source={{ uri: message.media_url! }}
+                style={styles.image}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={150}
+                recyclingKey={message.id}
+              />
+            </View>
+          ) : isVoice ? (
+            <View
+              style={[
+                styles.bubble,
+                isMine ? styles.bubbleMinePlain : styles.bubbleOther,
+                nextIsSameSender &&
+                  (isMine
+                    ? styles.bubbleMineTightBottom
+                    : styles.bubbleOtherTightBottom),
+              ]}
+            >
+              <VoiceBubble
+                url={message.media_url!}
+                duration={message.media_duration ?? 0}
+                isMine={isMine}
+              />
+            </View>
+          ) : isMine ? (
+            <LinearGradient
+              colors={GRADIENTS.bubbleMine as any}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[
+                styles.bubble,
+                styles.bubbleMine,
+                nextIsSameSender && styles.bubbleMineTightBottom,
+              ]}
+            >
+              <Text style={styles.text}>{message.content}</Text>
+            </LinearGradient>
           ) : (
             <View
               style={[
                 styles.bubble,
                 styles.bubbleOther,
-                isImage && !isDeleted && styles.bubbleOtherImage,
                 nextIsSameSender && styles.bubbleOtherTightBottom,
               ]}
             >
-              {isDeleted ? (
-                <Text style={styles.deletedText}>
-                  This message was deleted
-                </Text>
-              ) : isImage ? (
-                <Image
-                  source={{ uri: message.media_url! }}
-                  style={styles.image}
-                  resizeMode="cover"
-                />
-              ) : (
-                <Text style={styles.text}>{message.content}</Text>
-              )}
+              <Text style={styles.text}>{message.content}</Text>
             </View>
           )}
 
-          {/* ✅ Time ab bubble ke NICHE */}
           <View style={styles.metaRow}>
             <Text style={styles.time}>{formatTime(message.created_at)}</Text>
             {isMine && (
@@ -179,11 +293,24 @@ export default function MessageBubble({
   );
 }
 
+// ---------- Custom comparator: only re-render if THIS message changed ----------
+function areEqual(prev: Props, next: Props) {
+  if (prev.message !== next.message) return false;
+  if (prev.isMine !== next.isMine) return false;
+  if (prev.prevMessage?.id !== next.prevMessage?.id) return false;
+  if (prev.nextMessage?.id !== next.nextMessage?.id) return false;
+  if (prev.prevMessage?.created_at !== next.prevMessage?.created_at) return false;
+  if (prev.nextMessage?.created_at !== next.nextMessage?.created_at) return false;
+  if (prev.nextMessage?.sender_id !== next.nextMessage?.sender_id) return false;
+  return true;
+}
+
+const MessageBubble = memo(MessageBubbleBase, areEqual);
+export default MessageBubble;
+
+// ---------- Styles ----------
 const styles = StyleSheet.create({
-  dayDividerWrap: {
-    alignItems: 'center',
-    marginVertical: SPACING.md,
-  },
+  dayDividerWrap: { alignItems: 'center', marginVertical: SPACING.md },
   dayDivider: {
     paddingHorizontal: 12,
     paddingVertical: 5,
@@ -201,18 +328,13 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row' },
   rowMine: { justifyContent: 'flex-end' },
   rowOther: { justifyContent: 'flex-start' },
-
-  // ✅ FIXED: har bubble ke beech visible gap — grouped messages bhi ab chipakte nahi
   rowGrouped: { marginTop: 6 },
   rowSpaced: { marginTop: 16 },
 
-  bubbleWrap: { position: 'relative' },
+  bubbleWrap: { position: 'relative', maxWidth: '80%' },
 
-  bubble: {
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 20,
-  },
+  bubble: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20 },
+
   bubbleMine: {
     borderBottomRightRadius: 4,
     shadowColor: '#7C5CFF',
@@ -220,6 +342,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 4,
+  },
+  bubbleMinePlain: {
+    borderBottomRightRadius: 4,
+    backgroundColor: '#2A2D3A',
   },
   bubbleMineTightBottom: { borderBottomRightRadius: 6 },
   bubbleOther: {
@@ -229,14 +355,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.06)',
   },
   bubbleOtherTightBottom: { borderBottomLeftRadius: 6 },
-  bubbleOtherImage: { padding: 3, borderRadius: 18 },
 
-  // ✅ FIXED: message font bada + mota (Medium weight), size 18
   text: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 16.5,
     fontFamily: FONTS.bodyMedium,
-    lineHeight: 25,
+    lineHeight: 23,
   },
   deletedText: {
     color: COLORS.mist,
@@ -245,7 +369,6 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 
-  // time bubble ke niche — mine: right side, other: left side (bubbleWrap alignItems se)
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -253,20 +376,54 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   time: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.55)',
   },
 
-  imageWrapMine: {
+  // ---------- Image ----------
+  imageWrap: {
     borderRadius: 18,
     overflow: 'hidden',
-    padding: 3,
-    backgroundColor: 'rgba(124,92,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
   },
-  image: {
-    width: 220,
-    height: 220,
-    borderRadius: 16,
+  image: { width: 220, height: 220, borderRadius: 16 },
+
+  // ---------- Voice ----------
+  voiceWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minWidth: 180,
+    paddingVertical: 2,
   },
+  voiceWrapMine: {},
+  voicePlayBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  voicePlayBtnMine: { backgroundColor: 'rgba(255,255,255,0.22)' },
+  voicePlayBtnOther: { backgroundColor: 'rgba(124,92,255,0.15)' },
+  voiceBarWrap: { flex: 1, minWidth: 80 },
+  voiceBarBg: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    overflow: 'hidden',
+  },
+  voiceBarBgMine: { backgroundColor: 'rgba(255,255,255,0.28)' },
+  voiceBarFill: { height: '100%', borderRadius: 2 },
+  voiceBarFillMine: { backgroundColor: '#FFFFFF' },
+  voiceBarFillOther: { backgroundColor: COLORS.violet },
+  voiceDuration: {
+    fontSize: 12,
+    fontFamily: FONTS.body,
+    color: 'rgba(255,255,255,0.75)',
+    minWidth: 38,
+    textAlign: 'right',
+  },
+  voiceDurationMine: { color: 'rgba(255,255,255,0.9)' },
 });
