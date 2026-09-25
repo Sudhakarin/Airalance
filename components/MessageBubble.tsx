@@ -7,8 +7,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
-  Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -65,7 +63,7 @@ function formatDuration(total: number) {
   return `${m}:${sec}`;
 }
 
-// ---------- Voice bubble (own component so it only re-renders when its message changes) ----------
+// ---------- Voice bubble ----------
 function VoiceBubble({
   url,
   duration,
@@ -87,12 +85,17 @@ function VoiceBubble({
     if (status.playing) {
       player.pause();
     } else {
-      if (status.didJustFinish || status.currentTime >= (status.duration || 0)) {
+      // If playback reached the end, restart from 0
+      if (
+        status.duration &&
+        status.duration > 0 &&
+        status.currentTime >= status.duration - 0.15
+      ) {
         player.seekTo(0);
       }
       player.play();
     }
-  }, [player, status.playing, status.didJustFinish, status.currentTime, status.duration]);
+  }, [player, status.playing, status.currentTime, status.duration]);
 
   const shownDuration =
     status.playing || status.currentTime > 0
@@ -117,12 +120,7 @@ function VoiceBubble({
       </TouchableOpacity>
 
       <View style={styles.voiceBarWrap}>
-        <View
-          style={[
-            styles.voiceBarBg,
-            isMine && styles.voiceBarBgMine,
-          ]}
-        >
+        <View style={[styles.voiceBarBg, isMine && styles.voiceBarBgMine]}>
           <View
             style={[
               styles.voiceBarFill,
@@ -133,12 +131,7 @@ function VoiceBubble({
         </View>
       </View>
 
-      <Text
-        style={[
-          styles.voiceDuration,
-          isMine && styles.voiceDurationMine,
-        ]}
-      >
+      <Text style={[styles.voiceDuration, isMine && styles.voiceDurationMine]}>
         {formatDuration(shownDuration)}
       </Text>
     </View>
