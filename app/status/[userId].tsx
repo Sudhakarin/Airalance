@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
   Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -47,6 +47,7 @@ type Status = {
 
 export default function StatusViewerScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ userId: string }>();
   const userId = params.userId;
 
@@ -285,7 +286,7 @@ export default function StatusViewerScreen() {
         style={styles.bottomGradient}
       />
 
-      <SafeAreaView style={styles.topArea} edges={['top']}>
+      <View style={[styles.topArea, { paddingTop: insets.top + 6 }]}>
         <View style={styles.progressRow}>
           {statuses.map((s, i) => (
             <View key={s.id} style={styles.progressSegment}>
@@ -347,7 +348,7 @@ export default function StatusViewerScreen() {
             <Ionicons name="close" size={22} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
 
       <Pressable
         style={styles.tapLeft}
@@ -363,7 +364,12 @@ export default function StatusViewerScreen() {
       />
 
       {!isMine && (
-        <SafeAreaView style={styles.bottomArea} edges={['bottom']}>
+        <View
+          style={[
+            styles.bottomArea,
+            { paddingBottom: insets.bottom + SPACING.sm },
+          ]}
+        >
           <View style={styles.bottomRow}>
             <TouchableOpacity
               style={styles.replyBar}
@@ -386,7 +392,7 @@ export default function StatusViewerScreen() {
               />
             </TouchableOpacity>
           </View>
-        </SafeAreaView>
+        </View>
       )}
     </View>
   );
