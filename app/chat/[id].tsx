@@ -1,7 +1,7 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice (expo-audio)
+// Chat screen — messages, realtime, send, typing, images, voice (optimized)
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
   View,
   Text,
@@ -63,12 +63,38 @@ type OtherProfile = {
   last_seen: string | null;
 };
 
+// ---------- Memoized row (only re-renders when its own message changes) ----------
+const MessageRow = memo(function MessageRow({
+  item,
+  isMine,
+  prevMessage,
+  nextMessage,
+  myId,
+}: {
+  item: Message;
+  isMine: boolean;
+  prevMessage?: Message;
+  nextMessage?: Message;
+  myId: string;
+}) {
+  return (
+    <MessageBubble
+      message={item}
+      isMine={isMine}
+      prevMessage={prevMessage}
+      nextMessage={nextMessage}
+      myId={myId}
+    />
+  );
+});
+
 export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string }>();
   const convoId = params.id;
 
   const [myId, setMyId] = useState<string | null>(null);
+  const [myName, setMyName] = useState<string>(''); // cached for push notifications
   const [other, setOther] = useState<OtherProfile | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -83,56 +109,66 @@ export default function ChatScreen() {
   const typingTimeoutRef = useRef<any>(null);
   const lastTypingSentRef = useRef(0);
   const inputRef = useRef<TextInput>(null);
+  const prevMsgCountRef = useRef(0);
+  const isNearBottomRef = useRef(true);
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 100);
   const [isRecording, setIsRecording] = useState(false);
 
+  // ---------- Bootstrap (parallel fetches) ----------
   useEffect(() => {
     let mounted = true;
 
     async function bootstrap() {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user || !mounted) return;
-      setMyId(authData.user.id);
+      const uid = authData.user.id;
+      setMyId(uid);
 
-      const { data: others } = await supabase
-        .from('conversation_participants')
-        .select('user_id, profiles(*)')
-        .eq('conversation_id', convoId)
-        .neq('user_id', authData.user.id)
-        .limit(1);
+      // Parallel: fetch my name + other participant + initial messages
+      const [profileRes, otherRes, msgRes] = await Promise.all([
+        supabase.from('profiles').select('display_name').eq('id', uid).single(),
+        supabase
+          .from('conversation_participants')
+          .select(
+            'user_id, profiles(id, username, display_name, avatar_color, avatar_url, verified, last_seen)'
+          )
+          .eq('conversation_id', convoId)
+          .neq('user_id', uid)
+          .limit(1),
+        supabase
+          .from('messages')
+          .select('*')
+          .eq('conversation_id', convoId)
+          .order('created_at', { ascending: false })
+          .limit(CONSTANTS.PAGE_SIZE),
+      ]);
 
-      if (mounted && others && others[0]) {
-        setOther((others[0] as any).profiles);
-      }
+      if (!mounted) return;
+      if (profileRes.data?.display_name) setMyName(profileRes.data.display_name);
+      if (otherRes.data?.[0])
+        setOther((otherRes.data[0] as any).profiles as OtherProfile);
 
-      const { data: msgs } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('conversation_id', convoId)
-        .order('created_at', { ascending: false })
-        .limit(CONSTANTS.PAGE_SIZE);
-
-      if (mounted && msgs) {
+      const msgs = msgRes.data;
+      if (msgs) {
         const ordered = [...msgs].reverse() as Message[];
         setMessages(ordered);
-      }
-      setLoading(false);
+        prevMsgCountRef.current = ordered.length;
 
-      if (authData.user.id && msgs) {
+        // Mark all incoming unread as read
         const unreadIds = msgs
-          .filter(
-            (m: any) => m.sender_id !== authData.user!.id && !m.read_at
-          )
+          .filter((m: any) => m.sender_id !== uid && !m.read_at)
           .map((m: any) => m.id);
         if (unreadIds.length > 0) {
-          await supabase
+          supabase
             .from('messages')
             .update({ read_at: new Date().toISOString() })
-            .in('id', unreadIds);
+            .in('id', unreadIds)
+            .then(() => {});
         }
       }
+      setLoading(false);
     }
 
     bootstrap();
@@ -141,6 +177,7 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
+  // ---------- Realtime ----------
   useEffect(() => {
     if (!myId || !convoId) return;
 
@@ -220,33 +257,58 @@ export default function ChatScreen() {
     };
   }, [myId, convoId]);
 
+  // ---------- Presence polling (only while screen is open) ----------
   useEffect(() => {
     if (!other?.id) return;
+    let cancelled = false;
     const check = async () => {
       const { data } = await supabase
         .from('profiles')
         .select('last_seen')
         .eq('id', other.id)
         .single();
+      if (cancelled) return;
       if (data?.last_seen) {
         const diff = Date.now() - new Date(data.last_seen).getTime();
         setOtherOnline(diff < 60000);
-        setOther((p) => (p ? { ...p, last_seen: data.last_seen } : p));
       }
     };
     check();
-    const interval = setInterval(check, 15000);
-    return () => clearInterval(interval);
+    const interval = setInterval(check, 20000); // 20s instead of 15s
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [other?.id]);
 
+  // ---------- Smart scroll: only when a NEW message arrives ----------
   useEffect(() => {
-    if (messages.length > 0) {
+    const count = messages.length;
+    const prevCount = prevMsgCountRef.current;
+    if (count > prevCount && prevCount > 0) {
+      // Only auto-scroll if user was near the bottom
+      if (isNearBottomRef.current) {
+        requestAnimationFrame(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        });
+      }
+    } else if (prevCount === 0 && count > 0) {
+      // First load — jump to end
       setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 50);
+        flatListRef.current?.scrollToEnd({ animated: false });
+      }, 40);
     }
+    prevMsgCountRef.current = count;
   }, [messages.length]);
 
+  function onScroll(e: any) {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const distanceFromBottom =
+      contentSize.height - contentOffset.y - layoutMeasurement.height;
+    isNearBottomRef.current = distanceFromBottom < 120;
+  }
+
+  // ---------- Web height (kept) ----------
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const el: any = inputRef.current;
@@ -256,61 +318,65 @@ export default function ChatScreen() {
     el.style.height = `${next}px`;
   }, [input, isRecording]);
 
-  async function triggerPushNotification(receiverId: string, messageText: string, messageType: 'text' | 'image' | 'voice' = 'text') {
-    if (!myId || !receiverId) return;
-    try {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('display_name')
-        .eq('id', myId)
-        .single();
-      
-      const senderName = profile?.display_name || 'Someone';
-      let bodyText = messageText;
-      
-      if (messageType === 'image') bodyText = '📷 Image';
-      if (messageType === 'voice') bodyText = '🎤 Voice message';
+  // ---------- Push (uses cached myName — no DB hit per message) ----------
+  const triggerPushNotification = useCallback(
+    async (
+      receiverId: string,
+      messageText: string,
+      messageType: 'text' | 'image' | 'voice' = 'text'
+    ) => {
+      if (!myName || !receiverId) return;
+      try {
+        let bodyText = messageText;
+        if (messageType === 'image') bodyText = '📷 Image';
+        if (messageType === 'voice') bodyText = '🎤 Voice message';
 
-      await supabase.functions.invoke('send-push', {
-        body: {
-          userId: receiverId,
-          title: senderName,
-          body: bodyText,
-          data: { screen: 'chat', chatId: convoId }
-        }
-      });
-      console.log('[push] Notification sent successfully');
-    } catch (error) {
-      console.warn('[push] Failed to send push notification:', error);
-    }
-  }
+        await supabase.functions.invoke('send-push', {
+          body: {
+            userId: receiverId,
+            title: myName,
+            body: bodyText,
+            data: { screen: 'chat', chatId: convoId },
+          },
+        });
+      } catch (error) {
+        console.warn('[push] Failed:', error);
+      }
+    },
+    [myName, convoId]
+  );
 
-  function onInputChange(text: string) {
-    setInput(text);
-    const channel = channelRef.current;
-    if (!channel || !myId) return;
+  // ---------- Input + typing ----------
+  const onInputChange = useCallback(
+    (text: string) => {
+      setInput(text);
+      const channel = channelRef.current;
+      if (!channel || !myId) return;
 
-    if (text.trim().length === 0) {
-      channel.send({
-        type: 'broadcast',
-        event: 'typing',
-        payload: { userId: myId, typing: false },
-      });
-      lastTypingSentRef.current = 0;
-      return;
-    }
+      if (text.trim().length === 0) {
+        channel.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: { userId: myId, typing: false },
+        });
+        lastTypingSentRef.current = 0;
+        return;
+      }
 
-    const now = Date.now();
-    if (now - lastTypingSentRef.current > CONSTANTS.TYPING_THROTTLE_MS) {
-      lastTypingSentRef.current = now;
-      channel.send({
-        type: 'broadcast',
-        event: 'typing',
-        payload: { userId: myId, typing: true },
-      });
-    }
-  }
+      const now = Date.now();
+      if (now - lastTypingSentRef.current > CONSTANTS.TYPING_THROTTLE_MS) {
+        lastTypingSentRef.current = now;
+        channel.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: { userId: myId, typing: true },
+        });
+      }
+    },
+    [myId]
+  );
 
+  // ---------- Send text ----------
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
@@ -361,18 +427,14 @@ export default function ChatScreen() {
     setMessages((prev) => {
       if (prev.some((m) => m.id === (inserted as Message).id))
         return prev.filter((m) => m.id !== tempId);
-      return prev.map((m) =>
-        m.id === tempId ? (inserted as Message) : m
-      );
+      return prev.map((m) => (m.id === tempId ? (inserted as Message) : m));
     });
 
-    if (other?.id) {
-      triggerPushNotification(other.id, content, 'text');
-    }
-
+    if (other?.id) triggerPushNotification(other.id, content, 'text');
     setSending(false);
   }
 
+  // ---------- Pick image ----------
   async function pickImage() {
     if (!myId || !convoId || uploading) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -382,7 +444,7 @@ export default function ChatScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
+      quality: 0.7,
     });
     if (result.canceled || !result.assets?.[0]) return;
 
@@ -391,9 +453,7 @@ export default function ChatScreen() {
     try {
       const response = await fetch(asset.uri);
       const arrayBuffer = await response.arrayBuffer();
-      const ext = (asset.uri.split('.').pop() ?? 'jpg')
-        .toLowerCase()
-        .slice(0, 5);
+      const ext = (asset.uri.split('.').pop() ?? 'jpg').toLowerCase().slice(0, 5);
       const path = `${convoId}/${myId}-${Date.now()}.${ext}`;
 
       const { error: uploadError } = await supabase.storage
@@ -427,10 +487,7 @@ export default function ChatScreen() {
             ? prev
             : [...prev, inserted as Message]
         );
-
-        if (other?.id) {
-          triggerPushNotification(other.id, '', 'image');
-        }
+        if (other?.id) triggerPushNotification(other.id, '', 'image');
       }
     } catch (err: any) {
       console.warn('Image upload error:', err);
@@ -440,6 +497,7 @@ export default function ChatScreen() {
     }
   }
 
+  // ---------- Voice ----------
   async function startRecording() {
     if (isRecording) return;
     try {
@@ -478,9 +536,7 @@ export default function ChatScreen() {
 
       const { error: uploadError } = await supabase.storage
         .from(CONSTANTS.CHAT_MEDIA_BUCKET)
-        .upload(path, arrayBuffer, {
-          contentType: 'audio/m4a',
-        });
+        .upload(path, arrayBuffer, { contentType: 'audio/m4a' });
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage
@@ -507,10 +563,7 @@ export default function ChatScreen() {
             ? prev
             : [...prev, inserted as Message]
         );
-
-        if (other?.id) {
-          triggerPushNotification(other.id, '', 'voice');
-        }
+        if (other?.id) triggerPushNotification(other.id, '', 'voice');
       }
     } catch (err: any) {
       console.warn('Voice send error:', err);
@@ -544,6 +597,26 @@ export default function ChatScreen() {
     if (hr < 24) return `Last seen ${hr}h ago`;
     return `Last seen ${Math.floor(hr / 24)}d ago`;
   }
+
+  // ---------- Stable callbacks for FlatList ----------
+  const keyExtractor = useCallback((item: Message) => item.id, []);
+
+  const renderItem = useCallback(
+    ({ item, index }: { item: Message; index: number }) => {
+      const prev = messages[index - 1];
+      const next = messages[index + 1];
+      return (
+        <MessageRow
+          item={item}
+          isMine={item.sender_id === myId}
+          prevMessage={prev}
+          nextMessage={next}
+          myId={myId!}
+        />
+      );
+    },
+    [messages, myId]
+  );
 
   const recordSeconds = Math.floor((recorderState.durationMillis ?? 0) / 1000);
 
@@ -619,24 +692,19 @@ export default function ChatScreen() {
         <FlatList
           ref={flatListRef}
           data={messages}
-          keyExtractor={(item) => item.id}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
           contentContainerStyle={styles.listContent}
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: false })
-          }
-          renderItem={({ item, index }) => {
-            const prev = messages[index - 1];
-            const next = messages[index + 1];
-            return (
-              <MessageBubble
-                message={item}
-                isMine={item.sender_id === myId}
-                prevMessage={prev}
-                nextMessage={next}
-                myId={myId}
-              />
-            );
-          }}
+          onScroll={onScroll}
+          scrollEventThrottle={100}
+          // ---------- Performance ----------
+          initialNumToRender={20}
+          maxToRenderPerBatch={12}
+          windowSize={11}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={Platform.OS === 'android'}
+          keyboardShouldPersistTaps="handled"
+          // ---------------------------------
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
               <Text style={styles.emptyText}>
@@ -744,14 +812,10 @@ export default function ChatScreen() {
   );
 }
 
+// ---------- Styles (unchanged) ----------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.ink900 },
-
-  loadingWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
   header: {
     flexDirection: 'row',
@@ -777,10 +841,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: RADII.lg,
   },
-  headerNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  headerNameRow: { flexDirection: 'row', alignItems: 'center' },
   headerName: {
     fontSize: 18,
     fontFamily: FONTS.bodySemiBold,
@@ -805,11 +866,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: 80,
   },
-  emptyText: {
-    color: COLORS.mist,
-    fontSize: 16,
-    fontFamily: FONTS.body,
-  },
+  emptyText: { color: COLORS.mist, fontSize: 16, fontFamily: FONTS.body },
 
   inputBar: {
     flexDirection: 'row',
