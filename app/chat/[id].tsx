@@ -111,6 +111,8 @@ export default function ChatScreen() {
   const inputRef = useRef<TextInput>(null);
   const prevMsgCountRef = useRef(0);
   const isNearBottomRef = useRef(true);
+  // ✅ FIXED: ensures initial scroll happens exactly once per conversation
+  const initialScrollDoneRef = useRef(false);
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 100);
@@ -175,6 +177,11 @@ export default function ChatScreen() {
     return () => {
       mounted = false;
     };
+  }, [convoId]);
+
+  // ---------- Reset initial scroll flag if convo changes ----------
+  useEffect(() => {
+    initialScrollDoneRef.current = false;
   }, [convoId]);
 
   // ---------- Realtime ----------
@@ -257,7 +264,7 @@ export default function ChatScreen() {
     };
   }, [myId, convoId]);
 
-  // ---------- Presence polling (only while screen is open) ----------
+  // ---------- Presence polling ----------
   useEffect(() => {
     if (!other?.id) return;
     let cancelled = false;
@@ -274,7 +281,7 @@ export default function ChatScreen() {
       }
     };
     check();
-    const interval = setInterval(check, 20000); // 20s instead of 15s
+    const interval = setInterval(check, 20000);
     return () => {
       cancelled = true;
       clearInterval(interval);
@@ -292,13 +299,17 @@ export default function ChatScreen() {
           flatListRef.current?.scrollToEnd({ animated: true });
         });
       }
-    } else if (prevCount === 0 && count > 0) {
-      // First load — jump to end
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: false });
-      }, 40);
     }
+    // ✅ Initial scroll is now handled by onContentSizeChange (below)
     prevMsgCountRef.current = count;
+  }, [messages.length]);
+
+  // ✅ FIXED: initial scroll fires on first content render — reliable across devices
+  const onContentSizeChange = useCallback(() => {
+    if (initialScrollDoneRef.current) return;
+    if (messages.length === 0) return;
+    flatListRef.current?.scrollToEnd({ animated: false });
+    initialScrollDoneRef.current = true;
   }, [messages.length]);
 
   function onScroll(e: any) {
@@ -308,7 +319,7 @@ export default function ChatScreen() {
     isNearBottomRef.current = distanceFromBottom < 120;
   }
 
-  // ---------- Web height (kept) ----------
+  // ---------- Web height ----------
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const el: any = inputRef.current;
@@ -318,7 +329,7 @@ export default function ChatScreen() {
     el.style.height = `${next}px`;
   }, [input, isRecording]);
 
-  // ---------- Push (uses cached myName — no DB hit per message) ----------
+  // ---------- Push ----------
   const triggerPushNotification = useCallback(
     async (
       receiverId: string,
@@ -697,6 +708,7 @@ export default function ChatScreen() {
           contentContainerStyle={styles.listContent}
           onScroll={onScroll}
           scrollEventThrottle={100}
+          onContentSizeChange={onContentSizeChange}
           // ---------- Performance ----------
           initialNumToRender={20}
           maxToRenderPerBatch={12}
@@ -812,7 +824,7 @@ export default function ChatScreen() {
   );
 }
 
-// ---------- Styles (unchanged) ----------
+// ---------- Styles ----------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.ink900 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
