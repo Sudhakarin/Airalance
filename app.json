@@ -7,11 +7,6 @@
     "icon": "./assets/icon.png",
     "scheme": "airalance",
     "userInterfaceStyle": "dark",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0A0C12"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -35,7 +30,7 @@
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0A0C12"
+        "backgroundColor": "#000000"
       }
     },
     "web": {
@@ -48,6 +43,15 @@
         "expo-audio",
         {
           "microphonePermission": "Allow Airalance to access your microphone."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000"
         }
       ]
     ],
