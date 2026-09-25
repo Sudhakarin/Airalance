@@ -185,6 +185,49 @@ export default function StatusScreen() {
     loadStatuses();
   }, [loadStatuses]);
 
+  // Safe realtime — only INSERT events, debounced, crash-safe
+  useEffect(() => {
+    if (!myId) return;
+
+    let channel: any = null;
+    let debounceTimer: any = null;
+
+    try {
+      channel = supabase
+        .channel('statuses-tab-safe-realtime')
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'statuses',
+          },
+          () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+              loadStatuses();
+            }, 500);
+          }
+        )
+        .subscribe((status: string) => {
+          if (status === 'CHANNEL_ERROR') {
+            console.warn('[status] Realtime channel error');
+          }
+        });
+    } catch (err) {
+      console.warn('[status] Failed to set up realtime:', err);
+    }
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (channel) {
+        try {
+          supabase.removeChannel(channel);
+        } catch {}
+      }
+    };
+  }, [myId, loadStatuses]);
+
   async function onRefresh() {
     setRefreshing(true);
     await loadStatuses();
