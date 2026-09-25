@@ -12,7 +12,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
@@ -184,12 +184,6 @@ export default function StatusScreen() {
   useEffect(() => {
     loadStatuses();
   }, [loadStatuses]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (myId) loadStatuses();
-    }, [myId, loadStatuses])
-  );
 
   async function onRefresh() {
     setRefreshing(true);
