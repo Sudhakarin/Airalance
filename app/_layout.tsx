@@ -130,22 +130,32 @@ export default function RootLayout() {
         return;
       }
 
+      // ALWAYS register Android channel FIRST (needed for Settings to show Notifications section)
       if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'default',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#7C5CFF',
-        });
+        try {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'Notifications',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#7C5CFF',
+            sound: 'default',
+          });
+          console.log('[push] Android channel registered');
+        } catch (channelErr) {
+          console.warn('[push] Channel register failed:', channelErr);
+        }
       }
 
+      // Then check/request permission
       const { status: existingStatus } =
         await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
+
       if (existingStatus !== 'granted') {
         const { status } = await Notifications.requestPermissionsAsync();
         finalStatus = status;
       }
+
       if (finalStatus !== 'granted') {
         console.log('[push] Permission not granted');
         return;
