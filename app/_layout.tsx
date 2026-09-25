@@ -60,7 +60,8 @@ export default function RootLayout() {
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  const pushRegisteredRef = useRef(false);
+  // ✅ FIXED: stores userId instead of boolean — so a new user re-registers push
+  const pushRegisteredForUserRef = useRef<string | null>(null);
 
   // ---------- Web-only: hide scrollbars (runs once, only on web) ----------
   useEffect(() => {
@@ -84,7 +85,6 @@ export default function RootLayout() {
     let mounted = true;
     (async () => {
       try {
-        // Check if fonts already loaded (they will be on warm start)
         const allLoaded = Object.keys(FONT_MAP).every((f) =>
           Font.isLoaded(f)
         );
@@ -106,14 +106,12 @@ export default function RootLayout() {
   useEffect(() => {
     let mounted = true;
 
-    // Initial session (AsyncStorage read — fast)
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
       setUserId(session?.user?.id ?? null);
       setAuthReady(true);
     });
 
-    // Subsequent auth changes
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (!mounted) return;
@@ -128,11 +126,12 @@ export default function RootLayout() {
     };
   }, []);
 
-  // ---------- Push registration (once per user session) ----------
+  // ---------- Push registration (once per unique user session) ----------
   useEffect(() => {
     if (!authReady || !userId) return;
     if (Platform.OS === 'web') return;
-    if (pushRegisteredRef.current) return;
+    // ✅ FIXED: only skip if THIS exact user already registered
+    if (pushRegisteredForUserRef.current === userId) return;
 
     let cancelled = false;
 
@@ -182,8 +181,9 @@ export default function RootLayout() {
           .eq('id', userId);
 
         if (!error) {
-          pushRegisteredRef.current = true;
-          console.log('[push] Token saved');
+          // ✅ FIXED: store THIS user's id
+          pushRegisteredForUserRef.current = userId;
+          console.log('[push] Token saved for user:', userId);
         }
       } catch (err) {
         console.warn('[push] Token registration failed:', err);
@@ -227,16 +227,50 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="index" options={{ animation: 'none' }} />
-          <Stack.Screen name="(auth)" options={{ animation: 'fade', animationDuration: 200 }} />
-          <Stack.Screen name="(tabs)" options={{ animation: 'fade', animationDuration: 200 }} />
-          <Stack.Screen name="chat/[id]" options={{ animation: 'slide_from_right', animationDuration: 220 }} />
-          <Stack.Screen name="profile/[id]" options={{ animation: 'slide_from_right', animationDuration: 220 }} />
-          <Stack.Screen name="status/[userId]" options={{ animation: 'fade', animationDuration: 200 }} />
-          <Stack.Screen name="status/create" options={{ animation: 'slide_from_bottom', animationDuration: 240 }} />
-          <Stack.Screen name="news/[id]" options={{ animation: 'slide_from_right', animationDuration: 220 }} />
-          <Stack.Screen name="settings/index" options={{ animation: 'slide_from_right', animationDuration: 220 }} />
-          <Stack.Screen name="notifications" options={{ animation: 'slide_from_right', animationDuration: 220 }} />
-          <Stack.Screen name="call/[id]" options={{ animation: 'fade', animationDuration: 200, presentation: 'modal' }} />
+          <Stack.Screen
+            name="(auth)"
+            options={{ animation: 'fade', animationDuration: 200 }}
+          />
+          <Stack.Screen
+            name="(tabs)"
+            options={{ animation: 'fade', animationDuration: 200 }}
+          />
+          <Stack.Screen
+            name="chat/[id]"
+            options={{ animation: 'slide_from_right', animationDuration: 220 }}
+          />
+          <Stack.Screen
+            name="profile/[id]"
+            options={{ animation: 'slide_from_right', animationDuration: 220 }}
+          />
+          <Stack.Screen
+            name="status/[userId]"
+            options={{ animation: 'fade', animationDuration: 200 }}
+          />
+          <Stack.Screen
+            name="status/create"
+            options={{ animation: 'slide_from_bottom', animationDuration: 240 }}
+          />
+          <Stack.Screen
+            name="news/[id]"
+            options={{ animation: 'slide_from_right', animationDuration: 220 }}
+          />
+          <Stack.Screen
+            name="settings/index"
+            options={{ animation: 'slide_from_right', animationDuration: 220 }}
+          />
+          <Stack.Screen
+            name="notifications"
+            options={{ animation: 'slide_from_right', animationDuration: 220 }}
+          />
+          <Stack.Screen
+            name="call/[id]"
+            options={{
+              animation: 'fade',
+              animationDuration: 200,
+              presentation: 'modal',
+            }}
+          />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>
