@@ -325,6 +325,16 @@ export default function ProfileScreen() {
             return next;
           });
           setFollowingCount((c) => (c === null ? c : c + 1));
+
+          // ✅ Notify: New follower
+          await supabase.functions.invoke('send-push', {
+            body: {
+              userId: targetId,
+              title: 'New follower',
+              body: `${profile.display_name} started following you`,
+              data: { screen: 'profile', userId: profile.id },
+            },
+          });
         }
       }
     } catch (err) {
