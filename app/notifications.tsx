@@ -171,6 +171,24 @@ export default function NotificationsScreen() {
       }
     }
 
+    // ✅ Notify: Request accepted
+    if (myId) {
+      const { data: me } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('id', myId)
+        .single();
+
+      await supabase.functions.invoke('send-push', {
+        body: {
+          userId: req.from_user_id,
+          title: 'Request accepted',
+          body: `${me?.display_name || 'Someone'} accepted your connection request`,
+          data: { screen: 'profile', userId: myId },
+        },
+      });
+    }
+
     load();
   }
 
