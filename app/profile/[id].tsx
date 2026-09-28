@@ -248,6 +248,22 @@ export default function UserProfileScreen() {
         if (!error) {
           setIsFollowing(true);
           setFollowersCount((c) => (c === null ? c : c + 1));
+
+          // ✅ Notify: New follower
+          const { data: me } = await supabase
+            .from('profiles')
+            .select('display_name')
+            .eq('id', myId)
+            .single();
+
+          await supabase.functions.invoke('send-push', {
+            body: {
+              userId: userId,
+              title: 'New follower',
+              body: `${me?.display_name || 'Someone'} started following you`,
+              data: { screen: 'profile', userId: myId },
+            },
+          });
         }
       }
     } catch (err) {
@@ -284,6 +300,22 @@ export default function UserProfileScreen() {
       if (!error) {
         setConnectionStatus('pending');
         setConnectPopup(null);
+
+        // ✅ Notify: Connection request
+        const { data: me } = await supabase
+          .from('profiles')
+          .select('display_name')
+          .eq('id', myId)
+          .single();
+
+        await supabase.functions.invoke('send-push', {
+          body: {
+            userId: userId,
+            title: 'Connection request',
+            body: `${me?.display_name || 'Someone'} wants to connect with you`,
+            data: { screen: 'profile', userId: myId },
+          },
+        });
       }
     } catch (err) {
       console.warn('Connect error:', err);
