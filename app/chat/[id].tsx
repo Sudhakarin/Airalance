@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics
+// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics + entrance animation
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -145,6 +145,7 @@ const MessageRow = memo(function MessageRow({
   onDoubleTap,
   replyMessage,
   reactions,
+  animate,
 }: {
   item: Message;
   isMine: boolean;
@@ -155,6 +156,7 @@ const MessageRow = memo(function MessageRow({
   onDoubleTap: (msg: Message) => void;
   replyMessage?: Message | null;
   reactions: Reaction[];
+  animate?: boolean;
 }) {
   return (
     <MessageBubble
@@ -167,6 +169,7 @@ const MessageRow = memo(function MessageRow({
       onDoubleTap={onDoubleTap}
       replyMessage={replyMessage}
       reactions={reactions}
+      animate={animate}
     />
   );
 });
@@ -199,6 +202,9 @@ export default function ChatScreen() {
   const [hasMore, setHasMore] = useState(true);
   const loadingMoreRef = useRef(false);
 
+  // ✅ Entrance animation state
+  const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
+
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [newMessagesCount, setNewMessagesCount] = useState(0);
   const scrollBtnAnim = useRef(new Animated.Value(0)).current;
@@ -224,6 +230,19 @@ export default function ChatScreen() {
   const [isRecording, setIsRecording] = useState(false);
 
   const visibleMessages = messages.filter((m) => !hiddenForMeIds.has(m.id));
+
+  // ✅ Mark message ID as animating (capped to prevent memory growth)
+  const markAnimating = useCallback((id: string) => {
+    setAnimatingIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      if (next.size > 100) {
+        const arr = Array.from(next);
+        return new Set(arr.slice(-50));
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     Animated.timing(scrollBtnAnim, {
@@ -482,6 +501,11 @@ export default function ChatScreen() {
           setPeerTyping(false);
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
+          // ✅ Mark received messages as animating (skip own — handled in sendMessage)
+          if (incoming.sender_id !== myId) {
+            markAnimating(incoming.id);
+          }
+
           setMessages((prev) => {
             if (prev.some((m) => m.id === incoming.id)) return prev;
             const withoutTemp = prev.filter(
@@ -574,7 +598,7 @@ export default function ChatScreen() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [myId, convoId, lockRequired]);
+  }, [myId, convoId, lockRequired, markAnimating]);
 
   useEffect(() => {
     if (!other?.id) return;
@@ -725,7 +749,7 @@ export default function ChatScreen() {
   const toggleReaction = useCallback(
     async (msg: Message, emoji: string) => {
       if (!myId || msg.is_deleted) return;
-      hapticLight(); // ✅ Haptic on reaction toggle
+      hapticLight();
       const existing = (reactionsByMsg[msg.id] ?? []).find(
         (r) => r.user_id === myId && r.emoji === emoji
       );
@@ -818,7 +842,7 @@ export default function ChatScreen() {
     }
     try {
       await Clipboard.setStringAsync(textToCopy);
-      hapticLight(); // ✅ Haptic on copy
+      hapticLight();
       Alert.alert('Copied', 'Message copied to clipboard.');
     } catch {
       hapticError();
@@ -851,7 +875,7 @@ export default function ChatScreen() {
         });
 
       if (error) throw error;
-      hapticLight(); // ✅ Haptic on pin
+      hapticLight();
       setPinnedMessage(msg);
     } catch (err) {
       console.warn('Pin failed:', err);
@@ -882,7 +906,7 @@ export default function ChatScreen() {
 
   async function deleteForMe(msg: Message) {
     if (!myId) return;
-    hapticHeavy(); // ✅ Haptic on delete
+    hapticHeavy();
     setDeleteConfirmMsg(null);
     try {
       await supabase.from('message_deletions').insert({
@@ -916,7 +940,7 @@ export default function ChatScreen() {
       setDeleteConfirmMsg(null);
       return;
     }
-    hapticHeavy(); // ✅ Haptic on delete for everyone
+    hapticHeavy();
     setDeleteConfirmMsg(null);
     try {
       await supabase
@@ -984,6 +1008,7 @@ export default function ChatScreen() {
       is_deleted: false,
     };
     setMessages((prev) => [...prev, optimistic]);
+    markAnimating(tempId); // ✅ Animate optimistic bubble
 
     const { data: inserted, error } = await supabase
       .from('messages')
@@ -1017,7 +1042,7 @@ export default function ChatScreen() {
       flatListRef.current?.scrollToEnd({ animated: true });
     });
 
-    hapticLight(); // ✅ Haptic on message sent
+    hapticLight();
     if (other?.id) triggerPushNotification(other.id, content, 'text');
     setSending(false);
   }
@@ -1070,13 +1095,14 @@ export default function ChatScreen() {
 
       if (error) throw error;
       if (inserted) {
+        markAnimating((inserted as Message).id); // ✅ Animate
         setMessages((prev) =>
           prev.some((m) => m.id === (inserted as Message).id)
             ? prev
             : [...prev, inserted as Message]
         );
         setReplyingTo(null);
-        hapticSuccess(); // ✅ Haptic on image sent
+        hapticSuccess();
         if (other?.id) triggerPushNotification(other.id, '', 'image');
       }
     } catch (err: any) {
@@ -1102,7 +1128,7 @@ export default function ChatScreen() {
       });
       await audioRecorder.prepareToRecordAsync();
       audioRecorder.record();
-      hapticMedium(); // ✅ Haptic on record start
+      hapticMedium();
       setIsRecording(true);
     } catch (err) {
       console.warn('Recording start error:', err);
@@ -1151,13 +1177,14 @@ export default function ChatScreen() {
 
       if (error) throw error;
       if (inserted) {
+        markAnimating((inserted as Message).id); // ✅ Animate
         setMessages((prev) =>
           prev.some((m) => m.id === (inserted as Message).id)
             ? prev
             : [...prev, inserted as Message]
         );
         setReplyingTo(null);
-        hapticSuccess(); // ✅ Haptic on voice sent
+        hapticSuccess();
         if (other?.id) triggerPushNotification(other.id, '', 'voice');
       }
     } catch (err: any) {
@@ -1174,7 +1201,7 @@ export default function ChatScreen() {
     try {
       await audioRecorder.stop();
     } catch {}
-    hapticLight(); // ✅ Haptic on cancel
+    hapticLight();
     setIsRecording(false);
   }
 
@@ -1228,6 +1255,7 @@ export default function ChatScreen() {
           onDoubleTap={handleDoubleTap}
           replyMessage={replyMsg}
           reactions={reactionsByMsg[item.id] ?? []}
+          animate={animatingIds.has(item.id)}
         />
       );
     },
@@ -1238,6 +1266,7 @@ export default function ChatScreen() {
       handleMessageLongPress,
       handleDoubleTap,
       reactionsByMsg,
+      animatingIds,
     ]
   );
 
@@ -1271,13 +1300,13 @@ export default function ChatScreen() {
       try {
         const inputHash = await hashPin(pinVerifyInput);
         if (inputHash === storedPinHash) {
-          hapticSuccess(); // ✅ PIN correct
+          hapticSuccess();
           setSessionUnlocked(true);
           setLockRequired(false);
           setPinVerifyInput('');
           setPinVerifyError('');
         } else {
-          hapticError(); // ✅ PIN incorrect
+          hapticError();
           setPinVerifyError('Incorrect PIN');
         }
       } catch {
