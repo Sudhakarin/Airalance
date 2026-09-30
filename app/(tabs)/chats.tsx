@@ -1,5 +1,5 @@
 // app/(tabs)/chats.tsx
-// Chats list — WhatsApp-style locked folder reveal on over-scroll
+// Chats list — WhatsApp-style locked folder + AsyncStorage cache
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
@@ -55,9 +55,14 @@ type ChatSetting = {
 };
 
 const ROW_HEIGHT = 78;
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
 function pinKey(userId: string) {
   return `chat_lock_pin:${userId}`;
+}
+
+function chatsCacheKey(userId: string) {
+  return `airalance:chats:${userId}`;
 }
 
 function formatTime(iso: string) {
@@ -73,6 +78,30 @@ function formatTime(iso: string) {
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 7) return `${diffDay}d`;
   return date.toLocaleDateString();
+}
+
+// ---------- Cache helpers ----------
+async function readChatsCache(uid: string): Promise<Conversation[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(chatsCacheKey(uid));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { t: number; d: Conversation[] };
+    if (!parsed?.d || !Array.isArray(parsed.d)) return null;
+    // Ignore stale caches older than TTL
+    if (Date.now() - (parsed.t ?? 0) > CACHE_TTL_MS) return null;
+    return parsed.d;
+  } catch {
+    return null;
+  }
+}
+
+async function writeChatsCache(uid: string, list: Conversation[]) {
+  try {
+    await AsyncStorage.setItem(
+      chatsCacheKey(uid),
+      JSON.stringify({ t: Date.now(), d: list })
+    );
+  } catch {}
 }
 
 // ---------- Skeleton ----------
@@ -277,11 +306,12 @@ export default function ChatsScreen() {
 
   // Locked chats view (session only)
   const [lockedViewOpen, setLockedViewOpen] = useState(false);
-  // WhatsApp-style reveal: folder shows only on over-scroll at top
+  // WhatsApp-style reveal
   const [revealLocked, setRevealLocked] = useState(false);
 
   const realtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingRef = useRef(false);
+  const cacheShownRef = useRef(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -296,6 +326,19 @@ export default function ChatsScreen() {
         const saved = await AsyncStorage.getItem(pinKey(myId));
         setStoredPin(saved);
       } catch {}
+    })();
+  }, [myId]);
+
+  // ✅ Cache-first: show cached chats instantly (once per session)
+  useEffect(() => {
+    if (!myId || cacheShownRef.current) return;
+    (async () => {
+      const cached = await readChatsCache(myId);
+      if (cached && cached.length > 0) {
+        setConversations(cached);
+        setLoading(false); // skip skeleton on warm starts
+      }
+      cacheShownRef.current = true;
     })();
   }, [myId]);
 
@@ -316,6 +359,7 @@ export default function ChatsScreen() {
       const convoIds = (participantRows ?? []).map((r) => r.conversation_id);
       if (convoIds.length === 0) {
         setConversations([]);
+        await writeChatsCache(myId, []);
         return;
       }
 
@@ -409,6 +453,8 @@ export default function ChatsScreen() {
 
       rows.sort((a, b) => (a.last_at < b.last_at ? 1 : -1));
       setConversations(rows);
+      // ✅ Save fresh data to cache
+      await writeChatsCache(myId, rows);
     } catch (err) {
       console.warn('Load conversations error:', err);
     } finally {
@@ -458,6 +504,15 @@ export default function ChatsScreen() {
     };
   }, [myId, loadConversations]);
 
+  // Helper: mutate cache alongside local state
+  const updateCache = useCallback(
+    async (next: Conversation[]) => {
+      if (!myId) return;
+      await writeChatsCache(myId, next);
+    },
+    [myId]
+  );
+
   // ---------- Derived lists ----------
   const unlockedConversations = conversations.filter((c) => !c.is_locked);
   const lockedConversations = conversations.filter((c) => c.is_locked);
@@ -502,7 +557,9 @@ export default function ChatsScreen() {
 
   async function deleteConversation(convoId: string) {
     setDeleteConfirmConvo(null);
-    setConversations((prev) => prev.filter((c) => c.id !== convoId));
+    const next = conversations.filter((c) => c.id !== convoId);
+    setConversations(next);
+    updateCache(next);
 
     try {
       await supabase
@@ -527,11 +584,11 @@ export default function ChatsScreen() {
     setActionSheetConvo(null);
     const nextMuted = !convo.is_muted;
 
-    setConversations((prev) =>
-      prev.map((c) =>
-        c.id === convo.id ? { ...c, is_muted: nextMuted } : c
-      )
+    const next = conversations.map((c) =>
+      c.id === convo.id ? { ...c, is_muted: nextMuted } : c
     );
+    setConversations(next);
+    updateCache(next);
 
     try {
       const { error } = await supabase.from('chat_settings').upsert(
@@ -546,11 +603,11 @@ export default function ChatsScreen() {
       if (error) throw error;
     } catch (err) {
       console.warn('Mute failed:', err);
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === convo.id ? { ...c, is_muted: !nextMuted } : c
-        )
+      const revert = conversations.map((c) =>
+        c.id === convo.id ? { ...c, is_muted: !nextMuted } : c
       );
+      setConversations(revert);
+      updateCache(revert);
       Alert.alert('Failed', 'Could not update mute.');
     }
   }
@@ -585,9 +642,11 @@ export default function ChatsScreen() {
         { onConflict: 'user_id,conversation_id' }
       );
       if (error) throw error;
-      setConversations((prev) =>
-        prev.map((c) => (c.id === convoId ? { ...c, is_locked: lock } : c))
+      const next = conversations.map((c) =>
+        c.id === convoId ? { ...c, is_locked: lock } : c
       );
+      setConversations(next);
+      updateCache(next);
     } catch (err) {
       console.warn('Lock failed:', err);
       Alert.alert('Failed', 'Could not update lock.');
@@ -670,7 +729,9 @@ export default function ChatsScreen() {
         .eq('conversation_id', convo.id)
         .eq('user_id', myId);
 
-      setConversations((prev) => prev.filter((c) => c.id !== convo.id));
+      const next = conversations.filter((c) => c.id !== convo.id);
+      setConversations(next);
+      updateCache(next);
       Alert.alert('Blocked', `@${convo.other_profile?.username} has been blocked.`);
     } catch (err) {
       console.warn('Block failed:', err);
@@ -732,7 +793,6 @@ export default function ChatsScreen() {
             updateCellsBatchingPeriod={50}
             removeClippedSubviews={true}
             keyboardShouldPersistTaps="handled"
-            // WhatsApp-style over-scroll reveal for locked folder
             bounces={true}
             alwaysBounceVertical={true}
             overScrollMode="always"
@@ -770,7 +830,6 @@ export default function ChatsScreen() {
             }
           />
 
-          {/* WhatsApp-style locked folder overlay: only on over-scroll at top */}
           {revealLocked && lockedConversations.length > 0 && (
             <View style={styles.lockedFolderReveal} pointerEvents="box-none">
               <TouchableOpacity
@@ -1269,7 +1328,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
-  // ---------- Locked folder (reveal on over-scroll) ----------
   lockedFolderReveal: {
     position: 'absolute',
     top: 0,
@@ -1464,7 +1522,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // ---------- Modal: blur backdrop + centered dialog ----------
   blurBackdrop: {
     flex: 1,
   },
