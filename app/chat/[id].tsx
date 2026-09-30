@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics + entrance animation + sounds + typing dots + wallpaper
+// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics + entrance animation + sounds + typing dots + wallpaper + swipe-to-reply
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -146,6 +146,7 @@ const MessageRow = memo(function MessageRow({
   myId,
   onLongPress,
   onDoubleTap,
+  onSwipeReply,
   replyMessage,
   reactions,
   animate,
@@ -157,6 +158,7 @@ const MessageRow = memo(function MessageRow({
   myId: string;
   onLongPress: (msg: Message) => void;
   onDoubleTap: (msg: Message) => void;
+  onSwipeReply: (msg: Message) => void;
   replyMessage?: Message | null;
   reactions: Reaction[];
   animate?: boolean;
@@ -170,6 +172,7 @@ const MessageRow = memo(function MessageRow({
       myId={myId}
       onLongPress={onLongPress}
       onDoubleTap={onDoubleTap}
+      onSwipeReply={onSwipeReply}
       replyMessage={replyMessage}
       reactions={reactions}
       animate={animate}
@@ -836,11 +839,14 @@ export default function ChatScreen() {
     [toggleReaction]
   );
 
-  function handleReply(msg: Message) {
-    setActionSheetMsg(null);
-    setReplyingTo(msg);
-    setTimeout(() => inputRef.current?.focus(), 150);
-  }
+  const handleReply = useCallback(
+    (msg: Message) => {
+      setActionSheetMsg(null);
+      setReplyingTo(msg);
+      setTimeout(() => inputRef.current?.focus(), 150);
+    },
+    []
+  );
 
   async function handleCopy(msg: Message) {
     setActionSheetMsg(null);
@@ -1266,6 +1272,7 @@ export default function ChatScreen() {
           myId={myId!}
           onLongPress={handleMessageLongPress}
           onDoubleTap={handleDoubleTap}
+          onSwipeReply={handleReply}
           replyMessage={replyMsg}
           reactions={reactionsByMsg[item.id] ?? []}
           animate={animatingIds.has(item.id)}
@@ -1278,6 +1285,7 @@ export default function ChatScreen() {
       myId,
       handleMessageLongPress,
       handleDoubleTap,
+      handleReply,
       reactionsByMsg,
       animatingIds,
     ]
@@ -1488,7 +1496,6 @@ export default function ChatScreen() {
         )}
 
         <View style={{ flex: 1 }}>
-          {/* ✅ Wallpaper layer */}
           <Image
             source={require('../../assets/chat-wallpaper.png')}
             style={StyleSheet.absoluteFill}
@@ -1496,7 +1503,6 @@ export default function ChatScreen() {
             transition={0}
             cachePolicy="memory-disk"
           />
-          {/* ✅ Dark overlay — keeps messages readable */}
           <View
             style={[
               StyleSheet.absoluteFill,
