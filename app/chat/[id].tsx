@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache
+// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -56,17 +56,17 @@ type Message = {
   media_url: string | null;
   media_duration: number | null;
   reply_to_id: string | null;
-  is_deleted: boolean_T | null;
+  is_deleted: boolean | null;
 };
 
 type OtherProfile = {
   id: string;
-  username:TL string;
-  display_name: string_;
+  username: string;
+  display_name: string;
   avatar_color: string;
- MS avatar_url: string | null;
-  verified: = boolean | null;
-  last_seen : string | null;
+  avatar_url: string | null;
+  verified: boolean | null;
+  last_seen: string | null;
 };
 
 type Reaction = {
@@ -76,8 +76,9 @@ type Reaction = {
   emoji: string;
 };
 
+const PAGE_SIZE = 10;
 const MESSAGES_CACHE_LIMIT = 40;
-const CACHE1000 * 60 * 60 * 24 * 7;
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 function messagesCacheKey(convoId: string) {
   return `airalance:messages:${convoId}`;
@@ -162,24 +163,29 @@ export default function ChatScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const convoId = params.id;
 
-  const [myId, setMyId] = useState<string |null null>(null);
-  const [myName, setMyName]);
- = useState<string>('');
-  const [other, setOther] = useState<OtherProfile | null>(null );
-  const [messages, setMessages] = useState<Message const[]>([]);
-  const [input, set [Input] = useStateaction('');
+  const [myId, setMyId] = useState<string | null>(null);
+  const [myName, setMyName] = useState<string>('');
+  const [other, setOther] = useState<OtherProfile | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
   const [otherOnline, setOtherOnline] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // ✅ Pagination state
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const loadingMoreRef = useRef(false);
+
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [newMessagesCount, setNewMessagesCount] = useState(0);
   const scrollBtnAnim = useRef(new Animated.Value(0)).current;
 
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
-  const [replyingTo, setReplyingTo] = useState<Message | null>(SheetMsg, setActionSheetMsg] = useState<Message | null>(null);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [actionSheetMsg, setActionSheetMsg] = useState<Message | null>(null);
   const [deleteConfirmMsg, setDeleteConfirmMsg] = useState<Message | null>(null);
   const [hiddenForMeIds, setHiddenForMeIds] = useState<Set<string>>(new Set());
   const [reactionsByMsg, setReactionsByMsg] = useState<Record<string, Reaction[]>>({});
@@ -258,7 +264,7 @@ export default function ChatScreen() {
           .select('*')
           .eq('conversation_id', convoId)
           .order('created_at', { ascending: false })
-          .limit(CONSTANTS.PAGE_SIZE),
+          .limit(PAGE_SIZE),
         supabase
           .from('message_pins')
           .select('message_id')
@@ -281,6 +287,8 @@ export default function ChatScreen() {
         const ordered = [...msgs].reverse() as Message[];
         setMessages(ordered);
         prevMsgCountRef.current = ordered.length;
+        // ✅ Has more if we got exactly a full page
+        setHasMore(msgs.length === PAGE_SIZE);
 
         if (ordered.length > 0) {
           const { data: rx } = await supabase
@@ -320,6 +328,8 @@ export default function ChatScreen() {
             .in('id', unreadIds)
             .then(() => {});
         }
+      } else {
+        setHasMore(false);
       }
       setLoading(false);
     }
@@ -334,7 +344,7 @@ export default function ChatScreen() {
     initialScrollDoneRef.current = false;
   }, [convoId]);
 
-  // ✅ FIXED: Defensive auto-scroll to bottom when chat opens / messages load
+  // ✅ Auto-scroll to bottom on initial load
   useEffect(() => {
     if (loading) return;
     if (visibleMessages.length === 0) return;
@@ -346,6 +356,64 @@ export default function ChatScreen() {
     }, 60);
     return () => clearTimeout(t);
   }, [loading, visibleMessages.length]);
+
+  // ✅ Load older messages (pagination)
+  const loadOlderMessages = useCallback(async () => {
+    if (!myId || !convoId) return;
+    if (loadingMoreRef.current || !hasMore) return;
+
+    // Oldest loaded message (cursor)
+    const oldestMsg = messages[0];
+    if (!oldestMsg) return;
+
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', convoId)
+        .lt('created_at', oldestMsg.created_at)
+        .order('created_at', { ascending: false })
+        .limit(PAGE_SIZE);
+
+      if (error) throw error;
+      if (!data || data.length === 0) {
+        setHasMore(false);
+        return;
+      }
+
+      const older = [...data].reverse() as Message[];
+
+      // Fetch reactions for older messages
+      const olderIds = older.map((m) => m.id);
+      const { data: rx } = await supabase
+        .from('message_reactions')
+        .select('*')
+        .in('message_id', olderIds);
+      if (rx && rx.length > 0) {
+        const grouped: Record<string, Reaction[]> = {};
+        (rx as Reaction[]).forEach((r) => {
+          grouped[r.message_id] = [...(grouped[r.message_id] ?? []), r];
+        });
+        setReactionsByMsg((prev) => ({ ...prev, ...grouped }));
+      }
+
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const filtered = older.filter((m) => !existingIds.has(m.id));
+        return [...filtered, ...prev];
+      });
+
+      setHasMore(data.length === PAGE_SIZE);
+    } catch (err) {
+      console.warn('Load older messages failed:', err);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [myId, convoId, hasMore, messages]);
 
   useEffect(() => {
     if (!myId || !convoId) return;
@@ -517,6 +585,11 @@ export default function ChatScreen() {
 
     if (nearBottom && newMessagesCount > 0) {
       setNewMessagesCount(0);
+    }
+
+    // ✅ Trigger load more when near top
+    if (contentOffset.y < 80 && hasMore && !loadingMoreRef.current) {
+      loadOlderMessages();
     }
   }
 
@@ -1213,11 +1286,25 @@ export default function ChatScreen() {
             updateCellsBatchingPeriod={50}
             removeClippedSubviews={Platform.OS === 'android'}
             keyboardShouldPersistTaps="handled"
+            // ✅ Prevents scroll jump when older messages are prepended
+            maintainVisibleContentPosition={{
+              minIndexForVisible: 0,
+              autoscrollToTopThreshold: 10,
+            }}
             onScrollToIndexFailed={(info) => {
               setTimeout(() => {
                 flatListRef.current?.scrollToEnd({ animated: true });
               }, 200);
             }}
+            // ✅ Loading indicator at top when fetching older messages
+            ListHeaderComponent={
+              loadingMore ? (
+                <View style={styles.loadingMoreWrap}>
+                  <ActivityIndicator size="small" color={COLORS.mist} />
+                  <Text style={styles.loadingMoreText}>Loading older…</Text>
+                </View>
+              ) : null
+            }
             ListEmptyComponent={
               <View style={styles.emptyWrap}>
                 <Text style={styles.emptyText}>
@@ -1250,7 +1337,6 @@ export default function ChatScreen() {
                 onPress={handleScrollToBottom}
                 activeOpacity={0.85}
               >
-                {/* ✅ FIXED: arrow-down (symmetric) + wrapped for perfect centering */}
                 <View style={styles.scrollBtnIconWrap}>
                   <Ionicons name="arrow-down" size={18} color="#FFFFFF" />
                 </View>
@@ -1632,7 +1718,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---------- Scroll-to-bottom button (compact + centered arrow) ----------
+  // ---------- Loading older messages indicator ----------
+  loadingMoreWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+  },
+  loadingMoreText: {
+    fontSize: 12.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+  },
+
+  // ---------- Scroll-to-bottom button ----------
   scrollBtnWrap: {
     position: 'absolute',
     right: 14,
