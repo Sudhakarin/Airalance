@@ -501,10 +501,13 @@ export default function ChatsScreen() {
     [router]
   );
 
+  // ✅ FIXED: wait for modal close animation before navigating
   const openLockedChat = useCallback(
     (convoId: string) => {
       setLockedViewOpen(false);
-      router.push(`/chat/${convoId}`);
+      setTimeout(() => {
+        router.push(`/chat/${convoId}`);
+      }, 320);
     },
     [router]
   );
@@ -651,7 +654,8 @@ export default function ChatsScreen() {
       setPinModalVisible(false);
       setPinVerifyInput('');
       setPinVerifyError('');
-      setLockedViewOpen(true);
+      // ✅ Small delay so PIN modal closes cleanly before locked list opens
+      setTimeout(() => setLockedViewOpen(true), 220);
     } else {
       setPinVerifyError('Incorrect PIN');
     }
@@ -730,18 +734,20 @@ export default function ChatsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 🔒 Locked chats chip */}
+      {/* 🔒 Locked chats chip — proper spacing from header + edges */}
       {!loading && lockedConversations.length > 0 && (
-        <TouchableOpacity
-          style={styles.lockedChip}
-          onPress={openLockedSection}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="lock-closed" size={13} color={COLORS.violetLight} />
-          <Text style={styles.lockedChipText}>
-            Locked chats · {lockedConversations.length}
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.lockedChipWrap}>
+          <TouchableOpacity
+            style={styles.lockedChip}
+            onPress={openLockedSection}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="lock-closed" size={13} color={COLORS.violetLight} />
+            <Text style={styles.lockedChipText}>
+              Locked chats · {lockedConversations.length}
+            </Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       {loading && conversations.length === 0 ? (
@@ -827,7 +833,7 @@ export default function ChatsScreen() {
                     avatarUrl={
                       actionSheetConvo.other_profile?.avatar_url ?? null
                     }
-                    size={42}
+                    size={40}
                   />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.dialogHeaderName} numberOfLines={1}>
@@ -917,7 +923,7 @@ export default function ChatsScreen() {
               >
                 <Ionicons
                   name="trash-outline"
-                  size={22}
+                  size={20}
                   color={COLORS.danger}
                 />
               </View>
@@ -978,7 +984,7 @@ export default function ChatsScreen() {
                   { backgroundColor: 'rgba(239,68,68,0.15)' },
                 ]}
               >
-                <Ionicons name="ban" size={22} color={COLORS.danger} />
+                <Ionicons name="ban" size={20} color={COLORS.danger} />
               </View>
               <Text style={styles.dialogTitle}>
                 Block @{blockConfirmConvo?.other_profile?.username}?
@@ -1032,20 +1038,19 @@ export default function ChatsScreen() {
               onPress={() => setPinSetupConvo(null)}
             >
               <Pressable
-                style={styles.dialogCard}
+                style={styles.pinDialogCard}
                 onPress={(e) => e.stopPropagation()}
               >
-                <View style={styles.dialogIconWrap}>
+                <View style={styles.pinDialogIconWrap}>
                   <Ionicons
                     name="lock-closed"
-                    size={22}
+                    size={18}
                     color={COLORS.violetLight}
                   />
                 </View>
-                <Text style={styles.dialogTitle}>Set a chat lock PIN</Text>
-                <Text style={styles.dialogSub}>
-                  Enter a 4-digit PIN. You'll need it every time you open
-                  locked chats.
+                <Text style={styles.pinDialogTitle}>Set a chat lock PIN</Text>
+                <Text style={styles.pinDialogSub}>
+                  Enter a 4-digit PIN to lock this chat.
                 </Text>
 
                 <TextInput
@@ -1054,7 +1059,7 @@ export default function ChatsScreen() {
                   onChangeText={(t) =>
                     setPinInput1(t.replace(/\D/g, '').slice(0, 4))
                   }
-                  placeholder="Enter 4-digit PIN"
+                  placeholder="Enter PIN"
                   placeholderTextColor="rgba(255,255,255,0.3)"
                   keyboardType="number-pad"
                   secureTextEntry
@@ -1123,18 +1128,18 @@ export default function ChatsScreen() {
               onPress={() => setPinModalVisible(false)}
             >
               <Pressable
-                style={styles.dialogCard}
+                style={styles.pinDialogCard}
                 onPress={(e) => e.stopPropagation()}
               >
-                <View style={styles.dialogIconWrap}>
+                <View style={styles.pinDialogIconWrap}>
                   <Ionicons
                     name="lock-closed"
-                    size={22}
+                    size={18}
                     color={COLORS.violetLight}
                   />
                 </View>
-                <Text style={styles.dialogTitle}>Enter your PIN</Text>
-                <Text style={styles.dialogSub}>
+                <Text style={styles.pinDialogTitle}>Enter your PIN</Text>
+                <Text style={styles.pinDialogSub}>
                   Unlock to view your locked chats.
                 </Text>
 
@@ -1276,19 +1281,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // ---------- Locked chip (proper spacing) ----------
+  lockedChipWrap: {
+    paddingHorizontal: 18,
+    marginTop: 6,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
   lockedChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    alignSelf: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
+    gap: 7,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 22,
     backgroundColor: 'rgba(124,92,255,0.15)',
     borderWidth: 1,
     borderColor: 'rgba(124,92,255,0.35)',
-    marginTop: 4,
-    marginBottom: 8,
   },
   lockedChipText: {
     fontSize: 12.5,
@@ -1455,6 +1464,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
+
+  // ---------- Shared dialog (action menu, delete, block) ----------
   dialogCard: {
     width: '100%',
     maxWidth: 320,
@@ -1557,6 +1568,51 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
+  // ---------- PIN dialog (smaller, PIN-specific) ----------
+  pinDialogCard: {
+    width: '100%',
+    maxWidth: 280,
+    backgroundColor: 'rgba(20,22,30,0.96)',
+    borderRadius: 18,
+    paddingTop: 16,
+    paddingBottom: 10,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  pinDialogIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(124,92,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 10,
+  },
+  pinDialogTitle: {
+    fontSize: 15,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 4,
+    paddingHorizontal: 8,
+  },
+  pinDialogSub: {
+    fontSize: 12,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+    textAlign: 'center',
+    lineHeight: 16,
+    marginBottom: 12,
+    paddingHorizontal: 8,
+  },
+
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1575,23 +1631,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 17,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     textAlign: 'center',
-    letterSpacing: 8,
+    letterSpacing: 6,
     marginBottom: 8,
     marginHorizontal: 8,
   },
   pinError: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.danger,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
 
   lockedViewSafe: {
