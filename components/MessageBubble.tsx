@@ -1,5 +1,5 @@
 // components/MessageBubble.tsx
-// Double-tap heart reaction with burst animation + reaction pills + cache-friendly
+// Double-tap heart reaction (no animation) + reaction pills + cache-friendly
 
 import { memo, useCallback, useMemo, useRef } from 'react';
 import {
@@ -7,7 +7,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Animated,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -216,55 +215,19 @@ function MessageBubbleBase({
       : 'Them'
     : '';
 
-  // ---------- Heart burst animation ----------
-  const heartScale = useRef(new Animated.Value(0)).current;
-  const heartOpacity = useRef(new Animated.Value(0)).current;
+  // ---------- Double-tap detection (no animation) ----------
   const lastTapRef = useRef<number>(0);
-
-  const triggerHeartBurst = useCallback(() => {
-    heartScale.setValue(0.3);
-    heartOpacity.setValue(0);
-    Animated.parallel([
-      Animated.sequence([
-        Animated.spring(heartScale, {
-          toValue: 1.15,
-          friction: 4,
-          tension: 120,
-          useNativeDriver: true,
-        }),
-        Animated.timing(heartScale, {
-          toValue: 1,
-          duration: 120,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.sequence([
-        Animated.timing(heartOpacity, {
-          toValue: 1,
-          duration: 150,
-          useNativeDriver: true,
-        }),
-        Animated.delay(400),
-        Animated.timing(heartOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]),
-    ]).start();
-  }, [heartScale, heartOpacity]);
 
   const handlePress = useCallback(() => {
     if (isDeleted) return;
     const now = Date.now();
     if (now - lastTapRef.current < DOUBLE_TAP_MS) {
       lastTapRef.current = 0;
-      triggerHeartBurst();
       onDoubleTap?.(message);
     } else {
       lastTapRef.current = now;
     }
-  }, [isDeleted, triggerHeartBurst, onDoubleTap, message]);
+  }, [isDeleted, onDoubleTap, message]);
 
   const handleLongPress = useCallback(() => {
     lastTapRef.current = 0;
@@ -406,20 +369,6 @@ function MessageBubbleBase({
                 <Text style={styles.text}>{message.content}</Text>
               </View>
             )}
-
-            {/* Heart burst overlay */}
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.heartBurst,
-                {
-                  opacity: heartOpacity,
-                  transform: [{ scale: heartScale }],
-                },
-              ]}
-            >
-              <Text style={styles.heartBurstEmoji}>❤️</Text>
-            </Animated.View>
           </View>
 
           <View style={styles.metaRow}>
@@ -561,23 +510,6 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.55)',
-  },
-
-  // ---------- Heart burst ----------
-  heartBurst: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heartBurstEmoji: {
-    fontSize: 64,
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 8,
   },
 
   // ---------- Reaction pills ----------
