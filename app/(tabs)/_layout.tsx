@@ -26,11 +26,10 @@ const profileIcon = ({ color, focused }: { color: string; focused: boolean }) =>
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
 
-  // ✅ FIXED: ensure minimum 16px bottom padding so tab bar never mixes
-  // with the phone's system navigation buttons (works on ALL Android phones)
+  // ✅ Thinner tab bar with just enough bottom gap for system nav buttons
   const bottomPad =
     Platform.OS === 'android'
-      ? Math.max(insets.bottom, 16)
+      ? Math.max(insets.bottom, 10)
       : insets.bottom;
 
   return (
@@ -43,8 +42,8 @@ export default function TabsLayout() {
         tabBarStyle: [
           styles.tabBar,
           {
-            // Height = base content (52) + bottom padding
-            height: 52 + bottomPad,
+            // Height = compact content (46) + safe-area bottom
+            height: 46 + bottomPad,
             paddingBottom: bottomPad,
           },
         ],
@@ -89,17 +88,17 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     shadowRadius: 0,
     elevation: 0,
-    paddingTop: 4,
+    paddingTop: 2,
   },
   tabItem: {
-    paddingVertical: 2,
+    paddingVertical: 0,
     justifyContent: 'center',
     alignItems: 'center',
   },
   tabLabel: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
-    marginTop: 2,
+    marginTop: 1,
   },
 });
