@@ -1,10 +1,11 @@
 // components/Avatar.tsx
 // Optimized: memoized, expo-image with cache, memoized computed styles
+// Fallback: WhatsApp-style person silhouette icon (no initials)
 
 import { memo, useMemo } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
-import { FONTS } from '../constants/theme';
+import { Ionicons } from '@expo/vector-icons';
 
 type AvatarProps = {
   name: string;
@@ -14,15 +15,6 @@ type AvatarProps = {
   online?: boolean;
 };
 
-function getInitials(name: string): string {
-  if (!name) return '?';
-  const parts = name.trim().split(' ');
-  if (parts.length === 1) {
-    return parts[0].slice(0, 2).toUpperCase();
-  }
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
 function AvatarBase({
   name,
   color,
@@ -30,9 +22,6 @@ function AvatarBase({
   avatarUrl,
   online = false,
 }: AvatarProps) {
-  // Memoize initials — only recompute if name changes
-  const initials = useMemo(() => getInitials(name), [name]);
-
   // Memoize container style
   const containerStyle = useMemo(
     () => ({ width: size, height: size }),
@@ -50,11 +39,8 @@ function AvatarBase({
     [size, color]
   );
 
-  // Memoize initials text style
-  const initialsStyle = useMemo(
-    () => ({ fontSize: Math.max(10, size * 0.32) }),
-    [size]
-  );
+  // Memoize person icon size
+  const iconSize = useMemo(() => Math.round(size * 0.58), [size]);
 
   // Memoize image style
   const imageStyle = useMemo(
@@ -89,7 +75,12 @@ function AvatarBase({
         />
       ) : (
         <View style={[styles.fallback, fallbackStyle]}>
-          <Text style={[styles.initials, initialsStyle]}>{initials}</Text>
+          <Ionicons
+            name="person"
+            size={iconSize}
+            color="rgba(255,255,255,0.95)"
+            style={styles.personIcon}
+          />
         </View>
       )}
 
@@ -116,11 +107,11 @@ const styles = StyleSheet.create({
   fallback: {
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  initials: {
-    color: '#FFFFFF',
-    fontFamily: FONTS.displayBold,
-    letterSpacing: 0.5,
+  personIcon: {
+    // Optical centering — Ionicons person glyph sits slightly high
+    marginTop: 1,
   },
   onlineDot: {
     position: 'absolute',
