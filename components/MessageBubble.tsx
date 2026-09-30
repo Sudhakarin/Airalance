@@ -1,12 +1,14 @@
 // components/MessageBubble.tsx
-// Double-tap heart reaction (no animation) + reaction pills + cache-friendly + haptics
+// Double-tap heart reaction + reaction pills + cache-friendly + haptics + entrance animation
 
-import { memo, useCallback, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
+  Animated,
+  Easing,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,6 +48,7 @@ type Props = {
   onDoubleTap?: (msg: Message) => void;
   replyMessage?: Message | null;
   reactions?: Reaction[];
+  animate?: boolean; // ✅ NEW — triggers entrance animation
 };
 
 const DOUBLE_TAP_MS = 300;
@@ -169,6 +172,7 @@ function MessageBubbleBase({
   onDoubleTap,
   replyMessage,
   reactions,
+  animate = false,
 }: Props) {
   const currentDay = useMemo(
     () => dayLabel(message.created_at),
@@ -216,7 +220,44 @@ function MessageBubbleBase({
       : 'Them'
     : '';
 
-  // ---------- Double-tap detection (no animation) ----------
+  // ---------- Entrance animation ----------
+  const enterAnim = useRef(new Animated.Value(animate ? 0 : 1)).current;
+  const hasAnimatedRef = useRef(!animate);
+
+  useEffect(() => {
+    if (animate && !hasAnimatedRef.current) {
+      hasAnimatedRef.current = true;
+      Animated.timing(enterAnim, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }).start();
+    }
+  }, [animate, enterAnim]);
+
+  const enterStyle = useMemo(
+    () => ({
+      opacity: enterAnim,
+      transform: [
+        {
+          translateY: enterAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [10, 0],
+          }),
+        },
+        {
+          scale: enterAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [0.97, 1],
+          }),
+        },
+      ],
+    }),
+    [enterAnim]
+  );
+
+  // ---------- Double-tap detection ----------
   const lastTapRef = useRef<number>(0);
 
   const handlePress = useCallback(() => {
@@ -224,7 +265,7 @@ function MessageBubbleBase({
     const now = Date.now();
     if (now - lastTapRef.current < DOUBLE_TAP_MS) {
       lastTapRef.current = 0;
-      hapticMedium(); // ✅ haptic on double-tap reaction
+      hapticMedium();
       onDoubleTap?.(message);
     } else {
       lastTapRef.current = now;
@@ -233,7 +274,7 @@ function MessageBubbleBase({
 
   const handleLongPress = useCallback(() => {
     lastTapRef.current = 0;
-    hapticMedium(); // ✅ haptic on long press
+    hapticMedium();
     onLongPress?.(message);
   }, [onLongPress, message]);
 
@@ -263,11 +304,12 @@ function MessageBubbleBase({
         </View>
       )}
 
-      <View
+      <Animated.View
         style={[
           styles.row,
           isMine ? styles.rowMine : styles.rowOther,
           grouped ? styles.rowGrouped : styles.rowSpaced,
+          enterStyle,
         ]}
       >
         <TouchableOpacity
@@ -406,7 +448,7 @@ function MessageBubbleBase({
             </View>
           )}
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </>
   );
 }
@@ -415,6 +457,7 @@ function MessageBubbleBase({
 function areEqual(prev: Props, next: Props) {
   if (prev.message !== next.message) return false;
   if (prev.isMine !== next.isMine) return false;
+  if (prev.animate !== next.animate) return false; // ✅ NEW
   if (prev.prevMessage?.id !== next.prevMessage?.id) return false;
   if (prev.nextMessage?.id !== next.nextMessage?.id) return false;
   if (prev.prevMessage?.created_at !== next.prevMessage?.created_at)
@@ -427,7 +470,6 @@ function areEqual(prev: Props, next: Props) {
   if (prev.replyMessage?.is_deleted !== next.replyMessage?.is_deleted)
     return false;
 
-  // Reactions comparison
   const pr = prev.reactions ?? [];
   const nr = next.reactions ?? [];
   if (pr.length !== nr.length) return false;
@@ -515,7 +557,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.55)',
   },
 
-  // ---------- Reaction pills ----------
   reactionsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -545,7 +586,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.85)',
   },
 
-  // ---------- Quoted reply ----------
   quotedWrap: {
     flexDirection: 'row',
     alignItems: 'stretch',
