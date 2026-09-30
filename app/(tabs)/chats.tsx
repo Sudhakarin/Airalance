@@ -1,5 +1,5 @@
 // app/(tabs)/chats.tsx
-// Chats list — optimized with debounced realtime, limited queries, memoized rows
+// Chats list — long press actions, mute, lock, block, WhatsApp-style
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
@@ -9,10 +9,17 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  Modal,
+  Pressable,
+  TextInput,
+  Alert,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
@@ -36,10 +43,21 @@ type Conversation = {
   last_message: string;
   last_at: string;
   unread_count: number;
+  is_muted?: boolean;
+  is_locked?: boolean;
 };
 
-// Fixed row height for getItemLayout (avatar 54 + paddingVertical 12×2)
+type ChatSetting = {
+  conversation_id: string;
+  is_muted: boolean;
+  is_locked: boolean;
+};
+
 const ROW_HEIGHT = 78;
+
+function pinKey(userId: string) {
+  return `chat_lock_pin:${userId}`;
+}
 
 function formatTime(iso: string) {
   if (!iso) return '';
@@ -71,7 +89,12 @@ function SkeletonBlock({
   return (
     <View
       style={[
-        { width, height, borderRadius, backgroundColor: 'rgba(255,255,255,0.08)' },
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: 'rgba(255,255,255,0.08)',
+        },
         style,
       ]}
     />
@@ -106,38 +129,53 @@ function ChatListSkeleton() {
   );
 }
 
-// ---------- Memoized Chat Row with custom comparator ----------
-// Comparator ensures only rows whose VISIBLE content changed re-render.
-// Without it, every setConversations(newArray) would re-render all 100 rows.
+// ---------- Chat Row ----------
 const ChatRow = memo(
   function ChatRow({
     item,
     onPress,
+    onLongPress,
     showSeparator,
+    locked = false,
   }: {
     item: Conversation;
     onPress: (id: string) => void;
+    onLongPress: (convo: Conversation) => void;
     showSeparator: boolean;
+    locked?: boolean;
   }) {
-    const displayName = item.is_group
+    const displayName = locked
+      ? 'Locked chat'
+      : item.is_group
       ? item.name ?? 'Group'
       : item.other_profile?.display_name ?? 'Unknown';
-    const color = item.other_profile?.avatar_color ?? COLORS.violet;
+    const color = locked
+      ? '#3A3F4C'
+      : item.other_profile?.avatar_color ?? COLORS.violet;
     const hasUnread = item.unread_count > 0;
+    const showUnread = hasUnread && !item.is_muted;
 
     return (
       <View style={styles.rowContainer}>
         <TouchableOpacity
           style={styles.row}
           onPress={() => onPress(item.id)}
+          onLongPress={() => onLongPress(item)}
+          delayLongPress={350}
           activeOpacity={0.6}
         >
-          <Avatar
-            name={displayName}
-            color={color}
-            avatarUrl={item.other_profile?.avatar_url ?? null}
-            size={54}
-          />
+          {locked ? (
+            <View style={styles.lockedAvatar}>
+              <Ionicons name="lock-closed" size={22} color="#FFFFFF" />
+            </View>
+          ) : (
+            <Avatar
+              name={displayName}
+              color={color}
+              avatarUrl={item.other_profile?.avatar_url ?? null}
+              size={54}
+            />
+          )}
 
           <View style={styles.rowInfo}>
             <View style={styles.rowTop}>
@@ -145,10 +183,23 @@ const ChatRow = memo(
                 <Text style={styles.rowName} numberOfLines={1}>
                   {displayName}
                 </Text>
-                {item.other_profile?.verified && <VerifiedBadge size={14} />}
+                {!locked && item.other_profile?.verified && (
+                  <VerifiedBadge size={14} />
+                )}
+                {!locked && item.is_muted && (
+                  <Ionicons
+                    name="volume-mute"
+                    size={14}
+                    color={COLORS.mist}
+                    style={{ marginLeft: 6 }}
+                  />
+                )}
               </View>
               <Text
-                style={[styles.rowTime, hasUnread && styles.rowTimeUnread]}
+                style={[
+                  styles.rowTime,
+                  showUnread && styles.rowTimeUnread,
+                ]}
               >
                 {formatTime(item.last_at)}
               </Text>
@@ -156,12 +207,15 @@ const ChatRow = memo(
 
             <View style={styles.rowBottom}>
               <Text
-                style={[styles.rowMessage, hasUnread && styles.rowMessageUnread]}
+                style={[
+                  styles.rowMessage,
+                  showUnread && styles.rowMessageUnread,
+                ]}
                 numberOfLines={1}
               >
-                {item.last_message}
+                {locked ? 'Tap to unlock' : item.last_message}
               </Text>
-              {hasUnread && (
+              {showUnread && (
                 <View style={styles.unreadBadge}>
                   <Text style={styles.unreadText}>
                     {item.unread_count > 99 ? '99+' : item.unread_count}
@@ -181,6 +235,7 @@ const ChatRow = memo(
     prev.item.last_at === next.item.last_at &&
     prev.item.last_message === next.item.last_message &&
     prev.item.unread_count === next.item.unread_count &&
+    prev.item.is_muted === next.item.is_muted &&
     prev.item.other_profile?.display_name ===
       next.item.other_profile?.display_name &&
     prev.item.other_profile?.avatar_url ===
@@ -188,7 +243,8 @@ const ChatRow = memo(
     prev.item.other_profile?.avatar_color ===
       next.item.other_profile?.avatar_color &&
     prev.item.other_profile?.verified === next.item.other_profile?.verified &&
-    prev.showSeparator === next.showSeparator
+    prev.showSeparator === next.showSeparator &&
+    prev.locked === next.locked
 );
 
 // ---------- Screen ----------
@@ -199,7 +255,28 @@ export default function ChatsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [myId, setMyId] = useState<string | null>(null);
 
-  // Refs to guard against overlapping loads & debounce realtime
+  // Action / modal states
+  const [actionSheetConvo, setActionSheetConvo] = useState<Conversation | null>(
+    null
+  );
+  const [deleteConfirmConvo, setDeleteConfirmConvo] =
+    useState<Conversation | null>(null);
+  const [blockConfirmConvo, setBlockConfirmConvo] =
+    useState<Conversation | null>(null);
+
+  // Lock / PIN
+  const [pinSetupConvo, setPinSetupConvo] = useState<Conversation | null>(null);
+  const [pinInput1, setPinInput1] = useState('');
+  const [pinInput2, setPinInput2] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinVerifyInput, setPinVerifyInput] = useState('');
+  const [pinVerifyError, setPinVerifyError] = useState('');
+  const [storedPin, setStoredPin] = useState<string | null>(null);
+
+  // Locked chats view (session only)
+  const [lockedViewOpen, setLockedViewOpen] = useState(false);
+
   const realtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingRef = useRef(false);
 
@@ -209,14 +286,24 @@ export default function ChatsScreen() {
     });
   }, []);
 
-  // ---------- Load conversations (optimized) ----------
+  // Load saved PIN when myId is ready
+  useEffect(() => {
+    if (!myId) return;
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(pinKey(myId));
+        setStoredPin(saved);
+      } catch {}
+    })();
+  }, [myId]);
+
+  // ---------- Load conversations ----------
   const loadConversations = useCallback(async () => {
     if (!myId) return;
-    if (isLoadingRef.current) return; // prevent overlap
+    if (isLoadingRef.current) return;
     isLoadingRef.current = true;
 
     try {
-      // 1. Which conversations am I in?
       const { data: participantRows, error: pError } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
@@ -230,50 +317,57 @@ export default function ChatsScreen() {
         return;
       }
 
-      // 2. Fetch everything in parallel
-      const [convosRes, othersRes, unreadRes, lastMsgRes] = await Promise.all([
-        supabase
-          .from('conversations')
-          .select('id, is_group, name')
-          .in('id', convoIds),
+      const [convosRes, othersRes, unreadRes, lastMsgRes, settingsRes] =
+        await Promise.all([
+          supabase
+            .from('conversations')
+            .select('id, is_group, name')
+            .in('id', convoIds),
 
-        supabase
-          .from('conversation_participants')
-          .select(
-            'conversation_id, user_id, profiles(id, username, display_name, avatar_color, avatar_url, verified, last_seen)'
-          )
-          .in('conversation_id', convoIds)
-          .neq('user_id', myId),
+          supabase
+            .from('conversation_participants')
+            .select(
+              'conversation_id, user_id, profiles(id, username, display_name, avatar_color, avatar_url, verified, last_seen)'
+            )
+            .in('conversation_id', convoIds)
+            .neq('user_id', myId),
 
-        supabase
-          .from('messages')
-          .select('id, conversation_id')
-          .in('conversation_id', convoIds)
-          .neq('sender_id', myId)
-          .is('read_at', null),
+          supabase
+            .from('messages')
+            .select('id, conversation_id')
+            .in('conversation_id', convoIds)
+            .neq('sender_id', myId)
+            .is('read_at', null),
 
-        // Only grab the most recent few per conversation — not ALL history
-        supabase
-          .from('messages')
-          .select('conversation_id, content, message_type, created_at, is_deleted')
-          .in('conversation_id', convoIds)
-          .order('created_at', { ascending: false })
-          .limit(Math.max(convoIds.length * 2, 40)),
-      ]);
+          supabase
+            .from('messages')
+            .select('conversation_id, content, message_type, created_at, is_deleted')
+            .in('conversation_id', convoIds)
+            .order('created_at', { ascending: false })
+            .limit(Math.max(convoIds.length * 2, 40)),
+
+          supabase
+            .from('chat_settings')
+            .select('conversation_id, is_muted, is_locked')
+            .eq('user_id', myId)
+            .in('conversation_id', convoIds),
+        ]);
 
       const convos = convosRes.data ?? [];
       const otherParticipants = othersRes.data ?? [];
       const unreadRows = unreadRes.data ?? [];
       const lastMessages = lastMsgRes.data ?? [];
+      const settings = (settingsRes.data ?? []) as ChatSetting[];
 
-      // Unread counts per conversation
+      const settingsMap: Record<string, ChatSetting> = {};
+      for (const s of settings) settingsMap[s.conversation_id] = s;
+
       const unreadCounts: Record<string, number> = {};
       for (const m of unreadRows as any[]) {
         unreadCounts[m.conversation_id] =
           (unreadCounts[m.conversation_id] || 0) + 1;
       }
 
-      // Pick latest message per conversation from the limited set
       const lastPerConvo = new Map<string, any>();
       for (const m of lastMessages as any[]) {
         if (!lastPerConvo.has(m.conversation_id)) {
@@ -286,6 +380,7 @@ export default function ChatsScreen() {
           (p) => p.conversation_id === c.id
         );
         const last = lastPerConvo.get(c.id);
+        const setting = settingsMap[c.id];
 
         let preview = 'Say hello 👋';
         if (last) {
@@ -305,6 +400,8 @@ export default function ChatsScreen() {
           last_message: preview,
           last_at: last?.created_at ?? '',
           unread_count: unreadCounts[c.id] ?? 0,
+          is_muted: setting?.is_muted ?? false,
+          is_locked: setting?.is_locked ?? false,
         };
       });
 
@@ -323,7 +420,7 @@ export default function ChatsScreen() {
     loadConversations();
   }, [loadConversations]);
 
-  // ---------- Debounced realtime (500ms batch) ----------
+  // ---------- Realtime ----------
   useEffect(() => {
     if (!myId) return;
 
@@ -346,6 +443,11 @@ export default function ChatsScreen() {
         { event: 'UPDATE', schema: 'public', table: 'messages' },
         scheduleReload
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_settings' },
+        scheduleReload
+      )
       .subscribe();
 
     return () => {
@@ -354,7 +456,11 @@ export default function ChatsScreen() {
     };
   }, [myId, loadConversations]);
 
-  // ---------- Handlers (stable refs for FlatList) ----------
+  // ---------- Derived lists ----------
+  const unlockedConversations = conversations.filter((c) => !c.is_locked);
+  const lockedConversations = conversations.filter((c) => c.is_locked);
+
+  // ---------- Handlers ----------
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadConversations();
@@ -367,15 +473,220 @@ export default function ChatsScreen() {
     [router]
   );
 
+  const openLockedChat = useCallback(
+    (convoId: string) => {
+      setLockedViewOpen(false);
+      router.push(`/chat/${convoId}`);
+    },
+    [router]
+  );
+
+  // ---------- Action: Delete ----------
+  async function deleteConversation(convoId: string) {
+    setDeleteConfirmConvo(null);
+    setConversations((prev) => prev.filter((c) => c.id !== convoId));
+
+    try {
+      await supabase
+        .from('conversation_participants')
+        .delete()
+        .eq('conversation_id', convoId)
+        .eq('user_id', myId);
+      // Clean settings row too
+      await supabase
+        .from('chat_settings')
+        .delete()
+        .eq('conversation_id', convoId)
+        .eq('user_id', myId);
+    } catch (err) {
+      console.warn('Delete failed:', err);
+      Alert.alert('Delete failed', 'Please try again.');
+      loadConversations();
+    }
+  }
+
+  // ---------- Action: Mute ----------
+  async function toggleMute(convo: Conversation) {
+    if (!myId) return;
+    setActionSheetConvo(null);
+    const nextMuted = !convo.is_muted;
+
+    // Optimistic
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === convo.id ? { ...c, is_muted: nextMuted } : c
+      )
+    );
+
+    try {
+      const { error } = await supabase.from('chat_settings').upsert(
+        {
+          user_id: myId,
+          conversation_id: convo.id,
+          is_muted: nextMuted,
+          is_locked: convo.is_locked ?? false,
+        },
+        { onConflict: 'user_id,conversation_id' }
+      );
+      if (error) throw error;
+    } catch (err) {
+      console.warn('Mute failed:', err);
+      // Revert
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === convo.id ? { ...c, is_muted: !nextMuted } : c
+        )
+      );
+      Alert.alert('Failed', 'Could not update mute.');
+    }
+  }
+
+  // ---------- Action: Lock ----------
+  function startLockFlow(convo: Conversation) {
+    setActionSheetConvo(null);
+    if (convo.is_locked) {
+      // Unlock directly
+      unlockChat(convo);
+      return;
+    }
+    // New lock: need PIN
+    if (!storedPin) {
+      // Setup PIN first
+      setPinSetupConvo(convo);
+      setPinInput1('');
+      setPinInput2('');
+      setPinError('');
+      return;
+    }
+    // PIN exists → lock immediately
+    applyLock(convo.id, true);
+  }
+
+  async function applyLock(convoId: string, lock: boolean) {
+    if (!myId) return;
+    try {
+      // Find convo for is_muted state
+      const convo = conversations.find((c) => c.id === convoId);
+      const { error } = await supabase.from('chat_settings').upsert(
+        {
+          user_id: myId,
+          conversation_id: convoId,
+          is_locked: lock,
+          is_muted: convo?.is_muted ?? false,
+        },
+        { onConflict: 'user_id,conversation_id' }
+      );
+      if (error) throw error;
+      setConversations((prev) =>
+        prev.map((c) => (c.id === convoId ? { ...c, is_locked: lock } : c))
+      );
+    } catch (err) {
+      console.warn('Lock failed:', err);
+      Alert.alert('Failed', 'Could not update lock.');
+    }
+  }
+
+  async function unlockChat(convo: Conversation) {
+    await applyLock(convo.id, false);
+  }
+
+  // ---------- PIN setup ----------
+  async function confirmPinSetup() {
+    if (!pinSetupConvo || !myId) return;
+    if (pinInput1.length !== 4) {
+      setPinError('PIN must be 4 digits');
+      return;
+    }
+    if (pinInput1 !== pinInput2) {
+      setPinError('PINs do not match');
+      return;
+    }
+    try {
+      await AsyncStorage.setItem(pinKey(myId), pinInput1);
+      setStoredPin(pinInput1);
+      const targetId = pinSetupConvo.id;
+      setPinSetupConvo(null);
+      setPinInput1('');
+      setPinInput2('');
+      setPinError('');
+      await applyLock(targetId, true);
+    } catch (err) {
+      setPinError('Could not save PIN');
+    }
+  }
+
+  // ---------- PIN verify (view locked) ----------
+  function openLockedSection() {
+    if (lockedConversations.length === 0) return;
+    setPinVerifyInput('');
+    setPinVerifyError('');
+    setPinModalVisible(true);
+  }
+
+  function confirmPinVerify() {
+    if (!storedPin) {
+      // No PIN set but has locked chats? Force setup.
+      setPinModalVisible(false);
+      return;
+    }
+    if (pinVerifyInput === storedPin) {
+      setPinModalVisible(false);
+      setPinVerifyInput('');
+      setPinVerifyError('');
+      setLockedViewOpen(true);
+    } else {
+      setPinVerifyError('Incorrect PIN');
+    }
+  }
+
+  // ---------- Action: Block ----------
+  async function blockUser(convo: Conversation) {
+    if (!myId) return;
+    const targetUserId = convo.other_profile?.id;
+    if (!targetUserId) {
+      Alert.alert('Cannot block', 'This is not a 1:1 chat.');
+      setBlockConfirmConvo(null);
+      return;
+    }
+    setBlockConfirmConvo(null);
+    try {
+      await supabase
+        .from('blocked_users')
+        .insert({ blocker_id: myId, blocked_id: targetUserId });
+
+      // Remove chat
+      await supabase
+        .from('conversation_participants')
+        .delete()
+        .eq('conversation_id', convo.id)
+        .eq('user_id', myId);
+
+      await supabase
+        .from('chat_settings')
+        .delete()
+        .eq('conversation_id', convo.id)
+        .eq('user_id', myId);
+
+      setConversations((prev) => prev.filter((c) => c.id !== convo.id));
+      Alert.alert('Blocked', `@${convo.other_profile?.username} has been blocked.`);
+    } catch (err) {
+      console.warn('Block failed:', err);
+      Alert.alert('Failed', 'Could not block.');
+      loadConversations();
+    }
+  }
+
+  // ---------- Rendering ----------
   const renderItem = useCallback(
     ({ item, index }: { item: Conversation; index: number }) => (
       <ChatRow
         item={item}
         onPress={openChat}
-        showSeparator={index < conversations.length - 1}
+        onLongPress={setActionSheetConvo}
+        showSeparator={index < unlockedConversations.length - 1}
       />
     ),
-    [openChat, conversations.length]
+    [openChat, unlockedConversations.length]
   );
 
   const keyExtractor = useCallback((item: Conversation) => item.id, []);
@@ -388,6 +699,33 @@ export default function ChatsScreen() {
     }),
     []
   );
+
+  const listHeader = useCallback(() => {
+    if (lockedConversations.length === 0) return null;
+    return (
+      <TouchableOpacity
+        style={styles.lockedFolder}
+        onPress={openLockedSection}
+        activeOpacity={0.75}
+      >
+        <View style={styles.lockedFolderIcon}>
+          <Ionicons name="lock-closed" size={22} color="#FFFFFF" />
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.lockedFolderTitle}>Locked chats</Text>
+          <Text style={styles.lockedFolderSub}>
+            {lockedConversations.length}{' '}
+            {lockedConversations.length === 1 ? 'chat' : 'chats'} · Tap to unlock
+          </Text>
+        </View>
+        <Ionicons
+          name="chevron-forward"
+          size={18}
+          color="rgba(255,255,255,0.4)"
+        />
+      </TouchableOpacity>
+    );
+  }, [lockedConversations.length]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -406,19 +744,18 @@ export default function ChatsScreen() {
         <ChatListSkeleton />
       ) : (
         <FlatList
-          data={conversations}
+          data={unlockedConversations}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
           getItemLayout={getItemLayout}
+          ListHeaderComponent={listHeader}
           contentContainerStyle={styles.listContent}
-          // -------- Performance props --------
           initialNumToRender={12}
           maxToRenderPerBatch={10}
           windowSize={7}
           updateCellsBatchingPeriod={50}
           removeClippedSubviews={true}
           keyboardShouldPersistTaps="handled"
-          // -----------------------------------
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -451,7 +788,388 @@ export default function ChatsScreen() {
           }
         />
       )}
+
+      {/* ========== ACTION SHEET ========== */}
+      <Modal
+        visible={!!actionSheetConvo}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActionSheetConvo(null)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setActionSheetConvo(null)}
+        >
+          <Pressable
+            style={styles.sheetCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.sheetHandle} />
+
+            {actionSheetConvo && (
+              <View style={styles.sheetHeader}>
+                <Avatar
+                  name={
+                    actionSheetConvo.other_profile?.display_name ?? 'Unknown'
+                  }
+                  color={
+                    actionSheetConvo.other_profile?.avatar_color ?? COLORS.violet
+                  }
+                  avatarUrl={actionSheetConvo.other_profile?.avatar_url ?? null}
+                  size={44}
+                />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.sheetHeaderName} numberOfLines={1}>
+                    {actionSheetConvo.other_profile?.display_name ?? 'Chat'}
+                  </Text>
+                  <Text style={styles.sheetHeaderSub}>
+                    @{actionSheetConvo.other_profile?.username}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            <ActionRow
+              icon="trash-outline"
+              label="Delete"
+              danger
+              onPress={() =>
+                actionSheetConvo &&
+                (setDeleteConfirmConvo(actionSheetConvo),
+                setActionSheetConvo(null))
+              }
+            />
+            <ActionRow
+              icon={
+                actionSheetConvo?.is_muted ? 'volume-high-outline' : 'volume-mute-outline'
+              }
+              label={actionSheetConvo?.is_muted ? 'Unmute' : 'Mute'}
+              onPress={() => actionSheetConvo && toggleMute(actionSheetConvo)}
+            />
+            <ActionRow
+              icon={
+                actionSheetConvo?.is_locked
+                  ? 'lock-open-outline'
+                  : 'lock-closed-outline'
+              }
+              label={actionSheetConvo?.is_locked ? 'Unlock chat' : 'Lock chat'}
+              onPress={() =>
+                actionSheetConvo && startLockFlow(actionSheetConvo)
+              }
+            />
+            <ActionRow
+              icon="ban-outline"
+              label="Block"
+              danger
+              onPress={() =>
+                actionSheetConvo &&
+                (setBlockConfirmConvo(actionSheetConvo),
+                setActionSheetConvo(null))
+              }
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ========== DELETE CONFIRM ========== */}
+      <Modal
+        visible={!!deleteConfirmConvo}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeleteConfirmConvo(null)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setDeleteConfirmConvo(null)}
+        >
+          <Pressable
+            style={[styles.sheetCard, { paddingHorizontal: 20 }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.sheetHandle} />
+            <Text style={styles.confirmTitle}>Delete this chat?</Text>
+            <Text style={styles.confirmSub}>
+              This will remove the chat from your list. The other person will
+              still see the conversation.
+            </Text>
+            <View style={styles.confirmRow}>
+              <TouchableOpacity
+                style={styles.confirmCancel}
+                onPress={() => setDeleteConfirmConvo(null)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmDanger}
+                onPress={() =>
+                  deleteConfirmConvo && deleteConversation(deleteConfirmConvo.id)
+                }
+                activeOpacity={0.75}
+              >
+                <Text style={styles.confirmDangerText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ========== BLOCK CONFIRM ========== */}
+      <Modal
+        visible={!!blockConfirmConvo}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBlockConfirmConvo(null)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setBlockConfirmConvo(null)}
+        >
+          <Pressable
+            style={[styles.sheetCard, { paddingHorizontal: 20 }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.sheetHandle} />
+            <Text style={styles.confirmTitle}>
+              Block @{blockConfirmConvo?.other_profile?.username}?
+            </Text>
+            <Text style={styles.confirmSub}>
+              They won't be able to message you. This chat will be removed.
+            </Text>
+            <View style={styles.confirmRow}>
+              <TouchableOpacity
+                style={styles.confirmCancel}
+                onPress={() => setBlockConfirmConvo(null)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmDanger}
+                onPress={() => blockConfirmConvo && blockUser(blockConfirmConvo)}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.confirmDangerText}>Block</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ========== PIN SETUP ========== */}
+      <Modal
+        visible={!!pinSetupConvo}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPinSetupConvo(null)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <Pressable
+            style={styles.sheetBackdrop}
+            onPress={() => setPinSetupConvo(null)}
+          >
+            <Pressable
+              style={[styles.sheetCard, { paddingHorizontal: 22 }]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.sheetHandle} />
+              <View style={styles.pinIconWrap}>
+                <Ionicons name="lock-closed" size={26} color={COLORS.violetLight} />
+              </View>
+              <Text style={styles.pinTitle}>Set a chat lock PIN</Text>
+              <Text style={styles.pinSub}>
+                Enter a 4-digit PIN. You'll need it every time you open locked
+                chats.
+              </Text>
+
+              <TextInput
+                style={styles.pinInput}
+                value={pinInput1}
+                onChangeText={(t) => setPinInput1(t.replace(/\D/g, '').slice(0, 4))}
+                placeholder="Enter 4-digit PIN"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                keyboardType="number-pad"
+                secureTextEntry
+                maxLength={4}
+              />
+
+              <TextInput
+                style={styles.pinInput}
+                value={pinInput2}
+                onChangeText={(t) => setPinInput2(t.replace(/\D/g, '').slice(0, 4))}
+                placeholder="Confirm PIN"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                keyboardType="number-pad"
+                secureTextEntry
+                maxLength={4}
+              />
+
+              {!!pinError && <Text style={styles.pinError}>{pinError}</Text>}
+
+              <View style={styles.confirmRow}>
+                <TouchableOpacity
+                  style={styles.confirmCancel}
+                  onPress={() => setPinSetupConvo(null)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.confirmCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.confirmPrimary}
+                  onPress={confirmPinSetup}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.confirmPrimaryText}>Save & Lock</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ========== PIN VERIFY ========== */}
+      <Modal
+        visible={pinModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPinModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <Pressable
+            style={styles.sheetBackdrop}
+            onPress={() => setPinModalVisible(false)}
+          >
+            <Pressable
+              style={[styles.sheetCard, { paddingHorizontal: 22 }]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.sheetHandle} />
+              <View style={styles.pinIconWrap}>
+                <Ionicons name="lock-closed" size={26} color={COLORS.violetLight} />
+              </View>
+              <Text style={styles.pinTitle}>Enter your PIN</Text>
+              <Text style={styles.pinSub}>
+                Unlock to view your locked chats.
+              </Text>
+
+              <TextInput
+                style={styles.pinInput}
+                value={pinVerifyInput}
+                onChangeText={(t) =>
+                  setPinVerifyInput(t.replace(/\D/g, '').slice(0, 4))
+                }
+                placeholder="4-digit PIN"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                keyboardType="number-pad"
+                secureTextEntry
+                maxLength={4}
+                autoFocus
+              />
+
+              {!!pinVerifyError && (
+                <Text style={styles.pinError}>{pinVerifyError}</Text>
+              )}
+
+              <View style={styles.confirmRow}>
+                <TouchableOpacity
+                  style={styles.confirmCancel}
+                  onPress={() => setPinModalVisible(false)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.confirmCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.confirmPrimary}
+                  onPress={confirmPinVerify}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.confirmPrimaryText}>Unlock</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ========== LOCKED CHATS VIEW (session only) ========== */}
+      <Modal
+        visible={lockedViewOpen}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setLockedViewOpen(false)}
+      >
+        <SafeAreaView style={styles.lockedViewSafe} edges={['top', 'bottom']}>
+          <View style={styles.lockedViewHeader}>
+            <TouchableOpacity
+              style={styles.lockedViewClose}
+              onPress={() => setLockedViewOpen(false)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            <Text style={styles.lockedViewTitle}>Locked chats</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          <FlatList
+            data={lockedConversations}
+            keyExtractor={keyExtractor}
+            contentContainerStyle={styles.listContent}
+            renderItem={({ item, index }) => (
+              <ChatRow
+                item={item}
+                onPress={openLockedChat}
+                onLongPress={setActionSheetConvo}
+                showSeparator={index < lockedConversations.length - 1}
+              />
+            )}
+            ListEmptyComponent={
+              <View style={styles.emptyWrap}>
+                <Text style={styles.emptyTitle}>No locked chats</Text>
+              </View>
+            }
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
+  );
+}
+
+// ---------- ActionRow ----------
+function ActionRow({
+  icon,
+  label,
+  onPress,
+  danger,
+}: {
+  icon: any;
+  label: string;
+  onPress: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.actionRow}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <Ionicons
+        name={icon}
+        size={22}
+        color={danger ? COLORS.danger : '#FFFFFF'}
+      />
+      <Text
+        style={[styles.actionLabel, danger && { color: COLORS.danger }]}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -487,6 +1205,38 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
+  lockedFolder: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 6,
+    borderRadius: 14,
+    backgroundColor: 'rgba(124,92,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,92,255,0.22)',
+  },
+  lockedFolderIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#2A2D3A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockedFolderTitle: {
+    fontSize: 15.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+  },
+  lockedFolderSub: {
+    fontSize: 12.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+    marginTop: 2,
+  },
+
   rowContainer: {
     height: ROW_HEIGHT,
     position: 'relative',
@@ -498,6 +1248,14 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
     paddingVertical: 12,
     paddingHorizontal: SPACING.sm,
+  },
+  lockedAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#2A2D3A',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rowInfo: { flex: 1, minWidth: 0 },
   rowTop: {
@@ -544,7 +1302,6 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontFamily: FONTS.bodyMedium,
   },
-
   separator: {
     position: 'absolute',
     left: 78,
@@ -553,7 +1310,6 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
   },
-
   unreadBadge: {
     minWidth: 22,
     height: 22,
@@ -628,5 +1384,195 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14.5,
     fontFamily: FONTS.bodySemiBold,
+  },
+
+  // ---------- Sheet base ----------
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  sheetCard: {
+    backgroundColor: '#1A1D27',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingBottom: 12,
+    marginBottom: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  sheetHeaderName: {
+    fontSize: 15.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+  },
+  sheetHeaderSub: {
+    fontSize: 12.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+    marginTop: 2,
+  },
+
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  actionLabel: {
+    fontSize: 16,
+    fontFamily: FONTS.bodyMedium,
+    color: '#FFFFFF',
+  },
+
+  // ---------- Confirm dialogs ----------
+  confirmTitle: {
+    fontSize: 17,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    marginBottom: 6,
+  },
+  confirmSub: {
+    fontSize: 13.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+    marginBottom: 18,
+    lineHeight: 19,
+  },
+  confirmRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  confirmCancel: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  confirmCancelText: {
+    fontSize: 14.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.mistLight,
+  },
+  confirmDanger: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: COLORS.danger,
+    alignItems: 'center',
+  },
+  confirmDangerText: {
+    fontSize: 14.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+  },
+  confirmPrimary: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: COLORS.violet,
+    alignItems: 'center',
+  },
+  confirmPrimaryText: {
+    fontSize: 14.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+  },
+
+  // ---------- PIN ----------
+  pinIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(124,92,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  pinTitle: {
+    fontSize: 17,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  pinSub: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 18,
+  },
+  pinInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 18,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    letterSpacing: 8,
+    marginBottom: 10,
+  },
+  pinError: {
+    fontSize: 13,
+    fontFamily: FONTS.bodyMedium,
+    color: COLORS.danger,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+
+  // ---------- Locked view ----------
+  lockedViewSafe: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  lockedViewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  lockedViewClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockedViewTitle: {
+    fontSize: 18,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
   },
 });
