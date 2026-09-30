@@ -1,5 +1,5 @@
 // components/MessageBubble.tsx
-// Double-tap heart reaction (no animation) + reaction pills + cache-friendly
+// Double-tap heart reaction (no animation) + reaction pills + cache-friendly + haptics
 
 import { memo, useCallback, useMemo, useRef } from 'react';
 import {
@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { COLORS, FONTS, GRADIENTS, SPACING } from '../constants/theme';
+import { hapticMedium } from '../lib/haptics';
 
 type Message = {
   id: string;
@@ -223,6 +224,7 @@ function MessageBubbleBase({
     const now = Date.now();
     if (now - lastTapRef.current < DOUBLE_TAP_MS) {
       lastTapRef.current = 0;
+      hapticMedium(); // ✅ haptic on double-tap reaction
       onDoubleTap?.(message);
     } else {
       lastTapRef.current = now;
@@ -231,6 +233,7 @@ function MessageBubbleBase({
 
   const handleLongPress = useCallback(() => {
     lastTapRef.current = 0;
+    hapticMedium(); // ✅ haptic on long press
     onLongPress?.(message);
   }, [onLongPress, message]);
 
