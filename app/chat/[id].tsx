@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics + entrance animation + sounds + typing dots
+// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics + entrance animation + sounds + typing dots + wallpaper
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -17,6 +17,7 @@ import {
   Pressable,
   Animated,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -1487,12 +1488,30 @@ export default function ChatScreen() {
         )}
 
         <View style={{ flex: 1 }}>
+          {/* ✅ Wallpaper layer */}
+          <Image
+            source={require('../../assets/chat-wallpaper.png')}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            transition={0}
+            cachePolicy="memory-disk"
+          />
+          {/* ✅ Dark overlay — keeps messages readable */}
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              { backgroundColor: 'rgba(0,0,0,0.55)' },
+            ]}
+            pointerEvents="none"
+          />
+
           <FlatList
             ref={flatListRef}
             data={visibleMessages}
             keyExtractor={keyExtractor}
             renderItem={renderItem}
             contentContainerStyle={styles.listContent}
+            style={{ backgroundColor: 'transparent' }}
             onScroll={onScroll}
             scrollEventThrottle={100}
             onContentSizeChange={onContentSizeChange}
