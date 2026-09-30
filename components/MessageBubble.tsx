@@ -1,12 +1,13 @@
 // components/MessageBubble.tsx
-// Optimized: memoized, voice message support, expo-image with caching, long-press actions
+// Double-tap heart reaction with burst animation + reaction pills + cache-friendly
 
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
+  Animated,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +29,13 @@ type Message = {
   is_deleted: boolean | null;
 };
 
+type Reaction = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+};
+
 type Props = {
   message: Message;
   isMine: boolean;
@@ -35,10 +43,14 @@ type Props = {
   nextMessage?: Message;
   myId: string;
   onLongPress?: (msg: Message) => void;
+  onDoubleTap?: (msg: Message) => void;
   replyMessage?: Message | null;
+  reactions?: Reaction[];
 };
 
-// ---------- Pure helpers (outside component) ----------
+const DOUBLE_TAP_MS = 300;
+
+// ---------- Pure helpers ----------
 function formatTime(iso: string) {
   const d = new Date(iso);
   const h = d.getHours().toString().padStart(2, '0');
@@ -154,7 +166,9 @@ function MessageBubbleBase({
   nextMessage,
   myId,
   onLongPress,
+  onDoubleTap,
   replyMessage,
+  reactions,
 }: Props) {
   const currentDay = useMemo(
     () => dayLabel(message.created_at),
@@ -202,9 +216,76 @@ function MessageBubbleBase({
       : 'Them'
     : '';
 
+  // ---------- Heart burst animation ----------
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const heartOpacity = useRef(new Animated.Value(0)).current;
+  const lastTapRef = useRef<number>(0);
+
+  const triggerHeartBurst = useCallback(() => {
+    heartScale.setValue(0.3);
+    heartOpacity.setValue(0);
+    Animated.parallel([
+      Animated.sequence([
+        Animated.spring(heartScale, {
+          toValue: 1.15,
+          friction: 4,
+          tension: 120,
+          useNativeDriver: true,
+        }),
+        Animated.timing(heartScale, {
+          toValue: 1,
+          duration: 120,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.sequence([
+        Animated.timing(heartOpacity, {
+          toValue: 1,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.delay(400),
+        Animated.timing(heartOpacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+  }, [heartScale, heartOpacity]);
+
+  const handlePress = useCallback(() => {
+    if (isDeleted) return;
+    const now = Date.now();
+    if (now - lastTapRef.current < DOUBLE_TAP_MS) {
+      lastTapRef.current = 0;
+      triggerHeartBurst();
+      onDoubleTap?.(message);
+    } else {
+      lastTapRef.current = now;
+    }
+  }, [isDeleted, triggerHeartBurst, onDoubleTap, message]);
+
   const handleLongPress = useCallback(() => {
+    lastTapRef.current = 0;
     onLongPress?.(message);
   }, [onLongPress, message]);
+
+  // ---------- Grouped reactions for pills ----------
+  const groupedReactions = useMemo(() => {
+    if (!reactions || reactions.length === 0) return [];
+    const map: Record<string, { count: number; mine: boolean }> = {};
+    for (const r of reactions) {
+      if (!map[r.emoji]) map[r.emoji] = { count: 0, mine: false };
+      map[r.emoji].count += 1;
+      if (r.user_id === myId) map[r.emoji].mine = true;
+    }
+    return Object.entries(map).map(([emoji, info]) => ({
+      emoji,
+      count: info.count,
+      mine: info.mine,
+    }));
+  }, [reactions, myId]);
 
   return (
     <>
@@ -225,6 +306,7 @@ function MessageBubbleBase({
       >
         <TouchableOpacity
           activeOpacity={0.92}
+          onPress={handlePress}
           onLongPress={handleLongPress}
           delayLongPress={350}
           style={[
@@ -232,7 +314,7 @@ function MessageBubbleBase({
             { alignItems: isMine ? 'flex-end' : 'flex-start' },
           ]}
         >
-          {/* ---------- Quoted reply preview ---------- */}
+          {/* Quoted reply */}
           {hasReply && replyMessage && (
             <View
               style={[
@@ -258,71 +340,87 @@ function MessageBubbleBase({
             </View>
           )}
 
-          {isDeleted ? (
-            <View
+          <View style={{ position: 'relative' }}>
+            {isDeleted ? (
+              <View
+                style={[
+                  styles.bubble,
+                  isMine ? styles.bubbleMinePlain : styles.bubbleOther,
+                  nextIsSameSender &&
+                    (isMine
+                      ? styles.bubbleMineTightBottom
+                      : styles.bubbleOtherTightBottom),
+                ]}
+              >
+                <Text style={styles.deletedText}>This message was deleted</Text>
+              </View>
+            ) : isImage ? (
+              <View style={styles.imageWrap}>
+                <Image
+                  source={{ uri: message.media_url! }}
+                  style={styles.image}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={150}
+                  recyclingKey={message.id}
+                />
+              </View>
+            ) : isVoice ? (
+              <View
+                style={[
+                  styles.bubble,
+                  isMine ? styles.bubbleMinePlain : styles.bubbleOther,
+                  nextIsSameSender &&
+                    (isMine
+                      ? styles.bubbleMineTightBottom
+                      : styles.bubbleOtherTightBottom),
+                ]}
+              >
+                <VoiceBubble
+                  url={message.media_url!}
+                  duration={message.media_duration ?? 0}
+                  isMine={isMine}
+                />
+              </View>
+            ) : isMine ? (
+              <LinearGradient
+                colors={GRADIENTS.bubbleMine as any}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[
+                  styles.bubble,
+                  styles.bubbleMine,
+                  nextIsSameSender && styles.bubbleMineTightBottom,
+                ]}
+              >
+                <Text style={styles.text}>{message.content}</Text>
+              </LinearGradient>
+            ) : (
+              <View
+                style={[
+                  styles.bubble,
+                  styles.bubbleOther,
+                  nextIsSameSender && styles.bubbleOtherTightBottom,
+                ]}
+              >
+                <Text style={styles.text}>{message.content}</Text>
+              </View>
+            )}
+
+            {/* Heart burst overlay */}
+            <Animated.View
+              pointerEvents="none"
               style={[
-                styles.bubble,
-                isMine ? styles.bubbleMinePlain : styles.bubbleOther,
-                nextIsSameSender &&
-                  (isMine
-                    ? styles.bubbleMineTightBottom
-                    : styles.bubbleOtherTightBottom),
+                styles.heartBurst,
+                {
+                  opacity: heartOpacity,
+                  transform: [{ scale: heartScale }],
+                },
               ]}
             >
-              <Text style={styles.deletedText}>This message was deleted</Text>
-            </View>
-          ) : isImage ? (
-            <View style={styles.imageWrap}>
-              <Image
-                source={{ uri: message.media_url! }}
-                style={styles.image}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-                transition={150}
-                recyclingKey={message.id}
-              />
-            </View>
-          ) : isVoice ? (
-            <View
-              style={[
-                styles.bubble,
-                isMine ? styles.bubbleMinePlain : styles.bubbleOther,
-                nextIsSameSender &&
-                  (isMine
-                    ? styles.bubbleMineTightBottom
-                    : styles.bubbleOtherTightBottom),
-              ]}
-            >
-              <VoiceBubble
-                url={message.media_url!}
-                duration={message.media_duration ?? 0}
-                isMine={isMine}
-              />
-            </View>
-          ) : isMine ? (
-            <LinearGradient
-              colors={GRADIENTS.bubbleMine as any}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[
-                styles.bubble,
-                styles.bubbleMine,
-                nextIsSameSender && styles.bubbleMineTightBottom,
-              ]}
-            >
-              <Text style={styles.text}>{message.content}</Text>
-            </LinearGradient>
-          ) : (
-            <View
-              style={[
-                styles.bubble,
-                styles.bubbleOther,
-                nextIsSameSender && styles.bubbleOtherTightBottom,
-              ]}
-            >
-              <Text style={styles.text}>{message.content}</Text>
-            </View>
-          )}
+              <Text style={styles.heartBurstEmoji}>❤️</Text>
+            </Animated.View>
+          </View>
 
           <View style={styles.metaRow}>
             <Text style={styles.time}>{formatTime(message.created_at)}</Text>
@@ -335,6 +433,26 @@ function MessageBubbleBase({
               />
             )}
           </View>
+
+          {/* Reaction pills */}
+          {groupedReactions.length > 0 && (
+            <View style={styles.reactionsRow}>
+              {groupedReactions.map((r) => (
+                <View
+                  key={r.emoji}
+                  style={[
+                    styles.reactionPill,
+                    r.mine && styles.reactionPillMine,
+                  ]}
+                >
+                  <Text style={styles.reactionEmoji}>{r.emoji}</Text>
+                  {r.count > 1 && (
+                    <Text style={styles.reactionCount}>{r.count}</Text>
+                  )}
+                </View>
+              ))}
+            </View>
+          )}
         </TouchableOpacity>
       </View>
     </>
@@ -347,12 +465,25 @@ function areEqual(prev: Props, next: Props) {
   if (prev.isMine !== next.isMine) return false;
   if (prev.prevMessage?.id !== next.prevMessage?.id) return false;
   if (prev.nextMessage?.id !== next.nextMessage?.id) return false;
-  if (prev.prevMessage?.created_at !== next.prevMessage?.created_at) return false;
-  if (prev.nextMessage?.created_at !== next.nextMessage?.created_at) return false;
+  if (prev.prevMessage?.created_at !== next.prevMessage?.created_at)
+    return false;
+  if (prev.nextMessage?.created_at !== next.nextMessage?.created_at)
+    return false;
   if (prev.nextMessage?.sender_id !== next.nextMessage?.sender_id) return false;
   if (prev.replyMessage?.id !== next.replyMessage?.id) return false;
   if (prev.replyMessage?.content !== next.replyMessage?.content) return false;
-  if (prev.replyMessage?.is_deleted !== next.replyMessage?.is_deleted) return false;
+  if (prev.replyMessage?.is_deleted !== next.replyMessage?.is_deleted)
+    return false;
+
+  // Reactions comparison
+  const pr = prev.reactions ?? [];
+  const nr = next.reactions ?? [];
+  if (pr.length !== nr.length) return false;
+  for (let i = 0; i < pr.length; i++) {
+    if (pr[i].id !== nr[i].id) return false;
+    if (pr[i].emoji !== nr[i].emoji) return false;
+    if (pr[i].user_id !== nr[i].user_id) return false;
+  }
   return true;
 }
 
@@ -432,6 +563,53 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.55)',
   },
 
+  // ---------- Heart burst ----------
+  heartBurst: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heartBurstEmoji: {
+    fontSize: 64,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+  },
+
+  // ---------- Reaction pills ----------
+  reactionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+    marginHorizontal: 4,
+  },
+  reactionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  reactionPillMine: {
+    backgroundColor: 'rgba(124,92,255,0.25)',
+    borderColor: 'rgba(124,92,255,0.5)',
+  },
+  reactionEmoji: { fontSize: 13 },
+  reactionCount: {
+    fontSize: 11,
+    fontFamily: FONTS.bodySemiBold,
+    color: 'rgba(255,255,255,0.85)',
+  },
+
   // ---------- Quoted reply ----------
   quotedWrap: {
     flexDirection: 'row',
@@ -443,12 +621,8 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     minWidth: 160,
   },
-  quotedWrapMine: {
-    backgroundColor: 'rgba(255,255,255,0.14)',
-  },
-  quotedWrapOther: {
-    backgroundColor: 'rgba(124,92,255,0.14)',
-  },
+  quotedWrapMine: { backgroundColor: 'rgba(255,255,255,0.14)' },
+  quotedWrapOther: { backgroundColor: 'rgba(124,92,255,0.14)' },
   quotedBar: {
     width: 3,
     borderRadius: 2,
@@ -465,11 +639,8 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
   },
-  quotedTextMine: {
-    color: 'rgba(255,255,255,0.85)',
-  },
+  quotedTextMine: { color: 'rgba(255,255,255,0.85)' },
 
-  // ---------- Image ----------
   imageWrap: {
     borderRadius: 18,
     overflow: 'hidden',
@@ -477,7 +648,6 @@ const styles = StyleSheet.create({
   },
   image: { width: 220, height: 220, borderRadius: 16 },
 
-  // ---------- Voice ----------
   voiceWrap: {
     flexDirection: 'row',
     alignItems: 'center',
