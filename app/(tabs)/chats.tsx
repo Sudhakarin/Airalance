@@ -87,17 +87,17 @@ async function readChatsCache(uid: string): Promise<Conversation[] | null> {
     const parsed = JSON.parse(raw) as { t: number; d: Conversation[] };
     if (!parsed?.d || !Array.isArray(parsed.d)) return null;
     if (Date.now() - (parsed.t ?? 0) > CACHE_TTL_MS) return null;
-    return),
- parsed.d;
-  } catch      {
+    return parsed.d;
+  } catch {
     return null;
   }
 }
 
- JSONasync function writeChatsCache(.stringifyuid: string, list: Conversation[]) {
-({  try {
-    await AsyncStorage.set tItem(
-      chatsCacheKey(uid: Date.now(), d: list })
+async function writeChatsCache(uid: string, list: Conversation[]) {
+  try {
+    await AsyncStorage.setItem(
+      chatsCacheKey(uid),
+      JSON.stringify({ t: Date.now(), d: list })
     );
   } catch {}
 }
