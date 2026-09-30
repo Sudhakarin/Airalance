@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Platform } from 'react-native';
+import { StyleSheet, Platform, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
@@ -25,6 +25,7 @@ import {
 } from '@expo-google-fonts/poppins';
 import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono';
 import { supabase } from '../lib/supabase';
+import { setSessionUnlocked } from '../lib/pin';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -69,6 +70,16 @@ export default function RootLayout() {
       html::-webkit-scrollbar, body::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
     `;
     document.head.appendChild(style);
+  }, []);
+
+  // ---------- Lock session reset on background ----------
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background' || state === 'inactive') {
+        setSessionUnlocked(false);
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   // ---------- Load fonts ----------
