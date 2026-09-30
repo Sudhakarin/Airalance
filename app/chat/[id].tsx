@@ -173,12 +173,10 @@ export default function ChatScreen() {
   const [otherOnline, setOtherOnline] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // ---------- Scroll button ----------
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [newMessagesCount, setNewMessagesCount] = useState(0);
   const scrollBtnAnim = useRef(new Animated.Value(0)).current;
 
-  // ---------- Action states ----------
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [actionSheetMsg, setActionSheetMsg] = useState<Message | null>(null);
@@ -199,10 +197,8 @@ export default function ChatScreen() {
   const recorderState = useAudioRecorderState(audioRecorder, 100);
   const [isRecording, setIsRecording] = useState(false);
 
-  // ---------- Visible messages ----------
   const visibleMessages = messages.filter((m) => !hiddenForMeIds.has(m.id));
 
-  // ---------- Scroll button animation ----------
   useEffect(() => {
     Animated.timing(scrollBtnAnim, {
       toValue: showScrollBtn ? 1 : 0,
@@ -211,7 +207,6 @@ export default function ChatScreen() {
     }).start();
   }, [showScrollBtn, scrollBtnAnim]);
 
-  // ---------- Cache-first ----------
   useEffect(() => {
     if (!convoId) return;
     let cancelled = false;
@@ -239,7 +234,6 @@ export default function ChatScreen() {
     return () => clearTimeout(timer);
   }, [messages, hiddenForMeIds, convoId]);
 
-  // ---------- Bootstrap ----------
   useEffect(() => {
     let mounted = true;
 
@@ -288,7 +282,6 @@ export default function ChatScreen() {
         setMessages(ordered);
         prevMsgCountRef.current = ordered.length;
 
-        // Load reactions for these messages
         if (ordered.length > 0) {
           const { data: rx } = await supabase
             .from('message_reactions')
@@ -341,7 +334,6 @@ export default function ChatScreen() {
     initialScrollDoneRef.current = false;
   }, [convoId]);
 
-  // ---------- Realtime ----------
   useEffect(() => {
     if (!myId || !convoId) return;
 
@@ -454,7 +446,6 @@ export default function ChatScreen() {
     };
   }, [myId, convoId]);
 
-  // ---------- Presence polling ----------
   useEffect(() => {
     if (!other?.id) return;
     let cancelled = false;
@@ -478,7 +469,6 @@ export default function ChatScreen() {
     };
   }, [other?.id]);
 
-  // ---------- Smart scroll ----------
   useEffect(() => {
     const count = visibleMessages.length;
     const prevCount = prevMsgCountRef.current;
@@ -522,7 +512,6 @@ export default function ChatScreen() {
     setNewMessagesCount(0);
   }, []);
 
-  // ---------- Web height ----------
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const el: any = inputRef.current;
@@ -532,7 +521,6 @@ export default function ChatScreen() {
     el.style.height = `${next}px`;
   }, [input, isRecording]);
 
-  // ---------- Push ----------
   const triggerPushNotification = useCallback(
     async (
       receiverId: string,
@@ -560,7 +548,6 @@ export default function ChatScreen() {
     [myName, convoId]
   );
 
-  // ---------- Input + typing ----------
   const onInputChange = useCallback(
     (text: string) => {
       setInput(text);
@@ -590,7 +577,6 @@ export default function ChatScreen() {
     [myId]
   );
 
-  // ---------- Long press handlers ----------
   const handleMessageLongPress = useCallback((msg: Message) => {
     if (msg.is_deleted) {
       setDeleteConfirmMsg(msg);
@@ -599,7 +585,6 @@ export default function ChatScreen() {
     setActionSheetMsg(msg);
   }, []);
 
-  // ---------- Toggle reaction ----------
   const toggleReaction = useCallback(
     async (msg: Message, emoji: string) => {
       if (!myId || msg.is_deleted) return;
@@ -672,7 +657,6 @@ export default function ChatScreen() {
     [myId, reactionsByMsg]
   );
 
-  // ---------- Double tap → heart ----------
   const handleDoubleTap = useCallback(
     (msg: Message) => {
       toggleReaction(msg, '❤️');
@@ -823,7 +807,6 @@ export default function ChatScreen() {
     } catch {}
   }
 
-  // ---------- Send text ----------
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
@@ -890,7 +873,6 @@ export default function ChatScreen() {
     setSending(false);
   }
 
-  // ---------- Pick image ----------
   async function pickImage() {
     if (!myId || !convoId || uploading) return;
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -955,7 +937,6 @@ export default function ChatScreen() {
     }
   }
 
-  // ---------- Voice ----------
   async function startRecording() {
     if (isRecording) return;
     try {
@@ -1123,7 +1104,6 @@ export default function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        {/* ---------- Header ---------- */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backBtn}
@@ -1176,7 +1156,6 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ---------- Pin banner ---------- */}
         {pinnedMessage && !hiddenForMeIds.has(pinnedMessage.id) && (
           <TouchableOpacity
             style={styles.pinBanner}
@@ -1203,7 +1182,6 @@ export default function ChatScreen() {
           </TouchableOpacity>
         )}
 
-        {/* ---------- Messages list ---------- */}
         <View style={{ flex: 1 }}>
           <FlatList
             ref={flatListRef}
@@ -1257,11 +1235,7 @@ export default function ChatScreen() {
                 onPress={handleScrollToBottom}
                 activeOpacity={0.85}
               >
-                <Ionicons
-                  name="chevron-down"
-                  size={22}
-                  color="#FFFFFF"
-                />
+                <Ionicons name="chevron-down" size={22} color="#FFFFFF" />
                 {newMessagesCount > 0 && (
                   <View style={styles.scrollBadge}>
                     <Text style={styles.scrollBadgeText}>
@@ -1274,7 +1248,6 @@ export default function ChatScreen() {
           )}
         </View>
 
-        {/* ---------- Reply preview ---------- */}
         {replyingTo && (
           <View style={styles.replyPreview}>
             <View style={styles.replyBar} />
@@ -1296,7 +1269,6 @@ export default function ChatScreen() {
           </View>
         )}
 
-        {/* ---------- Composer ---------- */}
         <View style={styles.inputBar}>
           {isRecording ? (
             <>
@@ -1392,7 +1364,7 @@ export default function ChatScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* ---------- Action Menu ---------- */}
+      {/* Action Menu — with Android blur fix */}
       <Modal
         visible={!!actionSheetMsg}
         transparent
@@ -1400,7 +1372,12 @@ export default function ChatScreen() {
         onRequestClose={() => setActionSheetMsg(null)}
         statusBarTranslucent
       >
-        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
+        <BlurView
+          intensity={50}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.blurBackdrop}
+        >
           <Pressable
             style={styles.backdropPress}
             onPress={() => setActionSheetMsg(null)}
@@ -1441,7 +1418,7 @@ export default function ChatScreen() {
         </BlurView>
       </Modal>
 
-      {/* ---------- Delete Confirm ---------- */}
+      {/* Delete Confirm — with Android blur fix */}
       <Modal
         visible={!!deleteConfirmMsg}
         transparent
@@ -1449,7 +1426,12 @@ export default function ChatScreen() {
         onRequestClose={() => setDeleteConfirmMsg(null)}
         statusBarTranslucent
       >
-        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
+        <BlurView
+          intensity={50}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.blurBackdrop}
+        >
           <Pressable
             style={styles.backdropPress}
             onPress={() => setDeleteConfirmMsg(null)}
@@ -1522,7 +1504,6 @@ export default function ChatScreen() {
   );
 }
 
-// ---------- Action row ----------
 function ActionRow({
   icon,
   label,
@@ -1552,7 +1533,6 @@ function ActionRow({
   );
 }
 
-// ---------- Styles ----------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.ink900 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
@@ -1832,8 +1812,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // ---------- Blur backdrop with Android fallback ----------
   blurBackdrop: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   backdropPress: {
     flex: 1,
