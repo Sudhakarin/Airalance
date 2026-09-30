@@ -1,5 +1,5 @@
 // app/(tabs)/chats.tsx
-// Chats list — WhatsApp-style locked folder + AsyncStorage cache
+// Chats list — WhatsApp-style locked chip + Android blur fix + AsyncStorage cache
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
@@ -55,7 +55,7 @@ type ChatSetting = {
 };
 
 const ROW_HEIGHT = 78;
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 function pinKey(userId: string) {
   return `chat_lock_pin:${userId}`;
@@ -80,26 +80,24 @@ function formatTime(iso: string) {
   return date.toLocaleDateString();
 }
 
-// ---------- Cache helpers ----------
 async function readChatsCache(uid: string): Promise<Conversation[] | null> {
   try {
     const raw = await AsyncStorage.getItem(chatsCacheKey(uid));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { t: number; d: Conversation[] };
     if (!parsed?.d || !Array.isArray(parsed.d)) return null;
-    // Ignore stale caches older than TTL
     if (Date.now() - (parsed.t ?? 0) > CACHE_TTL_MS) return null;
-    return parsed.d;
-  } catch {
+    return),
+ parsed.d;
+  } catch      {
     return null;
   }
 }
 
-async function writeChatsCache(uid: string, list: Conversation[]) {
-  try {
-    await AsyncStorage.setItem(
-      chatsCacheKey(uid),
-      JSON.stringify({ t: Date.now(), d: list })
+ JSONasync function writeChatsCache(.stringifyuid: string, list: Conversation[]) {
+({  try {
+    await AsyncStorage.set tItem(
+      chatsCacheKey(uid: Date.now(), d: list })
     );
   } catch {}
 }
@@ -166,22 +164,16 @@ const ChatRow = memo(
     onPress,
     onLongPress,
     showSeparator,
-    locked = false,
   }: {
     item: Conversation;
     onPress: (id: string) => void;
     onLongPress: (convo: Conversation) => void;
     showSeparator: boolean;
-    locked?: boolean;
   }) {
-    const displayName = locked
-      ? 'Locked chat'
-      : item.is_group
+    const displayName = item.is_group
       ? item.name ?? 'Group'
       : item.other_profile?.display_name ?? 'Unknown';
-    const color = locked
-      ? '#3A3F4C'
-      : item.other_profile?.avatar_color ?? COLORS.violet;
+    const color = item.other_profile?.avatar_color ?? COLORS.violet;
     const hasUnread = item.unread_count > 0;
     const showUnread = hasUnread && !item.is_muted;
 
@@ -194,18 +186,12 @@ const ChatRow = memo(
           delayLongPress={350}
           activeOpacity={0.6}
         >
-          {locked ? (
-            <View style={styles.lockedAvatar}>
-              <Ionicons name="lock-closed" size={22} color="#FFFFFF" />
-            </View>
-          ) : (
-            <Avatar
-              name={displayName}
-              color={color}
-              avatarUrl={item.other_profile?.avatar_url ?? null}
-              size={54}
-            />
-          )}
+          <Avatar
+            name={displayName}
+            color={color}
+            avatarUrl={item.other_profile?.avatar_url ?? null}
+            size={54}
+          />
 
           <View style={styles.rowInfo}>
             <View style={styles.rowTop}>
@@ -213,10 +199,8 @@ const ChatRow = memo(
                 <Text style={styles.rowName} numberOfLines={1}>
                   {displayName}
                 </Text>
-                {!locked && item.other_profile?.verified && (
-                  <VerifiedBadge size={14} />
-                )}
-                {!locked && item.is_muted && (
+                {item.other_profile?.verified && <VerifiedBadge size={14} />}
+                {item.is_muted && (
                   <Ionicons
                     name="volume-mute"
                     size={14}
@@ -243,7 +227,7 @@ const ChatRow = memo(
                 ]}
                 numberOfLines={1}
               >
-                {locked ? 'Tap to unlock' : item.last_message}
+                {item.last_message}
               </Text>
               {showUnread && (
                 <View style={styles.unreadBadge}>
@@ -273,8 +257,7 @@ const ChatRow = memo(
     prev.item.other_profile?.avatar_color ===
       next.item.other_profile?.avatar_color &&
     prev.item.other_profile?.verified === next.item.other_profile?.verified &&
-    prev.showSeparator === next.showSeparator &&
-    prev.locked === next.locked
+    prev.showSeparator === next.showSeparator
 );
 
 // ---------- Screen ----------
@@ -285,7 +268,6 @@ export default function ChatsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [myId, setMyId] = useState<string | null>(null);
 
-  // Action / modal states
   const [actionSheetConvo, setActionSheetConvo] = useState<Conversation | null>(
     null
   );
@@ -294,7 +276,6 @@ export default function ChatsScreen() {
   const [blockConfirmConvo, setBlockConfirmConvo] =
     useState<Conversation | null>(null);
 
-  // Lock / PIN
   const [pinSetupConvo, setPinSetupConvo] = useState<Conversation | null>(null);
   const [pinInput1, setPinInput1] = useState('');
   const [pinInput2, setPinInput2] = useState('');
@@ -304,10 +285,7 @@ export default function ChatsScreen() {
   const [pinVerifyError, setPinVerifyError] = useState('');
   const [storedPin, setStoredPin] = useState<string | null>(null);
 
-  // Locked chats view (session only)
   const [lockedViewOpen, setLockedViewOpen] = useState(false);
-  // WhatsApp-style reveal
-  const [revealLocked, setRevealLocked] = useState(false);
 
   const realtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingRef = useRef(false);
@@ -329,20 +307,18 @@ export default function ChatsScreen() {
     })();
   }, [myId]);
 
-  // ✅ Cache-first: show cached chats instantly (once per session)
   useEffect(() => {
     if (!myId || cacheShownRef.current) return;
     (async () => {
       const cached = await readChatsCache(myId);
       if (cached && cached.length > 0) {
         setConversations(cached);
-        setLoading(false); // skip skeleton on warm starts
+        setLoading(false);
       }
       cacheShownRef.current = true;
     })();
   }, [myId]);
 
-  // ---------- Load conversations ----------
   const loadConversations = useCallback(async () => {
     if (!myId) return;
     if (isLoadingRef.current) return;
@@ -453,7 +429,6 @@ export default function ChatsScreen() {
 
       rows.sort((a, b) => (a.last_at < b.last_at ? 1 : -1));
       setConversations(rows);
-      // ✅ Save fresh data to cache
       await writeChatsCache(myId, rows);
     } catch (err) {
       console.warn('Load conversations error:', err);
@@ -468,7 +443,6 @@ export default function ChatsScreen() {
     loadConversations();
   }, [loadConversations]);
 
-  // ---------- Realtime ----------
   useEffect(() => {
     if (!myId) return;
 
@@ -504,7 +478,6 @@ export default function ChatsScreen() {
     };
   }, [myId, loadConversations]);
 
-  // Helper: mutate cache alongside local state
   const updateCache = useCallback(
     async (next: Conversation[]) => {
       if (!myId) return;
@@ -513,11 +486,9 @@ export default function ChatsScreen() {
     [myId]
   );
 
-  // ---------- Derived lists ----------
   const unlockedConversations = conversations.filter((c) => !c.is_locked);
   const lockedConversations = conversations.filter((c) => c.is_locked);
 
-  // ---------- Handlers ----------
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadConversations();
@@ -525,7 +496,6 @@ export default function ChatsScreen() {
 
   const openChat = useCallback(
     (convoId: string) => {
-      setRevealLocked(false);
       router.push(`/chat/${convoId}`);
     },
     [router]
@@ -538,22 +508,6 @@ export default function ChatsScreen() {
     },
     [router]
   );
-
-  // ---------- WhatsApp-style reveal ----------
-  function onScroll(e: any) {
-    const y = e.nativeEvent.contentOffset.y;
-    if (lockedConversations.length === 0) return;
-
-    if (y < -40 && !revealLocked) {
-      setRevealLocked(true);
-    } else if (y > 5 && revealLocked) {
-      setRevealLocked(false);
-    }
-  }
-
-  function closeReveal() {
-    setRevealLocked(false);
-  }
 
   async function deleteConversation(convoId: string) {
     setDeleteConfirmConvo(null);
@@ -740,7 +694,6 @@ export default function ChatsScreen() {
     }
   }
 
-  // ---------- Rendering ----------
   const renderItem = useCallback(
     ({ item, index }: { item: Conversation; index: number }) => (
       <ChatRow
@@ -777,88 +730,66 @@ export default function ChatsScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* 🔒 Locked chats chip — permanent (Android doesn't support over-scroll reveal) */}
+      {!loading && lockedConversations.length > 0 && (
+        <TouchableOpacity
+          style={styles.lockedChip}
+          onPress={openLockedSection}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="lock-closed" size={13} color={COLORS.violetLight} />
+          <Text style={styles.lockedChipText}>
+            Locked chats · {lockedConversations.length}
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {loading && conversations.length === 0 ? (
         <ChatListSkeleton />
       ) : (
-        <View style={{ flex: 1 }}>
-          <FlatList
-            data={unlockedConversations}
-            keyExtractor={keyExtractor}
-            renderItem={renderItem}
-            getItemLayout={getItemLayout}
-            contentContainerStyle={styles.listContent}
-            initialNumToRender={12}
-            maxToRenderPerBatch={10}
-            windowSize={7}
-            updateCellsBatchingPeriod={50}
-            removeClippedSubviews={true}
-            keyboardShouldPersistTaps="handled"
-            bounces={true}
-            alwaysBounceVertical={true}
-            overScrollMode="always"
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor={COLORS.violet}
-                colors={[COLORS.violet]}
-              />
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyWrap}>
-                <View style={styles.emptyIconWrap}>
-                  <Ionicons
-                    name="chatbubbles-outline"
-                    size={44}
-                    color={COLORS.mist}
-                  />
-                </View>
-                <Text style={styles.emptyTitle}>No conversations yet</Text>
-                <Text style={styles.emptySubtitle}>
-                  Tap Search to find people and start chatting
-                </Text>
-                <TouchableOpacity
-                  style={styles.emptyBtn}
-                  onPress={() => router.push('/(tabs)/search')}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.emptyBtnText}>Find people</Text>
-                </TouchableOpacity>
-              </View>
-            }
-          />
-
-          {revealLocked && lockedConversations.length > 0 && (
-            <View style={styles.lockedFolderReveal} pointerEvents="box-none">
-              <TouchableOpacity
-                style={styles.lockedFolder}
-                onPress={() => {
-                  closeReveal();
-                  openLockedSection();
-                }}
-                activeOpacity={0.75}
-              >
-                <View style={styles.lockedFolderIcon}>
-                  <Ionicons name="lock-closed" size={22} color="#FFFFFF" />
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.lockedFolderTitle}>Locked chats</Text>
-                  <Text style={styles.lockedFolderSub}>
-                    {lockedConversations.length}{' '}
-                    {lockedConversations.length === 1 ? 'chat' : 'chats'} · Tap to unlock
-                  </Text>
-                </View>
+        <FlatList
+          data={unlockedConversations}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
+          getItemLayout={getItemLayout}
+          contentContainerStyle={styles.listContent}
+          initialNumToRender={12}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          updateCellsBatchingPeriod={50}
+          removeClippedSubviews={true}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={COLORS.violet}
+              colors={[COLORS.violet]}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyWrap}>
+              <View style={styles.emptyIconWrap}>
                 <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color="rgba(255,255,255,0.4)"
+                  name="chatbubbles-outline"
+                  size={44}
+                  color={COLORS.mist}
                 />
+              </View>
+              <Text style={styles.emptyTitle}>No conversations yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Tap Search to find people and start chatting
+              </Text>
+              <TouchableOpacity
+                style={styles.emptyBtn}
+                onPress={() => router.push('/(tabs)/search')}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.emptyBtnText}>Find people</Text>
               </TouchableOpacity>
             </View>
-          )}
-        </View>
+          }
+        />
       )}
 
       {/* ========== ACTION MENU ========== */}
@@ -869,7 +800,12 @@ export default function ChatsScreen() {
         onRequestClose={() => setActionSheetConvo(null)}
         statusBarTranslucent
       >
-        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
+        <BlurView
+          intensity={50}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.blurBackdrop}
+        >
           <Pressable
             style={styles.backdropPress}
             onPress={() => setActionSheetConvo(null)}
@@ -959,7 +895,12 @@ export default function ChatsScreen() {
         onRequestClose={() => setDeleteConfirmConvo(null)}
         statusBarTranslucent
       >
-        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
+        <BlurView
+          intensity={50}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.blurBackdrop}
+        >
           <Pressable
             style={styles.backdropPress}
             onPress={() => setDeleteConfirmConvo(null)}
@@ -1017,7 +958,12 @@ export default function ChatsScreen() {
         onRequestClose={() => setBlockConfirmConvo(null)}
         statusBarTranslucent
       >
-        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
+        <BlurView
+          intensity={50}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.blurBackdrop}
+        >
           <Pressable
             style={styles.backdropPress}
             onPress={() => setBlockConfirmConvo(null)}
@@ -1071,7 +1017,12 @@ export default function ChatsScreen() {
         onRequestClose={() => setPinSetupConvo(null)}
         statusBarTranslucent
       >
-        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
+        <BlurView
+          intensity={50}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.blurBackdrop}
+        >
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.keyboardAvoid}
@@ -1157,7 +1108,12 @@ export default function ChatsScreen() {
         onRequestClose={() => setPinModalVisible(false)}
         statusBarTranslucent
       >
-        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
+        <BlurView
+          intensity={50}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.blurBackdrop}
+        >
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.keyboardAvoid}
@@ -1266,7 +1222,6 @@ export default function ChatsScreen() {
   );
 }
 
-// ---------- ActionRow ----------
 function ActionRow({
   icon,
   label,
@@ -1296,7 +1251,6 @@ function ActionRow({
   );
 }
 
-// ---------- Styles ----------
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
 
@@ -1322,55 +1276,32 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // 🔒 Locked chip
+  lockedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: 'rgba(124,92,255,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,92,255,0.35)',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  lockedChipText: {
+    fontSize: 12.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
+  },
+
   listContent: {
     paddingHorizontal: SPACING.sm,
     paddingBottom: SPACING.lg,
     flexGrow: 1,
-  },
-
-  lockedFolderReveal: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: SPACING.sm,
-    paddingTop: 6,
-    zIndex: 20,
-  },
-  lockedFolder: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: 'rgba(30,25,60,0.98)',
-    borderWidth: 1,
-    borderColor: 'rgba(124,92,255,0.35)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  lockedFolderIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#2A2D3A',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  lockedFolderTitle: {
-    fontSize: 15.5,
-    fontFamily: FONTS.bodySemiBold,
-    color: '#FFFFFF',
-  },
-  lockedFolderSub: {
-    fontSize: 12.5,
-    fontFamily: FONTS.body,
-    color: COLORS.mist,
-    marginTop: 2,
   },
 
   rowContainer: {
@@ -1384,14 +1315,6 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
     paddingVertical: 12,
     paddingHorizontal: SPACING.sm,
-  },
-  lockedAvatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: '#2A2D3A',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   rowInfo: { flex: 1, minWidth: 0 },
   rowTop: {
@@ -1524,10 +1447,9 @@ const styles = StyleSheet.create({
 
   blurBackdrop: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
   },
-  keyboardAvoid: {
-    flex: 1,
-  },
+  keyboardAvoid: { flex: 1 },
   backdropPress: {
     flex: 1,
     alignItems: 'center',
