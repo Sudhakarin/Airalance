@@ -317,20 +317,23 @@ export default function NotificationsScreen() {
                   </Text>
                   <Text style={styles.cardSub}>@{p?.username}</Text>
                   <View style={styles.requestActions}>
-                    <TouchableOpacity
-                      style={styles.acceptBtn}
-                      onPress={() => acceptRequest(req)}
-                      activeOpacity={0.85}
-                    >
-                      <LinearGradient
-                        colors={['#9C82FF', '#7C5CFF']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.acceptBtnInner}
+                    {/* ✅ Shadow wrapper (no clip) */}
+                    <View style={styles.acceptShadowWrap}>
+                      <TouchableOpacity
+                        onPress={() => acceptRequest(req)}
+                        activeOpacity={0.85}
+                        style={styles.acceptBtn}
                       >
-                        <Text style={styles.acceptText}>Accept</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
+                        <LinearGradient
+                          colors={['#9C82FF', '#7C5CFF']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.acceptBtnInner}
+                        >
+                          <Text style={styles.acceptText}>Accept</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    </View>
                     <TouchableOpacity
                       style={styles.declineBtn}
                       onPress={() => declineRequest(req)}
@@ -485,9 +488,8 @@ const styles = StyleSheet.create({
     borderColor: '#1F1F23',
     marginBottom: 8,
   },
-  // ✅ Extra bottom room for request cards (Accept/Leave buttons)
   requestCard: {
-    paddingBottom: 16,
+    paddingBottom: 14,
     marginBottom: 10,
   },
   iconCircle: {
@@ -529,14 +531,24 @@ const styles = StyleSheet.create({
     marginTop: 9,
     marginBottom: 2,
   },
+
+  // ---------- Accept button (with shadow wrapper) ----------
+  // ✅ Outer: shadow, no clip
+  acceptShadowWrap: {
+    flex: 1,
+    borderRadius: 999,
+    shadowColor: '#7C5CFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  // ✅ Inner: pill shape with clip
   acceptBtn: {
     borderRadius: 999,
     overflow: 'hidden',
-    flex: 1,
-    minHeight: 32,
   },
   acceptBtnInner: {
-    flex: 1,
     minHeight: 32,
     alignItems: 'center',
     justifyContent: 'center',
@@ -547,6 +559,8 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
     lineHeight: 16,
   },
+
+  // ---------- Leave button ----------
   declineBtn: {
     flex: 1,
     minHeight: 32,
