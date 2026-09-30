@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement
+// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -50,6 +50,13 @@ import {
   isSessionUnlocked,
   setSessionUnlocked,
 } from '../../lib/pin';
+import {
+  hapticLight,
+  hapticMedium,
+  hapticHeavy,
+  hapticSuccess,
+  hapticError,
+} from '../../lib/haptics';
 
 type Message = {
   id: string;
@@ -311,7 +318,6 @@ export default function ChatScreen() {
       const chatLocked = chatSettingsRes.data?.is_locked === true;
       const needsPin = chatLocked && !isSessionUnlocked();
 
-      // ✅ Batch myId + lockRequired + lockChecked together (single render)
       setMyId(uid);
       setLockRequired(needsPin);
       setLockChecked(true);
@@ -719,6 +725,7 @@ export default function ChatScreen() {
   const toggleReaction = useCallback(
     async (msg: Message, emoji: string) => {
       if (!myId || msg.is_deleted) return;
+      hapticLight(); // ✅ Haptic on reaction toggle
       const existing = (reactionsByMsg[msg.id] ?? []).find(
         (r) => r.user_id === myId && r.emoji === emoji
       );
@@ -811,8 +818,10 @@ export default function ChatScreen() {
     }
     try {
       await Clipboard.setStringAsync(textToCopy);
+      hapticLight(); // ✅ Haptic on copy
       Alert.alert('Copied', 'Message copied to clipboard.');
     } catch {
+      hapticError();
       Alert.alert('Copy failed', 'Please try again.');
     }
   }
@@ -842,9 +851,11 @@ export default function ChatScreen() {
         });
 
       if (error) throw error;
+      hapticLight(); // ✅ Haptic on pin
       setPinnedMessage(msg);
     } catch (err) {
       console.warn('Pin failed:', err);
+      hapticError();
       Alert.alert('Pin failed', 'Please try again.');
     }
   }
@@ -857,6 +868,7 @@ export default function ChatScreen() {
         .delete()
         .eq('conversation_id', convoId)
         .eq('user_id', myId);
+      hapticLight();
       setPinnedMessage(null);
     } catch (err) {
       console.warn('Unpin failed:', err);
@@ -870,6 +882,7 @@ export default function ChatScreen() {
 
   async function deleteForMe(msg: Message) {
     if (!myId) return;
+    hapticHeavy(); // ✅ Haptic on delete
     setDeleteConfirmMsg(null);
     try {
       await supabase.from('message_deletions').insert({
@@ -891,6 +904,7 @@ export default function ChatScreen() {
       }
     } catch (err) {
       console.warn('Delete-for-me failed:', err);
+      hapticError();
       Alert.alert('Failed', 'Please try again.');
     }
   }
@@ -902,6 +916,7 @@ export default function ChatScreen() {
       setDeleteConfirmMsg(null);
       return;
     }
+    hapticHeavy(); // ✅ Haptic on delete for everyone
     setDeleteConfirmMsg(null);
     try {
       await supabase
@@ -921,6 +936,7 @@ export default function ChatScreen() {
       }
     } catch (err) {
       console.warn('Delete-for-everyone failed:', err);
+      hapticError();
       Alert.alert('Failed', 'Please try again.');
     }
   }
@@ -985,6 +1001,7 @@ export default function ChatScreen() {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setInput(content);
       setReplyingTo(replyTarget);
+      hapticError();
       Alert.alert('Failed to send', 'Please try again.');
       setSending(false);
       return;
@@ -1000,6 +1017,7 @@ export default function ChatScreen() {
       flatListRef.current?.scrollToEnd({ animated: true });
     });
 
+    hapticLight(); // ✅ Haptic on message sent
     if (other?.id) triggerPushNotification(other.id, content, 'text');
     setSending(false);
   }
@@ -1058,10 +1076,12 @@ export default function ChatScreen() {
             : [...prev, inserted as Message]
         );
         setReplyingTo(null);
+        hapticSuccess(); // ✅ Haptic on image sent
         if (other?.id) triggerPushNotification(other.id, '', 'image');
       }
     } catch (err: any) {
       console.warn('Image upload error:', err);
+      hapticError();
       Alert.alert('Upload failed', err?.message ?? 'Please try again.');
     } finally {
       setUploading(false);
@@ -1082,9 +1102,11 @@ export default function ChatScreen() {
       });
       await audioRecorder.prepareToRecordAsync();
       audioRecorder.record();
+      hapticMedium(); // ✅ Haptic on record start
       setIsRecording(true);
     } catch (err) {
       console.warn('Recording start error:', err);
+      hapticError();
       Alert.alert('Cannot record', 'Please check microphone permission.');
     }
   }
@@ -1135,10 +1157,12 @@ export default function ChatScreen() {
             : [...prev, inserted as Message]
         );
         setReplyingTo(null);
+        hapticSuccess(); // ✅ Haptic on voice sent
         if (other?.id) triggerPushNotification(other.id, '', 'voice');
       }
     } catch (err: any) {
       console.warn('Voice send error:', err);
+      hapticError();
       Alert.alert('Upload failed', 'Please try again.');
     } finally {
       setUploading(false);
@@ -1150,6 +1174,7 @@ export default function ChatScreen() {
     try {
       await audioRecorder.stop();
     } catch {}
+    hapticLight(); // ✅ Haptic on cancel
     setIsRecording(false);
   }
 
@@ -1233,25 +1258,30 @@ export default function ChatScreen() {
   if (lockRequired) {
     const onVerify = async () => {
       if (!storedPinHash) {
+        hapticSuccess();
         setSessionUnlocked(true);
         setLockRequired(false);
         return;
       }
       if (pinVerifyInput.length !== 4) {
+        hapticError();
         setPinVerifyError('Enter 4-digit PIN');
         return;
       }
       try {
         const inputHash = await hashPin(pinVerifyInput);
         if (inputHash === storedPinHash) {
+          hapticSuccess(); // ✅ PIN correct
           setSessionUnlocked(true);
           setLockRequired(false);
           setPinVerifyInput('');
           setPinVerifyError('');
         } else {
+          hapticError(); // ✅ PIN incorrect
           setPinVerifyError('Incorrect PIN');
         }
       } catch {
+        hapticError();
         setPinVerifyError('Verification failed');
       }
     };
@@ -1765,7 +1795,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.ink900 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  // ---------- Lock screen ----------
   lockScreenWrap: {
     flex: 1,
     alignItems: 'center',
