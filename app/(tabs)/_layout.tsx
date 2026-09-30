@@ -1,13 +1,12 @@
 // app/(tabs)/_layout.tsx
-// Bottom tabs — custom SVG icons + violet active state
+// Bottom tabs — custom SVG icons + violet active state + safe-area bottom padding
 
 import { Tabs } from 'expo-router';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS } from '../../constants/theme';
 import TabIcon from '../../components/TabIcon';
 
-// Icon renderers declared outside — stable references, no re-allocation
 const homeIcon = ({ color, focused }: { color: string; focused: boolean }) => (
   <TabIcon tab="home" active={focused} color={color} size={22} />
 );
@@ -27,6 +26,10 @@ const profileIcon = ({ color, focused }: { color: string; focused: boolean }) =>
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
 
+  // ✅ FIXED: ensure minimum bottom padding so tab bar never mixes
+  // with the phone's system navigation buttons (Realme UI, MIUI, etc.)
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 12 : 0);
+
   return (
     <Tabs
       screenOptions={{
@@ -37,16 +40,15 @@ export default function TabsLayout() {
         tabBarStyle: [
           styles.tabBar,
           {
-            height: 50 + insets.bottom,
-            paddingBottom: 4 + insets.bottom,
+            // Height = base content (52) + safe-area bottom (+ 4 buffer)
+            height: 52 + bottomInset + 4,
+            paddingBottom: bottomInset + 4,
           },
         ],
-        // ⚠️ FIXED: color removed here — otherwise it overrides the active violet
         tabBarLabelStyle: styles.tabLabel,
         tabBarItemStyle: styles.tabItem,
         tabBarAllowFontScaling: false,
         tabBarHideOnKeyboard: true,
-        // ✅ FIXED: sceneStyle (React Navigation v7) not sceneContainerStyle (v6)
         sceneStyle: { backgroundColor: '#000000' },
       }}
     >
@@ -88,13 +90,14 @@ const styles = StyleSheet.create({
   },
   tabItem: {
     paddingVertical: 2,
-    height: 44,
+    // Don't force fixed height — let parent control spacing
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   tabLabel: {
     fontSize: 11,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
     marginTop: 2,
-    // ⚠️ color NOT set — let activeTintColor/inactiveTintColor control it
   },
 });
