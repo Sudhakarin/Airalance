@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice + AsyncStorage cache
+// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -69,8 +69,15 @@ type OtherProfile = {
   last_seen: string | null;
 };
 
+type Reaction = {
+  id: string;
+  message_id: string;
+  user_id: string;
+  emoji: string;
+};
+
 const MESSAGES_CACHE_LIMIT = 40;
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 function messagesCacheKey(convoId: string) {
   return `airalance:messages:${convoId}`;
@@ -101,7 +108,6 @@ async function writeMessagesCache(
   hiddenIds: string[]
 ) {
   try {
-    // Only cache non-temp messages, last MESSAGES_CACHE_LIMIT
     const cleaned = messages
       .filter((m) => !m.id.startsWith('temp-'))
       .slice(-MESSAGES_CACHE_LIMIT);
@@ -122,7 +128,9 @@ const MessageRow = memo(function MessageRow({
   nextMessage,
   myId,
   onLongPress,
+  onDoubleTap,
   replyMessage,
+  reactions,
 }: {
   item: Message;
   isMine: boolean;
@@ -130,7 +138,9 @@ const MessageRow = memo(function MessageRow({
   nextMessage?: Message;
   myId: string;
   onLongPress: (msg: Message) => void;
+  onDoubleTap: (msg: Message) => void;
   replyMessage?: Message | null;
+  reactions: Reaction[];
 }) {
   return (
     <MessageBubble
@@ -140,7 +150,9 @@ const MessageRow = memo(function MessageRow({
       nextMessage={nextMessage}
       myId={myId}
       onLongPress={onLongPress}
+      onDoubleTap={onDoubleTap}
       replyMessage={replyMessage}
+      reactions={reactions}
     />
   );
 });
@@ -172,6 +184,7 @@ export default function ChatScreen() {
   const [actionSheetMsg, setActionSheetMsg] = useState<Message | null>(null);
   const [deleteConfirmMsg, setDeleteConfirmMsg] = useState<Message | null>(null);
   const [hiddenForMeIds, setHiddenForMeIds] = useState<Set<string>>(new Set());
+  const [reactionsByMsg, setReactionsByMsg] = useState<Record<string, Reaction[]>>({});
 
   const flatListRef = useRef<FlatList<Message>>(null);
   const channelRef = useRef<any>(null);
@@ -198,7 +211,7 @@ export default function ChatScreen() {
     }).start();
   }, [showScrollBtn, scrollBtnAnim]);
 
-  // ---------- Cache-first: load cached messages instantly ----------
+  // ---------- Cache-first ----------
   useEffect(() => {
     if (!convoId) return;
     let cancelled = false;
@@ -217,7 +230,6 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
-  // ---------- Debounced write cache on any change ----------
   useEffect(() => {
     if (!convoId) return;
     if (messages.length === 0 && hiddenForMeIds.size === 0) return;
@@ -276,6 +288,22 @@ export default function ChatScreen() {
         setMessages(ordered);
         prevMsgCountRef.current = ordered.length;
 
+        // Load reactions for these messages
+        if (ordered.length > 0) {
+          const { data: rx } = await supabase
+            .from('message_reactions')
+            .select('*')
+            .in(
+              'message_id',
+              ordered.map((m) => m.id)
+            );
+          const grouped: Record<string, Reaction[]> = {};
+          (rx ?? []).forEach((r: Reaction) => {
+            grouped[r.message_id] = [...(grouped[r.message_id] ?? []), r];
+          });
+          if (mounted) setReactionsByMsg(grouped);
+        }
+
         const pinnedId = pinsRes.data?.[0]?.message_id;
         if (pinnedId) {
           const found = ordered.find((m) => m.id === pinnedId);
@@ -287,7 +315,6 @@ export default function ChatScreen() {
         );
         setHiddenForMeIds(hiddenIds);
 
-        // Save fresh cache
         await writeMessagesCache(convoId, ordered, Array.from(hiddenIds));
 
         const unreadIds = msgs
@@ -390,6 +417,32 @@ export default function ChatScreen() {
           CONSTANTS.TYPING_IDLE_MS
         );
       })
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'message_reactions' },
+        (payload) => {
+          const r = payload.new as Reaction;
+          setReactionsByMsg((prev) => {
+            const list = prev[r.message_id] ?? [];
+            if (list.some((x) => x.id === r.id)) return prev;
+            return { ...prev, [r.message_id]: [...list, r] };
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'message_reactions' },
+        (payload) => {
+          const r = payload.old as Reaction;
+          setReactionsByMsg((prev) => {
+            const list = prev[r.message_id] ?? [];
+            return {
+              ...prev,
+              [r.message_id]: list.filter((x) => x.id !== r.id),
+            };
+          });
+        }
+      )
       .subscribe();
 
     channelRef.current = channel;
@@ -545,6 +598,87 @@ export default function ChatScreen() {
     }
     setActionSheetMsg(msg);
   }, []);
+
+  // ---------- Toggle reaction ----------
+  const toggleReaction = useCallback(
+    async (msg: Message, emoji: string) => {
+      if (!myId || msg.is_deleted) return;
+      const existing = (reactionsByMsg[msg.id] ?? []).find(
+        (r) => r.user_id === myId && r.emoji === emoji
+      );
+
+      if (existing) {
+        setReactionsByMsg((prev) => ({
+          ...prev,
+          [msg.id]: (prev[msg.id] ?? []).filter((r) => r.id !== existing.id),
+        }));
+      } else {
+        const tempId = `temp-rx-${Date.now()}`;
+        setReactionsByMsg((prev) => ({
+          ...prev,
+          [msg.id]: [
+            ...(prev[msg.id] ?? []),
+            {
+              id: tempId,
+              message_id: msg.id,
+              user_id: myId,
+              emoji,
+            },
+          ],
+        }));
+      }
+
+      try {
+        if (existing) {
+          await supabase
+            .from('message_reactions')
+            .delete()
+            .eq('message_id', msg.id)
+            .eq('user_id', myId)
+            .eq('emoji', emoji);
+        } else {
+          const { data: inserted } = await supabase
+            .from('message_reactions')
+            .insert({
+              message_id: msg.id,
+              user_id: myId,
+              emoji,
+            })
+            .select()
+            .single();
+          if (inserted) {
+            setReactionsByMsg((prev) => ({
+              ...prev,
+              [msg.id]: (prev[msg.id] ?? []).map((r) =>
+                r.id.startsWith('temp-rx-') && r.emoji === emoji
+                  ? (inserted as Reaction)
+                  : r
+              ),
+            }));
+          }
+        }
+      } catch (err) {
+        console.warn('Toggle reaction failed:', err);
+        const { data: rx } = await supabase
+          .from('message_reactions')
+          .select('*')
+          .eq('message_id', msg.id);
+        setReactionsByMsg((prev) => ({
+          ...prev,
+          [msg.id]: (rx ?? []) as Reaction[],
+        }));
+      }
+    },
+    [myId, reactionsByMsg]
+  );
+
+  // ---------- Double tap → heart ----------
+  const handleDoubleTap = useCallback(
+    (msg: Message) => {
+      toggleReaction(msg, '❤️');
+    },
+    [toggleReaction]
+  );
 
   function handleReply(msg: Message) {
     setActionSheetMsg(null);
@@ -954,11 +1088,20 @@ export default function ChatScreen() {
           nextMessage={next}
           myId={myId!}
           onLongPress={handleMessageLongPress}
+          onDoubleTap={handleDoubleTap}
           replyMessage={replyMsg}
+          reactions={reactionsByMsg[item.id] ?? []}
         />
       );
     },
-    [visibleMessages, messages, myId, handleMessageLongPress]
+    [
+      visibleMessages,
+      messages,
+      myId,
+      handleMessageLongPress,
+      handleDoubleTap,
+      reactionsByMsg,
+    ]
   );
 
   const recordSeconds = Math.floor((recorderState.durationMillis ?? 0) / 1000);
