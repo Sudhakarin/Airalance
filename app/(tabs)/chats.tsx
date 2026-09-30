@@ -1,5 +1,5 @@
 // app/(tabs)/chats.tsx
-// Chats list — WhatsApp-style locked row + Android blur fix + AsyncStorage cache
+// Chats list — WhatsApp-style locked row + Android blur fix + AsyncStorage cache + haptics
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
@@ -31,6 +31,13 @@ import {
   savePinHash,
   setSessionUnlocked,
 } from '../../lib/pin';
+import {
+  hapticMedium,
+  hapticHeavy,
+  hapticSuccess,
+  hapticError,
+  hapticSelection,
+} from '../../lib/haptics';
 
 type OtherProfile = {
   id: string;
@@ -184,7 +191,10 @@ const ChatRow = memo(
         <TouchableOpacity
           style={styles.row}
           onPress={() => onPress(item.id)}
-          onLongPress={() => onLongPress(item)}
+          onLongPress={() => {
+            hapticMedium(); // ✅ Haptic on long press
+            onLongPress(item);
+          }}
           delayLongPress={350}
           activeOpacity={0.6}
         >
@@ -514,6 +524,7 @@ export default function ChatsScreen() {
   );
 
   async function deleteConversation(convoId: string) {
+    hapticHeavy(); // ✅ Haptic on delete
     setDeleteConfirmConvo(null);
     const next = conversations.filter((c) => c.id !== convoId);
     setConversations(next);
@@ -532,6 +543,7 @@ export default function ChatsScreen() {
         .eq('user_id', myId);
     } catch (err) {
       console.warn('Delete failed:', err);
+      hapticError(); // ✅ Error haptic
       Alert.alert('Delete failed', 'Please try again.');
       loadConversations();
     }
@@ -540,6 +552,7 @@ export default function ChatsScreen() {
   async function toggleMute(convo: Conversation) {
     if (!myId) return;
     setActionSheetConvo(null);
+    hapticSelection(); // ✅ Haptic on mute toggle
     const nextMuted = !convo.is_muted;
 
     const next = conversations.map((c) =>
@@ -561,6 +574,7 @@ export default function ChatsScreen() {
       if (error) throw error;
     } catch (err) {
       console.warn('Mute failed:', err);
+      hapticError();
       const revert = conversations.map((c) =>
         c.id === convo.id ? { ...c, is_muted: !nextMuted } : c
       );
@@ -607,11 +621,13 @@ export default function ChatsScreen() {
       updateCache(next);
     } catch (err) {
       console.warn('Lock failed:', err);
+      hapticError();
       Alert.alert('Failed', 'Could not update lock.');
     }
   }
 
   async function unlockChat(convo: Conversation) {
+    hapticSuccess(); // ✅ Haptic on unlock success
     await applyLock(convo.id, false);
   }
 
@@ -619,10 +635,12 @@ export default function ChatsScreen() {
   async function confirmPinSetup() {
     if (!pinSetupConvo || !myId) return;
     if (pinInput1.length !== 4) {
+      hapticError();
       setPinError('PIN must be 4 digits');
       return;
     }
     if (pinInput1 !== pinInput2) {
+      hapticError();
       setPinError('PINs do not match');
       return;
     }
@@ -630,6 +648,7 @@ export default function ChatsScreen() {
       const hash = await savePinHash(myId, pinInput1);
       setStoredPin(hash);
       setSessionUnlocked(true);
+      hapticSuccess(); // ✅ Haptic on PIN setup success
       const targetId = pinSetupConvo.id;
       setPinSetupConvo(null);
       setPinInput1('');
@@ -637,6 +656,7 @@ export default function ChatsScreen() {
       setPinError('');
       await applyLock(targetId, true);
     } catch (err) {
+      hapticError();
       setPinError('Could not save PIN');
     }
   }
@@ -651,27 +671,32 @@ export default function ChatsScreen() {
   // ✅ Compares against hashed stored PIN
   async function confirmPinVerify() {
     if (!storedPin) {
+      hapticSuccess();
       setSessionUnlocked(true);
       setPinModalVisible(false);
       setTimeout(() => setLockedViewOpen(true), 220);
       return;
     }
     if (pinVerifyInput.length !== 4) {
+      hapticError();
       setPinVerifyError('Enter 4-digit PIN');
       return;
     }
     try {
       const inputHash = await hashPin(pinVerifyInput);
       if (inputHash === storedPin) {
+        hapticSuccess(); // ✅ PIN correct
         setSessionUnlocked(true);
         setPinModalVisible(false);
         setPinVerifyInput('');
         setPinVerifyError('');
         setTimeout(() => setLockedViewOpen(true), 220);
       } else {
+        hapticError(); // ✅ PIN incorrect
         setPinVerifyError('Incorrect PIN');
       }
     } catch {
+      hapticError();
       setPinVerifyError('Verification failed');
     }
   }
@@ -684,6 +709,7 @@ export default function ChatsScreen() {
       setBlockConfirmConvo(null);
       return;
     }
+    hapticHeavy(); // ✅ Haptic on block
     setBlockConfirmConvo(null);
     try {
       await supabase
@@ -708,6 +734,7 @@ export default function ChatsScreen() {
       Alert.alert('Blocked', `@${convo.other_profile?.username} has been blocked.`);
     } catch (err) {
       console.warn('Block failed:', err);
+      hapticError();
       Alert.alert('Failed', 'Could not block.');
       loadConversations();
     }
