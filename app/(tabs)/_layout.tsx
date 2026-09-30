@@ -26,9 +26,12 @@ const profileIcon = ({ color, focused }: { color: string; focused: boolean }) =>
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
 
-  // ✅ FIXED: ensure minimum bottom padding so tab bar never mixes
-  // with the phone's system navigation buttons (Realme UI, MIUI, etc.)
-  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 12 : 0);
+  // ✅ FIXED: ensure minimum 16px bottom padding so tab bar never mixes
+  // with the phone's system navigation buttons (works on ALL Android phones)
+  const bottomPad =
+    Platform.OS === 'android'
+      ? Math.max(insets.bottom, 16)
+      : insets.bottom;
 
   return (
     <Tabs
@@ -40,9 +43,9 @@ export default function TabsLayout() {
         tabBarStyle: [
           styles.tabBar,
           {
-            // Height = base content (52) + safe-area bottom (+ 4 buffer)
-            height: 52 + bottomInset + 4,
-            paddingBottom: bottomInset + 4,
+            // Height = base content (52) + bottom padding
+            height: 52 + bottomPad,
+            paddingBottom: bottomPad,
           },
         ],
         tabBarLabelStyle: styles.tabLabel,
@@ -90,7 +93,6 @@ const styles = StyleSheet.create({
   },
   tabItem: {
     paddingVertical: 2,
-    // Don't force fixed height — let parent control spacing
     justifyContent: 'center',
     alignItems: 'center',
   },
