@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-// My profile — larger fonts + spacing + AsyncStorage cache
+// My profile — larger fonts + spacing + AsyncStorage cache + custom dark theme dialogs
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -14,7 +14,9 @@ import {
   Modal,
   FlatList,
   Platform,
+  Pressable,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -35,6 +37,12 @@ import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import StatusRing from '../../components/StatusRing';
+import {
+  hapticLight,
+  hapticMedium,
+  hapticSuccess,
+  hapticError,
+} from '../../lib/haptics';
 
 type Profile = {
   id: string;
@@ -50,7 +58,20 @@ type Profile = {
 
 type ListTab = 'followers' | 'following';
 
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+type CustomDialog = {
+  icon: any;
+  iconColor: string;
+  iconBg: string;
+  title: string;
+  message: string;
+  primaryLabel: string;
+  secondaryLabel?: string;
+  danger?: boolean;
+  onPrimary: () => void;
+  onSecondary?: () => void;
+};
+
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 function profileCacheKey(uid: string) {
   return `airalance:profile:me:${uid}`;
@@ -223,6 +244,9 @@ export default function ProfileScreen() {
   const [myFollowingIds, setMyFollowingIds] = useState<Set<string>>(new Set());
   const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
 
+  // ✅ Custom dialog state
+  const [dialog, setDialog] = useState<CustomDialog | null>(null);
+
   const cacheShownRef = useRef(false);
   const myIdRef = useRef<string | null>(null);
 
@@ -233,7 +257,7 @@ export default function ProfileScreen() {
         p.username?.toLowerCase() ?? ''
       ));
 
-  // ---------- Cache-first: show cached profile instantly ----------
+  // ---------- Cache-first ----------
   useEffect(() => {
     (async () => {
       const { data: authData } = await supabase.auth.getUser();
@@ -318,7 +342,6 @@ export default function ProfileScreen() {
         setNotifPermission(status);
       }
 
-      // ✅ Save to cache
       await writeProfileCache(uid, {
         profile: p,
         followersCount: followers,
@@ -337,7 +360,6 @@ export default function ProfileScreen() {
     loadProfile();
   }, [loadProfile]);
 
-  // Helper: sync cache after local profile changes
   const syncCache = useCallback(
     async (patch: Partial<{
       profile: Profile;
@@ -521,8 +543,10 @@ export default function ProfileScreen() {
       const nextProfile = { ...profile, avatar_url: avatarUrl };
       setProfile(nextProfile);
       await syncCache({ profile: nextProfile });
+      hapticSuccess();
     } catch (err: any) {
       console.warn('Avatar upload error:', err);
+      hapticError();
       Alert.alert('Upload failed', err?.message ?? 'Please try again.');
     } finally {
       setUploading(false);
@@ -559,52 +583,92 @@ export default function ProfileScreen() {
       };
       setProfile(nextProfile);
       await syncCache({ profile: nextProfile });
+      hapticSuccess();
     } catch (err: any) {
+      hapticError();
       Alert.alert('Save failed', err?.message ?? 'Please try again.');
     } finally {
       setSaving(false);
     }
   }
 
+  // ✅ Custom themed notification permission flow
   async function requestNotificationPermission() {
     if (Platform.OS === 'web') return;
+    hapticLight();
+
     const { status: existing } = await Notifications.getPermissionsAsync();
+
     if (existing === 'granted') {
-      Alert.alert('Notifications', 'Notifications are already enabled!');
+      setDialog({
+        icon: 'notifications',
+        iconColor: COLORS.teal,
+        iconBg: 'rgba(34,211,184,0.15)',
+        title: 'Notifications enabled',
+        message:
+          'You are all set. You will receive messages and status updates right away.',
+        primaryLabel: 'Great',
+        onPrimary: () => setDialog(null),
+      });
       return;
     }
+
     const { status } = await Notifications.requestPermissionsAsync();
     setNotifPermission(status);
+
     if (status === 'granted') {
-      Alert.alert(
-        'Success',
-        'Notifications enabled! Please restart the app for full effect.'
-      );
+      hapticSuccess();
+      setDialog({
+        icon: 'checkmark-circle',
+        iconColor: COLORS.teal,
+        iconBg: 'rgba(34,211,184,0.15)',
+        title: 'Notifications enabled',
+        message:
+          'You will now receive notifications. Please restart the app once for full effect.',
+        primaryLabel: 'Got it',
+        onPrimary: () => setDialog(null),
+      });
     } else {
-      Alert.alert(
-        'Permission Denied',
-        'Please enable notifications from phone settings: Settings → Apps → Airalance → Notifications.'
-      );
+      hapticError();
+      setDialog({
+        icon: 'notifications-off',
+        iconColor: COLORS.danger,
+        iconBg: 'rgba(239,68,68,0.15)',
+        title: 'Permission denied',
+        message:
+          'Enable notifications from phone settings:\n\nSettings → Apps → Airalance → Notifications',
+        primaryLabel: 'OK',
+        danger: true,
+        onPrimary: () => setDialog(null),
+      });
     }
   }
 
-  async function handleLogout() {
-    Alert.alert('Log out', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Log out',
-        style: 'destructive',
-        onPress: async () => {
-          setLoggingOut(true);
-          try {
-            const uid = myIdRef.current;
-            if (uid) await AsyncStorage.removeItem(profileCacheKey(uid));
-          } catch {}
-          await supabase.auth.signOut();
-          router.replace('/(auth)/login');
-        },
+  // ✅ Custom themed logout confirmation
+  function handleLogout() {
+    hapticMedium();
+    setDialog({
+      icon: 'log-out-outline',
+      iconColor: COLORS.danger,
+      iconBg: 'rgba(239,68,68,0.15)',
+      title: 'Log out?',
+      message:
+        'You will need to sign in again to access your chats and status.',
+      primaryLabel: 'Log out',
+      secondaryLabel: 'Cancel',
+      danger: true,
+      onPrimary: async () => {
+        setDialog(null);
+        setLoggingOut(true);
+        try {
+          const uid = myIdRef.current;
+          if (uid) await AsyncStorage.removeItem(profileCacheKey(uid));
+        } catch {}
+        await supabase.auth.signOut();
+        router.replace('/(auth)/login');
       },
-    ]);
+      onSecondary: () => setDialog(null),
+    });
   }
 
   if (loading || !profile) {
@@ -842,6 +906,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </ScrollView>
 
+      {/* Followers / Following List Modal */}
       {listTab && (
         <Modal
           visible
@@ -1009,6 +1074,80 @@ export default function ProfileScreen() {
           </View>
         </Modal>
       )}
+
+      {/* ✅ Custom themed dialog (notifications / logout) */}
+      <Modal
+        visible={!!dialog}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDialog(null)}
+        statusBarTranslucent
+      >
+        <BlurView
+          intensity={50}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.blurBackdrop}
+        >
+          <Pressable
+            style={styles.backdropPress}
+            onPress={() => setDialog(null)}
+          >
+            <Pressable
+              style={styles.dialogCard}
+              onPress={(e) => e.stopPropagation()}
+            >
+              {dialog && (
+                <>
+                  <View
+                    style={[
+                      styles.dialogIconWrap,
+                      { backgroundColor: dialog.iconBg },
+                    ]}
+                  >
+                    <Ionicons
+                      name={dialog.icon}
+                      size={22}
+                      color={dialog.iconColor}
+                    />
+                  </View>
+
+                  <Text style={styles.dialogTitle}>{dialog.title}</Text>
+                  <Text style={styles.dialogSub}>{dialog.message}</Text>
+
+                  <View style={styles.dialogButtons}>
+                    {dialog.secondaryLabel && (
+                      <TouchableOpacity
+                        style={styles.dialogBtnSecondary}
+                        onPress={dialog.onSecondary}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.dialogBtnSecondaryText}>
+                          {dialog.secondaryLabel}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      style={[
+                        dialog.danger
+                          ? styles.dialogBtnDanger
+                          : styles.dialogBtnPrimary,
+                        !dialog.secondaryLabel && { flex: 1 },
+                      ]}
+                      onPress={dialog.onPrimary}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.dialogBtnPrimaryText}>
+                        {dialog.primaryLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </Pressable>
+          </Pressable>
+        </BlurView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1440,5 +1579,96 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 18,
     paddingVertical: 14,
+  },
+
+  // ✅ Custom dialog styles (match chats.tsx)
+  blurBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  backdropPress: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: 'rgba(20,22,30,0.96)',
+    borderRadius: 20,
+    paddingTop: 20,
+    paddingBottom: 10,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  dialogIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  dialogTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 5,
+    paddingHorizontal: 12,
+  },
+  dialogSub: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 14,
+    paddingHorizontal: 12,
+  },
+  dialogButtons: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 8,
+    marginTop: 4,
+  },
+  dialogBtnSecondary: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  dialogBtnSecondaryText: {
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.mistLight,
+  },
+  dialogBtnPrimary: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: COLORS.violet,
+    alignItems: 'center',
+  },
+  dialogBtnDanger: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: COLORS.danger,
+    alignItems: 'center',
+  },
+  dialogBtnPrimaryText: {
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
   },
 });
