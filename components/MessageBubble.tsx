@@ -1,5 +1,5 @@
 // components/MessageBubble.tsx
-// Optimized: memoized, voice message support, expo-image with caching
+// Optimized: memoized, voice message support, expo-image with caching, long-press actions
 
 import { memo, useCallback, useMemo } from 'react';
 import {
@@ -34,6 +34,8 @@ type Props = {
   prevMessage?: Message;
   nextMessage?: Message;
   myId: string;
+  onLongPress?: (msg: Message) => void;
+  replyMessage?: Message | null;
 };
 
 // ---------- Pure helpers (outside component) ----------
@@ -63,6 +65,13 @@ function formatDuration(total: number) {
   return `${m}:${sec}`;
 }
 
+function replyPreviewText(msg: Message): string {
+  if (msg.is_deleted) return 'This message was deleted';
+  if (msg.message_type === 'image') return '📷 Photo';
+  if (msg.message_type === 'voice') return '🎤 Voice message';
+  return msg.content || '';
+}
+
 // ---------- Voice bubble ----------
 function VoiceBubble({
   url,
@@ -85,7 +94,6 @@ function VoiceBubble({
     if (status.playing) {
       player.pause();
     } else {
-      // If playback reached the end, restart from 0
       if (
         status.duration &&
         status.duration > 0 &&
@@ -144,8 +152,10 @@ function MessageBubbleBase({
   isMine,
   prevMessage,
   nextMessage,
+  myId,
+  onLongPress,
+  replyMessage,
 }: Props) {
-  // Memoize day labels (heavy computation, doesn't change per render)
   const currentDay = useMemo(
     () => dayLabel(message.created_at),
     [message.created_at]
@@ -180,6 +190,22 @@ function MessageBubbleBase({
   const isVoice = message.message_type === 'voice' && !!message.media_url;
   const isDeleted = !!message.is_deleted;
 
+  const hasReply =
+    !!replyMessage &&
+    !!message.reply_to_id &&
+    !isDeleted &&
+    replyMessage.id === message.reply_to_id;
+
+  const replyName = replyMessage
+    ? replyMessage.sender_id === myId
+      ? 'You'
+      : 'Them'
+    : '';
+
+  const handleLongPress = useCallback(() => {
+    onLongPress?.(message);
+  }, [onLongPress, message]);
+
   return (
     <>
       {showDayDivider && (
@@ -197,12 +223,41 @@ function MessageBubbleBase({
           grouped ? styles.rowGrouped : styles.rowSpaced,
         ]}
       >
-        <View
+        <TouchableOpacity
+          activeOpacity={0.92}
+          onLongPress={handleLongPress}
+          delayLongPress={350}
           style={[
             styles.bubbleWrap,
             { alignItems: isMine ? 'flex-end' : 'flex-start' },
           ]}
         >
+          {/* ---------- Quoted reply preview ---------- */}
+          {hasReply && replyMessage && (
+            <View
+              style={[
+                styles.quotedWrap,
+                isMine ? styles.quotedWrapMine : styles.quotedWrapOther,
+              ]}
+            >
+              <View style={styles.quotedBar} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.quotedName} numberOfLines={1}>
+                  {replyName}
+                </Text>
+                <Text
+                  style={[
+                    styles.quotedText,
+                    isMine && styles.quotedTextMine,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {replyPreviewText(replyMessage)}
+                </Text>
+              </View>
+            </View>
+          )}
+
           {isDeleted ? (
             <View
               style={[
@@ -280,13 +335,13 @@ function MessageBubbleBase({
               />
             )}
           </View>
-        </View>
+        </TouchableOpacity>
       </View>
     </>
   );
 }
 
-// ---------- Custom comparator: only re-render if THIS message changed ----------
+// ---------- Custom comparator ----------
 function areEqual(prev: Props, next: Props) {
   if (prev.message !== next.message) return false;
   if (prev.isMine !== next.isMine) return false;
@@ -295,6 +350,9 @@ function areEqual(prev: Props, next: Props) {
   if (prev.prevMessage?.created_at !== next.prevMessage?.created_at) return false;
   if (prev.nextMessage?.created_at !== next.nextMessage?.created_at) return false;
   if (prev.nextMessage?.sender_id !== next.nextMessage?.sender_id) return false;
+  if (prev.replyMessage?.id !== next.replyMessage?.id) return false;
+  if (prev.replyMessage?.content !== next.replyMessage?.content) return false;
+  if (prev.replyMessage?.is_deleted !== next.replyMessage?.is_deleted) return false;
   return true;
 }
 
@@ -372,6 +430,43 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     fontFamily: FONTS.body,
     color: 'rgba(255,255,255,0.55)',
+  },
+
+  // ---------- Quoted reply ----------
+  quotedWrap: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    marginBottom: 6,
+    minWidth: 160,
+  },
+  quotedWrapMine: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  quotedWrapOther: {
+    backgroundColor: 'rgba(124,92,255,0.14)',
+  },
+  quotedBar: {
+    width: 3,
+    borderRadius: 2,
+    backgroundColor: COLORS.violetLight,
+  },
+  quotedName: {
+    fontSize: 11.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.violetLight,
+    marginBottom: 1,
+  },
+  quotedText: {
+    fontSize: 12.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+  },
+  quotedTextMine: {
+    color: 'rgba(255,255,255,0.85)',
   },
 
   // ---------- Image ----------
