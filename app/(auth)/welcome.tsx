@@ -148,22 +148,25 @@ export default function WelcomeScreen() {
             </Text>
 
             <View style={styles.ctaRow}>
-              <TouchableOpacity
-                onPress={() => router.push('/(auth)/signup')}
-                activeOpacity={0.9}
-                style={styles.ctaPrimaryWrap}
-              >
-                <LinearGradient
-                  colors={['#7C5CFF', '#9C82FF']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.ctaPrimary}
+              {/* ✅ Fixed: shadow wrapper separate from overflow:hidden */}
+              <View style={styles.ctaPrimaryShadowWrap}>
+                <TouchableOpacity
+                  onPress={() => router.push('/(auth)/signup')}
+                  activeOpacity={0.9}
+                  style={styles.ctaPrimaryWrap}
                 >
-                  <Text style={styles.ctaPrimaryText}>
-                    Create your account
-                  </Text>
-                </LinearGradient>
-              </TouchableOpacity>
+                  <LinearGradient
+                    colors={['#7C5CFF', '#9C82FF']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.ctaPrimary}
+                  >
+                    <Text style={styles.ctaPrimaryText}>
+                      Create your account
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
 
               <TouchableOpacity
                 onPress={() => router.push('/(auth)/login')}
@@ -383,15 +386,20 @@ const styles = StyleSheet.create({
     marginTop: 26,
     width: '100%',
   },
-  ctaPrimaryWrap: {
+  // ✅ Shadow wrapper (no overflow clip)
+  ctaPrimaryShadowWrap: {
     flex: 1.15,
     borderRadius: 999,
-    overflow: 'hidden',
     shadowColor: '#7C5CFF',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
     shadowRadius: 16,
     elevation: 8,
+  },
+  // ✅ Inner wrap for pill clip
+  ctaPrimaryWrap: {
+    borderRadius: 999,
+    overflow: 'hidden',
   },
   ctaPrimary: {
     paddingVertical: 15,
