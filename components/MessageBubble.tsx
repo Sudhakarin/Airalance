@@ -1,5 +1,5 @@
 // components/MessageBubble.tsx
-// Double-tap heart reaction + reaction pills + cache-friendly + haptics + entrance animation
+// Double-tap heart reaction + reaction pills + haptics + entrance animation + swipe-to-reply
 
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
@@ -10,6 +10,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -46,9 +47,10 @@ type Props = {
   myId: string;
   onLongPress?: (msg: Message) => void;
   onDoubleTap?: (msg: Message) => void;
+  onSwipeReply?: (msg: Message) => void; // ✅ NEW
   replyMessage?: Message | null;
   reactions?: Reaction[];
-  animate?: boolean; // ✅ NEW — triggers entrance animation
+  animate?: boolean;
 };
 
 const DOUBLE_TAP_MS = 300;
@@ -170,6 +172,7 @@ function MessageBubbleBase({
   myId,
   onLongPress,
   onDoubleTap,
+  onSwipeReply,
   replyMessage,
   reactions,
   animate = false,
@@ -257,6 +260,31 @@ function MessageBubbleBase({
     [enterAnim]
   );
 
+  // ---------- Swipe to reply ----------
+  const swipeableRef = useRef<any>(null);
+
+  const renderLeftActions = useCallback(
+    () => (
+      <View style={styles.swipeLeftAction}>
+        <View style={styles.swipeReplyIcon}>
+          <Ionicons
+            name="arrow-undo"
+            size={18}
+            color={COLORS.violetLight}
+          />
+        </View>
+      </View>
+    ),
+    []
+  );
+
+  const handleSwipeOpen = useCallback(() => {
+    if (isDeleted) return;
+    hapticMedium();
+    onSwipeReply?.(message);
+    swipeableRef.current?.close();
+  }, [isDeleted, onSwipeReply, message]);
+
   // ---------- Double-tap detection ----------
   const lastTapRef = useRef<number>(0);
 
@@ -304,151 +332,166 @@ function MessageBubbleBase({
         </View>
       )}
 
-      <Animated.View
-        style={[
-          styles.row,
-          isMine ? styles.rowMine : styles.rowOther,
-          grouped ? styles.rowGrouped : styles.rowSpaced,
-          enterStyle,
-        ]}
+      <Swipeable
+        ref={swipeableRef}
+        renderLeftActions={renderLeftActions}
+        onSwipeableWillOpen={handleSwipeOpen}
+        leftThreshold={60}
+        overshootLeft={false}
+        friction={2}
+        enabled={!isDeleted}
+        containerStyle={styles.swipeContainer}
       >
-        <TouchableOpacity
-          activeOpacity={0.92}
-          onPress={handlePress}
-          onLongPress={handleLongPress}
-          delayLongPress={350}
+        <Animated.View
           style={[
-            styles.bubbleWrap,
-            { alignItems: isMine ? 'flex-end' : 'flex-start' },
+            styles.row,
+            isMine ? styles.rowMine : styles.rowOther,
+            grouped ? styles.rowGrouped : styles.rowSpaced,
+            enterStyle,
           ]}
         >
-          {/* Quoted reply */}
-          {hasReply && replyMessage && (
-            <View
-              style={[
-                styles.quotedWrap,
-                isMine ? styles.quotedWrapMine : styles.quotedWrapOther,
-              ]}
-            >
-              <View style={styles.quotedBar} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.quotedName} numberOfLines={1}>
-                  {replyName}
-                </Text>
-                <Text
-                  style={[
-                    styles.quotedText,
-                    isMine && styles.quotedTextMine,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {replyPreviewText(replyMessage)}
-                </Text>
-              </View>
-            </View>
-          )}
-
-          <View style={{ position: 'relative' }}>
-            {isDeleted ? (
+          <TouchableOpacity
+            activeOpacity={0.92}
+            onPress={handlePress}
+            onLongPress={handleLongPress}
+            delayLongPress={350}
+            style={[
+              styles.bubbleWrap,
+              { alignItems: isMine ? 'flex-end' : 'flex-start' },
+            ]}
+          >
+            {/* Quoted reply */}
+            {hasReply && replyMessage && (
               <View
                 style={[
-                  styles.bubble,
-                  isMine ? styles.bubbleMinePlain : styles.bubbleOther,
-                  nextIsSameSender &&
-                    (isMine
-                      ? styles.bubbleMineTightBottom
-                      : styles.bubbleOtherTightBottom),
+                  styles.quotedWrap,
+                  isMine ? styles.quotedWrapMine : styles.quotedWrapOther,
                 ]}
               >
-                <Text style={styles.deletedText}>This message was deleted</Text>
-              </View>
-            ) : isImage ? (
-              <View style={styles.imageWrap}>
-                <Image
-                  source={{ uri: message.media_url! }}
-                  style={styles.image}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  transition={150}
-                  recyclingKey={message.id}
-                />
-              </View>
-            ) : isVoice ? (
-              <View
-                style={[
-                  styles.bubble,
-                  isMine ? styles.bubbleMinePlain : styles.bubbleOther,
-                  nextIsSameSender &&
-                    (isMine
-                      ? styles.bubbleMineTightBottom
-                      : styles.bubbleOtherTightBottom),
-                ]}
-              >
-                <VoiceBubble
-                  url={message.media_url!}
-                  duration={message.media_duration ?? 0}
-                  isMine={isMine}
-                />
-              </View>
-            ) : isMine ? (
-              <LinearGradient
-                colors={GRADIENTS.bubbleMine as any}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[
-                  styles.bubble,
-                  styles.bubbleMine,
-                  nextIsSameSender && styles.bubbleMineTightBottom,
-                ]}
-              >
-                <Text style={styles.text}>{message.content}</Text>
-              </LinearGradient>
-            ) : (
-              <View
-                style={[
-                  styles.bubble,
-                  styles.bubbleOther,
-                  nextIsSameSender && styles.bubbleOtherTightBottom,
-                ]}
-              >
-                <Text style={styles.text}>{message.content}</Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.metaRow}>
-            <Text style={styles.time}>{formatTime(message.created_at)}</Text>
-            {isMine && (
-              <Ionicons
-                name={message.read_at ? 'checkmark-done' : 'checkmark'}
-                size={14}
-                color={message.read_at ? '#7DD3FC' : 'rgba(255,255,255,0.55)'}
-                style={{ marginLeft: 4 }}
-              />
-            )}
-          </View>
-
-          {/* Reaction pills */}
-          {groupedReactions.length > 0 && (
-            <View style={styles.reactionsRow}>
-              {groupedReactions.map((r) => (
-                <View
-                  key={r.emoji}
-                  style={[
-                    styles.reactionPill,
-                    r.mine && styles.reactionPillMine,
-                  ]}
-                >
-                  <Text style={styles.reactionEmoji}>{r.emoji}</Text>
-                  {r.count > 1 && (
-                    <Text style={styles.reactionCount}>{r.count}</Text>
-                  )}
+                <View style={styles.quotedBar} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.quotedName} numberOfLines={1}>
+                    {replyName}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.quotedText,
+                      isMine && styles.quotedTextMine,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {replyPreviewText(replyMessage)}
+                  </Text>
                 </View>
-              ))}
+              </View>
+            )}
+
+            <View style={{ position: 'relative' }}>
+              {isDeleted ? (
+                <View
+                  style={[
+                    styles.bubble,
+                    isMine ? styles.bubbleMinePlain : styles.bubbleOther,
+                    nextIsSameSender &&
+                      (isMine
+                        ? styles.bubbleMineTightBottom
+                        : styles.bubbleOtherTightBottom),
+                  ]}
+                >
+                  <Text style={styles.deletedText}>
+                    This message was deleted
+                  </Text>
+                </View>
+              ) : isImage ? (
+                <View style={styles.imageWrap}>
+                  <Image
+                    source={{ uri: message.media_url! }}
+                    style={styles.image}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={150}
+                    recyclingKey={message.id}
+                  />
+                </View>
+              ) : isVoice ? (
+                <View
+                  style={[
+                    styles.bubble,
+                    isMine ? styles.bubbleMinePlain : styles.bubbleOther,
+                    nextIsSameSender &&
+                      (isMine
+                        ? styles.bubbleMineTightBottom
+                        : styles.bubbleOtherTightBottom),
+                  ]}
+                >
+                  <VoiceBubble
+                    url={message.media_url!}
+                    duration={message.media_duration ?? 0}
+                    isMine={isMine}
+                  />
+                </View>
+              ) : isMine ? (
+                <LinearGradient
+                  colors={GRADIENTS.bubbleMine as any}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[
+                    styles.bubble,
+                    styles.bubbleMine,
+                    nextIsSameSender && styles.bubbleMineTightBottom,
+                  ]}
+                >
+                  <Text style={styles.text}>{message.content}</Text>
+                </LinearGradient>
+              ) : (
+                <View
+                  style={[
+                    styles.bubble,
+                    styles.bubbleOther,
+                    nextIsSameSender && styles.bubbleOtherTightBottom,
+                  ]}
+                >
+                  <Text style={styles.text}>{message.content}</Text>
+                </View>
+              )}
             </View>
-          )}
-        </TouchableOpacity>
-      </Animated.View>
+
+            <View style={styles.metaRow}>
+              <Text style={styles.time}>{formatTime(message.created_at)}</Text>
+              {isMine && (
+                <Ionicons
+                  name={message.read_at ? 'checkmark-done' : 'checkmark'}
+                  size={14}
+                  color={
+                    message.read_at ? '#7DD3FC' : 'rgba(255,255,255,0.55)'
+                  }
+                  style={{ marginLeft: 4 }}
+                />
+              )}
+            </View>
+
+            {/* Reaction pills */}
+            {groupedReactions.length > 0 && (
+              <View style={styles.reactionsRow}>
+                {groupedReactions.map((r) => (
+                  <View
+                    key={r.emoji}
+                    style={[
+                      styles.reactionPill,
+                      r.mine && styles.reactionPillMine,
+                    ]}
+                  >
+                    <Text style={styles.reactionEmoji}>{r.emoji}</Text>
+                    {r.count > 1 && (
+                      <Text style={styles.reactionCount}>{r.count}</Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
+          </TouchableOpacity>
+        </Animated.View>
+      </Swipeable>
     </>
   );
 }
@@ -457,7 +500,7 @@ function MessageBubbleBase({
 function areEqual(prev: Props, next: Props) {
   if (prev.message !== next.message) return false;
   if (prev.isMine !== next.isMine) return false;
-  if (prev.animate !== next.animate) return false; // ✅ NEW
+  if (prev.animate !== next.animate) return false;
   if (prev.prevMessage?.id !== next.prevMessage?.id) return false;
   if (prev.nextMessage?.id !== next.nextMessage?.id) return false;
   if (prev.prevMessage?.created_at !== next.prevMessage?.created_at)
@@ -499,6 +542,29 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
+  },
+
+  // ✅ Swipe container — transparent, no clipping
+  swipeContainer: {
+    backgroundColor: 'transparent',
+  },
+
+  // ✅ Left action reveal (reply icon)
+  swipeLeftAction: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: 16,
+    paddingRight: 8,
+  },
+  swipeReplyIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(124,92,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,92,255,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   row: { flexDirection: 'row' },
