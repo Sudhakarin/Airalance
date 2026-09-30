@@ -1,7 +1,7 @@
 // app/(tabs)/home.tsx
-// Home screen — welcome + news feed with categories + live section (optimized)
+// Home screen — welcome + news feed + AsyncStorage cache
 
-import { useEffect, useState, useCallback, useMemo, memo } from 'react';
+import { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   COLORS,
   FONTS,
@@ -49,6 +50,34 @@ const CATEGORY_GRADIENTS: Record<string, [string, string]> = {
   Education: ['#22D3B8', '#16A98C'],
   Awareness: ['#F4607A', '#D66BE0'],
 };
+
+const NEWS_CACHE_KEY = 'airalance:news:feed';
+const NEWS_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
+
+type NewsCache = {
+  t: number;
+  articles: NewsArticle[];
+};
+
+async function readNewsCache(): Promise<NewsArticle[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(NEWS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as NewsCache;
+    if (!parsed?.articles || !Array.isArray(parsed.articles)) return null;
+    if (Date.now() - (parsed.t ?? 0) > NEWS_CACHE_TTL_MS) return null;
+    return parsed.articles;
+  } catch {
+    return null;
+  }
+}
+
+async function writeNewsCache(articles: NewsArticle[]) {
+  try {
+    const payload: NewsCache = { t: Date.now(), articles };
+    await AsyncStorage.setItem(NEWS_CACHE_KEY, JSON.stringify(payload));
+  } catch {}
+}
 
 // ---------- Memoized article row ----------
 const ArticleRow = memo(
@@ -206,7 +235,7 @@ const CategoryPill = memo(function CategoryPill({
   );
 });
 
-// ---------- List header component (memoized) ----------
+// ---------- List header component ----------
 type HeaderProps = {
   loading: boolean;
   selectedCategory: string;
@@ -373,6 +402,21 @@ export default function HomeScreen() {
   const [selectedCategory, setSelectedCategory] = useState('For you');
   const [notifCount, setNotifCount] = useState(0);
 
+  const cacheShownRef = useRef(false);
+
+  // ✅ Cache-first: show cached news instantly
+  useEffect(() => {
+    if (cacheShownRef.current) return;
+    (async () => {
+      const cached = await readNewsCache();
+      if (cached && cached.length > 0) {
+        setArticles(cached);
+        setLoading(false);
+      }
+      cacheShownRef.current = true;
+    })();
+  }, []);
+
   const fetchNews = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -383,9 +427,12 @@ export default function HomeScreen() {
 
       if (error) {
         console.warn('News fetch error:', error.message);
-        setArticles([]);
+        // don't wipe cache — keep showing stale
       } else {
-        setArticles((data ?? []) as NewsArticle[]);
+        const list = (data ?? []) as NewsArticle[];
+        setArticles(list);
+        // ✅ Save fresh to cache
+        await writeNewsCache(list);
       }
     } catch (err) {
       console.warn('News fetch crashed:', err);
@@ -395,7 +442,6 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // Use session (no extra network) instead of getUser()
   const fetchNotificationCount = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return;
@@ -417,7 +463,6 @@ export default function HomeScreen() {
     await Promise.all([fetchNews(), fetchNotificationCount()]);
   }, [fetchNews, fetchNotificationCount]);
 
-  // Memoized derivations
   const filteredArticles = useMemo(() => {
     if (selectedCategory === 'For you') return articles;
     const lower = selectedCategory.toLowerCase();
@@ -434,7 +479,6 @@ export default function HomeScreen() {
     [filteredArticles, featured]
   );
 
-  // Stable callbacks
   const openArticle = useCallback(
     (id: string) => router.push(`/news/${id}`),
     [router]
@@ -506,7 +550,7 @@ export default function HomeScreen() {
       </View>
 
       <FlatList
-        data={loading ? [] : rest}
+        data={loading && articles.length === 0 ? [] : rest}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
         ListHeaderComponent={listHeader}
