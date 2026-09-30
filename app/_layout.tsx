@@ -1,16 +1,10 @@
 // app/_layout.tsx
-// Root layout — fonts, auth, theme, navigation stack, push notifications (optimized)
+// Root layout — fonts, auth, theme, navigation stack, push notifications
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import {
-  View,
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  Platform,
-} from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
@@ -30,7 +24,6 @@ import {
   Poppins_700Bold,
 } from '@expo-google-fonts/poppins';
 import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono';
-import { COLORS } from '../constants/theme';
 import { supabase } from '../lib/supabase';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -44,7 +37,6 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Fonts object — declared once, reused
 const FONT_MAP = {
   Inter_400Regular,
   Inter_500Medium,
@@ -60,10 +52,9 @@ export default function RootLayout() {
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
-  // ✅ FIXED: stores userId instead of boolean — so a new user re-registers push
   const pushRegisteredForUserRef = useRef<string | null>(null);
 
-  // ---------- Web-only: hide scrollbars (runs once, only on web) ----------
+  // ---------- Web-only: hide scrollbars ----------
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     if (typeof document === 'undefined') return;
@@ -80,14 +71,12 @@ export default function RootLayout() {
     document.head.appendChild(style);
   }, []);
 
-  // ---------- Load fonts (once, cached by expo-font) ----------
+  // ---------- Load fonts ----------
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const allLoaded = Object.keys(FONT_MAP).every((f) =>
-          Font.isLoaded(f)
-        );
+        const allLoaded = Object.keys(FONT_MAP).every((f) => Font.isLoaded(f));
         if (!allLoaded) {
           await Font.loadAsync(FONT_MAP);
         }
@@ -102,7 +91,7 @@ export default function RootLayout() {
     };
   }, []);
 
-  // ---------- Auth: single source of truth ----------
+  // ---------- Auth ----------
   useEffect(() => {
     let mounted = true;
 
@@ -126,11 +115,10 @@ export default function RootLayout() {
     };
   }, []);
 
-  // ---------- Push registration (once per unique user session) ----------
+  // ---------- Push registration ----------
   useEffect(() => {
     if (!authReady || !userId) return;
     if (Platform.OS === 'web') return;
-    // ✅ FIXED: only skip if THIS exact user already registered
     if (pushRegisteredForUserRef.current === userId) return;
 
     let cancelled = false;
@@ -138,7 +126,6 @@ export default function RootLayout() {
     async function registerPush() {
       if (!Device.isDevice) return;
 
-      // Android channel — FIRST, always
       if (Platform.OS === 'android') {
         try {
           await Notifications.setNotificationChannelAsync('default', {
@@ -153,7 +140,6 @@ export default function RootLayout() {
         }
       }
 
-      // Permission
       let { status } = await Notifications.getPermissionsAsync();
       if (status !== 'granted') {
         const res = await Notifications.requestPermissionsAsync();
@@ -162,7 +148,6 @@ export default function RootLayout() {
       if (status !== 'granted') return;
       if (cancelled) return;
 
-      // Token
       try {
         const projectId =
           Constants.expoConfig?.extra?.eas?.projectId ??
@@ -174,14 +159,12 @@ export default function RootLayout() {
         ).data;
         if (cancelled) return;
 
-        // Save to profiles (userId already known — no extra getUser call)
         const { error } = await supabase
           .from('profiles')
           .update({ expo_push_token: token })
           .eq('id', userId);
 
         if (!error) {
-          // ✅ FIXED: store THIS user's id
           pushRegisteredForUserRef.current = userId;
           console.log('[push] Token saved for user:', userId);
         }
@@ -197,31 +180,26 @@ export default function RootLayout() {
     };
   }, [authReady, userId]);
 
-  // ---------- Hide splash when ready ----------
-  useEffect(() => {
+  // ---------- Hide splash AFTER first native layout (no blank frame) ----------
+  const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded && authReady) {
-      SplashScreen.hideAsync().catch(() => {});
+      await SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, authReady]);
 
+  // While not ready, keep returning null → splash stays visible
   if (!fontsLoaded || !authReady) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.violet} />
-        <Text style={styles.loadingText}>Airalance</Text>
-      </View>
-    );
+    return null;
   }
 
   return (
-    <GestureHandlerRootView style={styles.root}>
+    <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
       <SafeAreaProvider>
         <StatusBar style="light" />
         <Stack
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: '#000000' },
-            // Faster transition (was 'fade' = 300ms)
             animation: 'slide_from_right',
             animationDuration: 220,
           }}
@@ -279,17 +257,4 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000000' },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: '#000000',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 20,
-  },
-  loadingText: {
-    color: COLORS.text,
-    fontSize: 24,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
 });
