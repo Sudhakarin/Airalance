@@ -1,7 +1,7 @@
 // app/profile/[id].tsx
-// Other user's profile — view, follow, connect, message, block
+// Other user's profile — view, follow, connect, message, block + AsyncStorage cache
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   COLORS,
   FONTS,
@@ -44,6 +45,51 @@ type Profile = {
 
 type ConnectionStatus = 'loading' | 'none' | 'pending' | 'connected' | 'declined';
 type ListTab = 'followers' | 'following';
+
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
+
+function userProfileCacheKey(userId: string) {
+  return `airalance:profile:user:${userId}`;
+}
+
+type UserProfileCachePayload = {
+  t: number;
+  profile: Profile;
+  followersCount: number;
+  followingCount: number;
+  statusCount: number;
+  isFollowing: boolean;
+  isBlocked: boolean;
+  convoId: string | null;
+  connectionStatus: ConnectionStatus;
+};
+
+async function readUserProfileCache(
+  userId: string
+): Promise<UserProfileCachePayload | null> {
+  try {
+    const raw = await AsyncStorage.getItem(userProfileCacheKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as UserProfileCachePayload;
+    if (!parsed?.profile) return null;
+    if (Date.now() - (parsed.t ?? 0) > CACHE_TTL_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeUserProfileCache(
+  userId: string,
+  payload: Omit<UserProfileCachePayload, 't'>
+) {
+  try {
+    await AsyncStorage.setItem(
+      userProfileCacheKey(userId),
+      JSON.stringify({ t: Date.now(), ...payload })
+    );
+  } catch {}
+}
 
 export default function UserProfileScreen() {
   const router = useRouter();
@@ -74,13 +120,55 @@ export default function UserProfileScreen() {
   const [following, setFollowing] = useState<Profile[]>([]);
   const [listLoading, setListLoading] = useState(false);
 
-  // ✅ FIXED: cast VERIFIED_USERNAMES to readonly string[] for .includes()
+  const cacheShownRef = useRef(false);
+
   const isVerified = (p: Profile | null) =>
     !!p &&
     (!!p.verified ||
       (VERIFIED_USERNAMES as readonly string[]).includes(
         p.username?.toLowerCase() ?? ''
       ));
+
+  // ✅ Cache-first: show cached profile instantly
+  useEffect(() => {
+    if (!userId || cacheShownRef.current) return;
+    (async () => {
+      const cache = await readUserProfileCache(userId);
+      if (cache) {
+        setProfile(cache.profile);
+        setFollowersCount(cache.followersCount);
+        setFollowingCount(cache.followingCount);
+        setStatusCount(cache.statusCount);
+        setIsFollowing(cache.isFollowing);
+        setIsBlocked(cache.isBlocked);
+        setConvoId(cache.convoId);
+        setConnectionStatus(cache.connectionStatus);
+        setLoading(false);
+      }
+      cacheShownRef.current = true;
+    })();
+  }, [userId]);
+
+  // Helper: sync cache after change
+  const syncCache = useCallback(
+    async (patch: Partial<Omit<UserProfileCachePayload, 't' | 'profile'>>) => {
+      if (!userId) return;
+      const cached = await readUserProfileCache(userId);
+      if (!cached) return;
+      const next = {
+        profile: cached.profile,
+        followersCount: patch.followersCount ?? cached.followersCount,
+        followingCount: patch.followingCount ?? cached.followingCount,
+        statusCount: patch.statusCount ?? cached.statusCount,
+        isFollowing: patch.isFollowing ?? cached.isFollowing,
+        isBlocked: patch.isBlocked ?? cached.isBlocked,
+        convoId: patch.convoId !== undefined ? patch.convoId : cached.convoId,
+        connectionStatus: patch.connectionStatus ?? cached.connectionStatus,
+      };
+      await writeUserProfileCache(userId, next);
+    },
+    [userId]
+  );
 
   const loadProfile = useCallback(async () => {
     if (!userId) return;
@@ -96,7 +184,8 @@ export default function UserProfileScreen() {
         .single();
 
       if (error) throw error;
-      setProfile(p as Profile);
+      const profileData = p as Profile;
+      setProfile(profileData);
 
       const [f1, f2, statusRes] = await Promise.all([
         supabase
@@ -113,19 +202,30 @@ export default function UserProfileScreen() {
           .eq('user_id', userId),
       ]);
 
-      setFollowersCount(f1.count ?? 0);
-      setFollowingCount(f2.count ?? 0);
+      const followersCnt = f1.count ?? 0;
+      const followingCnt = f2.count ?? 0;
+      setFollowersCount(followersCnt);
+      setFollowingCount(followingCnt);
       const totalFromProfile = (p as any)?.status_total;
       const liveCount = statusRes.count ?? 0;
-      setStatusCount(
-        typeof totalFromProfile === 'number'
-          ? Math.max(totalFromProfile, liveCount)
-          : liveCount
-      );
+      const finalStatus = typeof totalFromProfile === 'number'
+        ? Math.max(totalFromProfile, liveCount)
+        : liveCount;
+      setStatusCount(finalStatus);
 
       if (!myUid || myUid === userId) {
         setConnectionStatus('connected');
         setLoading(false);
+        await writeUserProfileCache(userId, {
+          profile: profileData,
+          followersCount: followersCnt,
+          followingCount: followingCnt,
+          statusCount: finalStatus,
+          isFollowing: false,
+          isBlocked: false,
+          convoId: null,
+          connectionStatus: 'connected',
+        });
         return;
       }
 
@@ -135,7 +235,8 @@ export default function UserProfileScreen() {
         .eq('follower_id', myUid)
         .eq('followed_id', userId)
         .maybeSingle();
-      setIsFollowing(!!followRow);
+      const followingFlag = !!followRow;
+      setIsFollowing(followingFlag);
 
       const { data: blockRow } = await supabase
         .from('blocked_users')
@@ -143,7 +244,11 @@ export default function UserProfileScreen() {
         .eq('blocker_id', myUid)
         .eq('blocked_id', userId)
         .maybeSingle();
-      setIsBlocked(!!blockRow);
+      const blockedFlag = !!blockRow;
+      setIsBlocked(blockedFlag);
+
+      let resolvedConvo: string | null = null;
+      let resolvedStatus: ConnectionStatus = 'none';
 
       const { data: mine } = await supabase
         .from('conversation_participants')
@@ -158,9 +263,22 @@ export default function UserProfileScreen() {
           .eq('user_id', userId)
           .in('conversation_id', myConvoIds);
         if (theirs && theirs.length > 0) {
-          setConvoId(theirs[0].conversation_id);
+          resolvedConvo = theirs[0].conversation_id;
+          resolvedStatus = 'connected';
+          setConvoId(resolvedConvo);
           setConnectionStatus('connected');
           setLoading(false);
+
+          await writeUserProfileCache(userId, {
+            profile: profileData,
+            followersCount: followersCnt,
+            followingCount: followingCnt,
+            statusCount: finalStatus,
+            isFollowing: followingFlag,
+            isBlocked: blockedFlag,
+            convoId: resolvedConvo,
+            connectionStatus: resolvedStatus,
+          });
           return;
         }
       }
@@ -174,13 +292,25 @@ export default function UserProfileScreen() {
         .maybeSingle();
 
       if (req) {
-        if (req.status === 'accepted') setConnectionStatus('connected');
-        else if (req.status === 'pending') setConnectionStatus('pending');
-        else if (req.status === 'declined') setConnectionStatus('declined');
-        else setConnectionStatus('none');
+        if (req.status === 'accepted') resolvedStatus = 'connected';
+        else if (req.status === 'pending') resolvedStatus = 'pending';
+        else if (req.status === 'declined') resolvedStatus = 'declined';
+        else resolvedStatus = 'none';
       } else {
-        setConnectionStatus('none');
+        resolvedStatus = 'none';
       }
+      setConnectionStatus(resolvedStatus);
+
+      await writeUserProfileCache(userId, {
+        profile: profileData,
+        followersCount: followersCnt,
+        followingCount: followingCnt,
+        statusCount: finalStatus,
+        isFollowing: followingFlag,
+        isBlocked: blockedFlag,
+        convoId: resolvedConvo,
+        connectionStatus: resolvedStatus,
+      });
     } catch (err) {
       console.warn('Load profile error:', err);
     } finally {
@@ -239,7 +369,12 @@ export default function UserProfileScreen() {
           .eq('followed_id', userId);
         if (!error) {
           setIsFollowing(false);
-          setFollowersCount((c) => (c === null ? c : Math.max(0, c - 1)));
+          const nextCount = followersCount !== null ? Math.max(0, followersCount - 1) : null;
+          if (nextCount !== null) setFollowersCount(nextCount);
+          await syncCache({
+            isFollowing: false,
+            ...(nextCount !== null ? { followersCount: nextCount } : {}),
+          });
         }
       } else {
         const { error } = await supabase
@@ -247,9 +382,13 @@ export default function UserProfileScreen() {
           .insert({ follower_id: myId, followed_id: userId });
         if (!error) {
           setIsFollowing(true);
-          setFollowersCount((c) => (c === null ? c : c + 1));
+          const nextCount = followersCount !== null ? followersCount + 1 : null;
+          if (nextCount !== null) setFollowersCount(nextCount);
+          await syncCache({
+            isFollowing: true,
+            ...(nextCount !== null ? { followersCount: nextCount } : {}),
+          });
 
-          // ✅ Notify: New follower
           const { data: me } = await supabase
             .from('profiles')
             .select('display_name')
@@ -300,8 +439,8 @@ export default function UserProfileScreen() {
       if (!error) {
         setConnectionStatus('pending');
         setConnectPopup(null);
+        await syncCache({ connectionStatus: 'pending' });
 
-        // ✅ Notify: Connection request
         const { data: me } = await supabase
           .from('profiles')
           .select('display_name')
@@ -363,6 +502,7 @@ export default function UserProfileScreen() {
       }
 
       setConvoId(foundId);
+      await syncCache({ convoId: foundId });
       router.push(`/chat/${foundId}`);
     } catch (err) {
       console.warn('Open chat error:', err);
@@ -380,7 +520,10 @@ export default function UserProfileScreen() {
           .delete()
           .eq('blocker_id', myId)
           .eq('blocked_id', userId);
-        if (!error) setIsBlocked(false);
+        if (!error) {
+          setIsBlocked(false);
+          await syncCache({ isBlocked: false });
+        }
       } else {
         Alert.alert('Block user', `Block @${profile?.username}?`, [
           { text: 'Cancel', style: 'cancel' },
@@ -391,7 +534,10 @@ export default function UserProfileScreen() {
               const { error } = await supabase
                 .from('blocked_users')
                 .insert({ blocker_id: myId, blocked_id: userId });
-              if (!error) setIsBlocked(true);
+              if (!error) {
+                setIsBlocked(true);
+                await syncCache({ isBlocked: true });
+              }
             },
           },
         ]);
