@@ -16,6 +16,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, {
+  Defs,
+  LinearGradient as SvgGradient,
+  Stop,
+  Path,
+  Circle,
+} from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   COLORS,
@@ -235,6 +242,47 @@ const CategoryPill = memo(function CategoryPill({
   );
 });
 
+// ---------- Airalance logo (drawn in code, no image file) ----------
+function AiralanceLogo({ width = 108 }: { width?: number }) {
+  const height = (width * 270) / 440;
+  return (
+    <Svg width={width} height={height} viewBox="60 80 440 270">
+      <Defs>
+        <SvgGradient
+          id="alLoop"
+          gradientUnits="userSpaceOnUse"
+          x1="81"
+          y1="0"
+          x2="477"
+          y2="0"
+        >
+          <Stop offset="0" stopColor="#FFB300" />
+          <Stop offset="0.5" stopColor="#FF3D6E" />
+          <Stop offset="1" stopColor="#E600A8" />
+        </SvgGradient>
+        <SvgGradient id="alHeadL" x1="0" y1="0" x2="1" y2="1">
+          <Stop offset="0" stopColor="#FFB300" />
+          <Stop offset="1" stopColor="#FF7A1A" />
+        </SvgGradient>
+        <SvgGradient id="alHeadR" x1="0" y1="0" x2="1" y2="1">
+          <Stop offset="0" stopColor="#FF2E7E" />
+          <Stop offset="1" stopColor="#E600A8" />
+        </SvgGradient>
+      </Defs>
+      <Path
+        d="M 279 250 C 320 205 350 190 385 190 C 430 190 455 220 455 255 C 455 295 425 320 385 320 C 350 320 320 300 279 250 C 238 200 208 190 173 190 C 128 190 103 220 103 255 C 103 295 133 320 173 320 C 208 320 238 300 279 250 Z"
+        fill="none"
+        stroke="url(#alLoop)"
+        strokeWidth={44}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Circle cx={172} cy={125} r={34} fill="url(#alHeadL)" />
+      <Circle cx={388} cy={123} r={36} fill="url(#alHeadR)" />
+    </Svg>
+  );
+}
+
 // ---------- List header component ----------
 type HeaderProps = {
   loading: boolean;
@@ -258,15 +306,8 @@ const ListHeader = memo(function ListHeader({
   return (
     <>
       <View style={styles.welcomeCard}>
-        <View style={styles.welcomeIcon}>
-          <LinearGradient
-            colors={['#9C82FF', '#22D3B8']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.welcomeIconGradient}
-          >
-            <Ionicons name="chatbubble" size={22} color="#FFFFFF" />
-          </LinearGradient>
+        <View style={styles.welcomeLogoWrap}>
+          <AiralanceLogo width={78} />
         </View>
         <Text style={styles.welcomeTitle}>Welcome to Airalance!</Text>
         <Text style={styles.welcomeSubtitle}>
@@ -629,18 +670,16 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.md,
   },
-  welcomeIcon: {
-    marginBottom: SPACING.sm,
-    borderRadius: 18,
-    overflow: 'hidden',
-    ...SHADOWS.card,
-  },
-  welcomeIconGradient: {
-    width: 58,
-    height: 58,
-    borderRadius: 18,
+  welcomeLogoWrap: {
+    width: 116,
+    height: 116,
+    borderRadius: 58,
+    backgroundColor: 'rgba(156,130,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: SPACING.sm,
   },
   welcomeTitle: {
     fontSize: 19,
