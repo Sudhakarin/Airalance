@@ -1,5 +1,5 @@
 // app/(tabs)/chats.tsx
-// Chats list — WhatsApp-style locked chip + Android blur fix + AsyncStorage cache
+// Chats list — WhatsApp-style locked row + Android blur fix + AsyncStorage cache
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
@@ -502,7 +502,7 @@ export default function ChatsScreen() {
     [router]
   );
 
-  // ✅ FIXED: wait for modal close animation before navigating
+  // ✅ Wait for modal close animation before navigating
   const openLockedChat = useCallback(
     (convoId: string) => {
       setLockedViewOpen(false);
@@ -651,7 +651,6 @@ export default function ChatsScreen() {
   // ✅ Compares against hashed stored PIN
   async function confirmPinVerify() {
     if (!storedPin) {
-      // No PIN set — unlock anyway
       setSessionUnlocked(true);
       setPinModalVisible(false);
       setTimeout(() => setLockedViewOpen(true), 220);
@@ -750,20 +749,22 @@ export default function ChatsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 🔒 Locked chats chip — proper spacing from header + edges */}
+      {/* 🔒 Locked chats row — WhatsApp style */}
       {!loading && lockedConversations.length > 0 && (
-        <View style={styles.lockedChipWrap}>
-          <TouchableOpacity
-            style={styles.lockedChip}
-            onPress={openLockedSection}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="lock-closed" size={13} color={COLORS.violetLight} />
-            <Text style={styles.lockedChipText}>
-              Locked chats · {lockedConversations.length}
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.lockedRow}
+          onPress={openLockedSection}
+          activeOpacity={0.7}
+        >
+          <View style={styles.lockedRowIconWrap}>
+            <Ionicons name="lock-closed-outline" size={24} color="#FFFFFF" />
+          </View>
+          <Text style={styles.lockedRowText}>Locked chats</Text>
+          <Text style={styles.lockedRowCount}>
+            {lockedConversations.length}
+          </Text>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.mist} />
+        </TouchableOpacity>
       )}
 
       {loading && conversations.length === 0 ? (
@@ -1297,28 +1298,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  lockedChipWrap: {
-    paddingHorizontal: 18,
-    marginTop: 6,
-    marginBottom: 12,
-    alignItems: 'center',
-  },
-  lockedChip: {
+  // ---------- Locked chats row (WhatsApp style) ----------
+  lockedRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 22,
-    backgroundColor: 'rgba(124,92,255,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(124,92,255,0.35)',
+    gap: 12,
+    paddingHorizontal: SPACING.sm * 2,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.05)',
   },
-  lockedChipText: {
-    fontSize: 12.5,
+  lockedRowIconWrap: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockedRowText: {
+    flex: 1,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
-    letterSpacing: 0.3,
+  },
+  lockedRowCount: {
+    fontSize: 13.5,
+    fontFamily: FONTS.bodyMedium,
+    color: COLORS.mist,
+    marginRight: 2,
   },
 
   listContent: {
