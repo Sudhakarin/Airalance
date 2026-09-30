@@ -148,7 +148,7 @@ export default function WelcomeScreen() {
             </Text>
 
             <View style={styles.ctaRow}>
-              {/* ✅ Fixed: shadow wrapper separate from overflow:hidden */}
+              {/* ✅ Shadow wrapper (no clip) + violet bg kills AA gap */}
               <View style={styles.ctaPrimaryShadowWrap}>
                 <TouchableOpacity
                   onPress={() => router.push('/(auth)/signup')}
@@ -386,10 +386,11 @@ const styles = StyleSheet.create({
     marginTop: 26,
     width: '100%',
   },
-  // ✅ Shadow wrapper (no overflow clip)
+  // ✅ Shadow wrapper (no clip) + violet bg kills AA gap
   ctaPrimaryShadowWrap: {
     flex: 1.15,
     borderRadius: 999,
+    backgroundColor: '#7C5CFF',
     shadowColor: '#7C5CFF',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.4,
