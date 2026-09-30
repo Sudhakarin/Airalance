@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination
+// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -44,6 +44,12 @@ import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import MessageBubble from '../../components/MessageBubble';
 import VerifiedBadge from '../../components/VerifiedBadge';
+import {
+  hashPin,
+  loadStoredPinHash,
+  isSessionUnlocked,
+  setSessionUnlocked,
+} from '../../lib/pin';
 
 type Message = {
   id: string;
@@ -174,6 +180,13 @@ export default function ChatScreen() {
   const [otherOnline, setOtherOnline] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // ✅ Lock states
+  const [lockRequired, setLockRequired] = useState(false);
+  const [storedPinHash, setStoredPinHash] = useState<string | null>(null);
+  const [pinVerifyInput, setPinVerifyInput] = useState('');
+  const [pinVerifyError, setPinVerifyError] = useState('');
+  const [lockChecked, setLockChecked] = useState(false);
+
   // ✅ Pagination state
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -247,9 +260,16 @@ export default function ChatScreen() {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user || !mounted) return;
       const uid = authData.user.id;
-      setMyId(uid);
 
-      const [profileRes, otherRes, msgRes, pinsRes, delRes] = await Promise.all([
+      const [
+        profileRes,
+        otherRes,
+        msgRes,
+        pinsRes,
+        delRes,
+        chatSettingsRes,
+        pinHash,
+      ] = await Promise.all([
         supabase.from('profiles').select('display_name').eq('id', uid).single(),
         supabase
           .from('conversation_participants')
@@ -275,9 +295,32 @@ export default function ChatScreen() {
           .from('message_deletions')
           .select('message_id')
           .eq('user_id', uid),
+        supabase
+          .from('chat_settings')
+          .select('is_locked')
+          .eq('user_id', uid)
+          .eq('conversation_id', convoId)
+          .maybeSingle(),
+        loadStoredPinHash(uid),
       ]);
 
       if (!mounted) return;
+
+      setStoredPinHash(pinHash);
+
+      const chatLocked = chatSettingsRes.data?.is_locked === true;
+      const needsPin = chatLocked && !isSessionUnlocked();
+
+      // ✅ Batch myId + lockRequired + lockChecked together (single render)
+      setMyId(uid);
+      setLockRequired(needsPin);
+      setLockChecked(true);
+
+      if (needsPin) {
+        setLoading(false);
+        return;
+      }
+
       if (profileRes.data?.display_name) setMyName(profileRes.data.display_name);
       if (otherRes.data?.[0])
         setOther((otherRes.data[0] as any).profiles as OtherProfile);
@@ -287,7 +330,6 @@ export default function ChatScreen() {
         const ordered = [...msgs].reverse() as Message[];
         setMessages(ordered);
         prevMsgCountRef.current = ordered.length;
-        // ✅ Has more if we got exactly a full page
         setHasMore(msgs.length === PAGE_SIZE);
 
         if (ordered.length > 0) {
@@ -347,6 +389,7 @@ export default function ChatScreen() {
   // ✅ Auto-scroll to bottom on initial load
   useEffect(() => {
     if (loading) return;
+    if (lockRequired) return;
     if (visibleMessages.length === 0) return;
     if (initialScrollDoneRef.current) return;
     const t = setTimeout(() => {
@@ -355,14 +398,14 @@ export default function ChatScreen() {
       isNearBottomRef.current = true;
     }, 60);
     return () => clearTimeout(t);
-  }, [loading, visibleMessages.length]);
+  }, [loading, lockRequired, visibleMessages.length]);
 
   // ✅ Load older messages (pagination)
   const loadOlderMessages = useCallback(async () => {
     if (!myId || !convoId) return;
+    if (lockRequired) return;
     if (loadingMoreRef.current || !hasMore) return;
 
-    // Oldest loaded message (cursor)
     const oldestMsg = messages[0];
     if (!oldestMsg) return;
 
@@ -386,7 +429,6 @@ export default function ChatScreen() {
 
       const older = [...data].reverse() as Message[];
 
-      // Fetch reactions for older messages
       const olderIds = older.map((m) => m.id);
       const { data: rx } = await supabase
         .from('message_reactions')
@@ -413,10 +455,11 @@ export default function ChatScreen() {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [myId, convoId, hasMore, messages]);
+  }, [myId, convoId, hasMore, messages, lockRequired]);
 
   useEffect(() => {
     if (!myId || !convoId) return;
+    if (lockRequired) return;
 
     const channel = supabase
       .channel(`chat:${convoId}`)
@@ -525,10 +568,11 @@ export default function ChatScreen() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [myId, convoId]);
+  }, [myId, convoId, lockRequired]);
 
   useEffect(() => {
     if (!other?.id) return;
+    if (lockRequired) return;
     let cancelled = false;
     const check = async () => {
       const { data } = await supabase
@@ -548,7 +592,7 @@ export default function ChatScreen() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [other?.id]);
+  }, [other?.id, lockRequired]);
 
   useEffect(() => {
     const count = visibleMessages.length;
@@ -587,7 +631,6 @@ export default function ChatScreen() {
       setNewMessagesCount(0);
     }
 
-    // ✅ Trigger load more when near top
     if (contentOffset.y < 80 && hasMore && !loadingMoreRef.current) {
       loadOlderMessages();
     }
@@ -1175,7 +1218,8 @@ export default function ChatScreen() {
 
   const recordSeconds = Math.floor((recorderState.durationMillis ?? 0) / 1000);
 
-  if (loading || !myId) {
+  // ---------- LOADING ----------
+  if (loading || !myId || !lockChecked) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.loadingWrap}>
@@ -1185,6 +1229,88 @@ export default function ChatScreen() {
     );
   }
 
+  // ---------- LOCK SCREEN ----------
+  if (lockRequired) {
+    const onVerify = async () => {
+      if (!storedPinHash) {
+        setSessionUnlocked(true);
+        setLockRequired(false);
+        return;
+      }
+      if (pinVerifyInput.length !== 4) {
+        setPinVerifyError('Enter 4-digit PIN');
+        return;
+      }
+      try {
+        const inputHash = await hashPin(pinVerifyInput);
+        if (inputHash === storedPinHash) {
+          setSessionUnlocked(true);
+          setLockRequired(false);
+          setPinVerifyInput('');
+          setPinVerifyError('');
+        } else {
+          setPinVerifyError('Incorrect PIN');
+        }
+      } catch {
+        setPinVerifyError('Verification failed');
+      }
+    };
+
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <View style={styles.lockScreenWrap}>
+          <View style={styles.lockScreenIcon}>
+            <Ionicons
+              name="lock-closed"
+              size={28}
+              color={COLORS.violetLight}
+            />
+          </View>
+          <Text style={styles.lockScreenTitle}>Chat locked</Text>
+          <Text style={styles.lockScreenSub}>
+            Enter your PIN to open this conversation.
+          </Text>
+
+          <TextInput
+            style={styles.lockScreenInput}
+            value={pinVerifyInput}
+            onChangeText={(t) =>
+              setPinVerifyInput(t.replace(/\D/g, '').slice(0, 4))
+            }
+            placeholder="4-digit PIN"
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            keyboardType="number-pad"
+            secureTextEntry
+            maxLength={4}
+            autoFocus
+          />
+
+          {!!pinVerifyError && (
+            <Text style={styles.lockScreenError}>{pinVerifyError}</Text>
+          )}
+
+          <View style={styles.lockScreenButtons}>
+            <TouchableOpacity
+              style={styles.lockScreenBtnSecondary}
+              onPress={() => router.back()}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.lockScreenBtnSecondaryText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.lockScreenBtnPrimary}
+              onPress={onVerify}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.lockScreenBtnPrimaryText}>Unlock</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // ---------- MAIN CHAT ----------
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
@@ -1286,7 +1412,6 @@ export default function ChatScreen() {
             updateCellsBatchingPeriod={50}
             removeClippedSubviews={Platform.OS === 'android'}
             keyboardShouldPersistTaps="handled"
-            // ✅ Prevents scroll jump when older messages are prepended
             maintainVisibleContentPosition={{
               minIndexForVisible: 0,
               autoscrollToTopThreshold: 10,
@@ -1296,7 +1421,6 @@ export default function ChatScreen() {
                 flatListRef.current?.scrollToEnd({ animated: true });
               }, 200);
             }}
-            // ✅ Loading indicator at top when fetching older messages
             ListHeaderComponent={
               loadingMore ? (
                 <View style={styles.loadingMoreWrap}>
@@ -1641,6 +1765,91 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.ink900 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
+  // ---------- Lock screen ----------
+  lockScreenWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  lockScreenIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(124,92,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  lockScreenTitle: {
+    fontSize: 20,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    marginBottom: 6,
+  },
+  lockScreenSub: {
+    fontSize: 13.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 22,
+  },
+  lockScreenInput: {
+    width: '100%',
+    maxWidth: 260,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    fontSize: 18,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    letterSpacing: 8,
+    marginBottom: 10,
+  },
+  lockScreenError: {
+    fontSize: 13,
+    fontFamily: FONTS.bodyMedium,
+    color: COLORS.danger,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  lockScreenButtons: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+    maxWidth: 260,
+    marginTop: 4,
+  },
+  lockScreenBtnSecondary: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  lockScreenBtnSecondaryText: {
+    fontSize: 14.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.mistLight,
+  },
+  lockScreenBtnPrimary: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: COLORS.violet,
+    alignItems: 'center',
+  },
+  lockScreenBtnPrimaryText: {
+    fontSize: 14.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+  },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1718,7 +1927,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---------- Loading older messages indicator ----------
   loadingMoreWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1732,7 +1940,6 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
   },
 
-  // ---------- Scroll-to-bottom button ----------
   scrollBtnWrap: {
     position: 'absolute',
     right: 14,
@@ -1938,7 +2145,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---------- Blur backdrop with Android fallback ----------
   blurBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
