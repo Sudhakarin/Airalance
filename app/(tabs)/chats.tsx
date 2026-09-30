@@ -25,6 +25,12 @@ import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
+import {
+  hashPin,
+  loadStoredPinHash,
+  savePinHash,
+  setSessionUnlocked,
+} from '../../lib/pin';
 
 type OtherProfile = {
   id: string;
@@ -56,10 +62,6 @@ type ChatSetting = {
 
 const ROW_HEIGHT = 78;
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
-
-function pinKey(userId: string) {
-  return `chat_lock_pin:${userId}`;
-}
 
 function chatsCacheKey(userId: string) {
   return `airalance:chats:${userId}`;
@@ -297,13 +299,12 @@ export default function ChatsScreen() {
     });
   }, []);
 
+  // ✅ Load stored PIN hash (auto-migrates old plaintext PINs)
   useEffect(() => {
     if (!myId) return;
     (async () => {
-      try {
-        const saved = await AsyncStorage.getItem(pinKey(myId));
-        setStoredPin(saved);
-      } catch {}
+      const hash = await loadStoredPinHash(myId);
+      setStoredPin(hash);
     })();
   }, [myId]);
 
@@ -614,6 +615,7 @@ export default function ChatsScreen() {
     await applyLock(convo.id, false);
   }
 
+  // ✅ Uses hashed PIN storage
   async function confirmPinSetup() {
     if (!pinSetupConvo || !myId) return;
     if (pinInput1.length !== 4) {
@@ -625,8 +627,9 @@ export default function ChatsScreen() {
       return;
     }
     try {
-      await AsyncStorage.setItem(pinKey(myId), pinInput1);
-      setStoredPin(pinInput1);
+      const hash = await savePinHash(myId, pinInput1);
+      setStoredPin(hash);
+      setSessionUnlocked(true);
       const targetId = pinSetupConvo.id;
       setPinSetupConvo(null);
       setPinInput1('');
@@ -645,19 +648,32 @@ export default function ChatsScreen() {
     setPinModalVisible(true);
   }
 
-  function confirmPinVerify() {
+  // ✅ Compares against hashed stored PIN
+  async function confirmPinVerify() {
     if (!storedPin) {
+      // No PIN set — unlock anyway
+      setSessionUnlocked(true);
       setPinModalVisible(false);
+      setTimeout(() => setLockedViewOpen(true), 220);
       return;
     }
-    if (pinVerifyInput === storedPin) {
-      setPinModalVisible(false);
-      setPinVerifyInput('');
-      setPinVerifyError('');
-      // ✅ Small delay so PIN modal closes cleanly before locked list opens
-      setTimeout(() => setLockedViewOpen(true), 220);
-    } else {
-      setPinVerifyError('Incorrect PIN');
+    if (pinVerifyInput.length !== 4) {
+      setPinVerifyError('Enter 4-digit PIN');
+      return;
+    }
+    try {
+      const inputHash = await hashPin(pinVerifyInput);
+      if (inputHash === storedPin) {
+        setSessionUnlocked(true);
+        setPinModalVisible(false);
+        setPinVerifyInput('');
+        setPinVerifyError('');
+        setTimeout(() => setLockedViewOpen(true), 220);
+      } else {
+        setPinVerifyError('Incorrect PIN');
+      }
+    } catch {
+      setPinVerifyError('Verification failed');
     }
   }
 
@@ -1281,7 +1297,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---------- Locked chip (proper spacing) ----------
   lockedChipWrap: {
     paddingHorizontal: 18,
     marginTop: 6,
@@ -1465,7 +1480,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
 
-  // ---------- Shared dialog (action menu, delete, block) ----------
   dialogCard: {
     width: '100%',
     maxWidth: 320,
@@ -1568,7 +1582,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // ---------- PIN dialog (smaller, PIN-specific) ----------
   pinDialogCard: {
     width: '100%',
     maxWidth: 280,
