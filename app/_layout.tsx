@@ -1,5 +1,5 @@
 // app/_layout.tsx
-// Root layout — fonts, auth, theme, navigation stack, push notifications
+// Root layout — fonts, auth, theme, navigation stack, push notifications, sounds
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Stack } from 'expo-router';
@@ -26,6 +26,7 @@ import {
 import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono';
 import { supabase } from '../lib/supabase';
 import { setSessionUnlocked } from '../lib/pin';
+import { initSounds } from '../lib/sounds';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -54,6 +55,11 @@ export default function RootLayout() {
   const [authReady, setAuthReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const pushRegisteredForUserRef = useRef<string | null>(null);
+
+  // ---------- Init sounds (once on mount) ----------
+  useEffect(() => {
+    initSounds();
+  }, []);
 
   // ---------- Web-only: hide scrollbars ----------
   useEffect(() => {
