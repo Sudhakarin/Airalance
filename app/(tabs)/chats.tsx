@@ -1,5 +1,5 @@
 // app/(tabs)/chats.tsx
-// Chats list — long press actions, mute, lock, block, WhatsApp-style
+// Chats list — WhatsApp-style locked folder reveal on over-scroll
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
@@ -277,6 +277,8 @@ export default function ChatsScreen() {
 
   // Locked chats view (session only)
   const [lockedViewOpen, setLockedViewOpen] = useState(false);
+  // WhatsApp-style reveal: folder shows only on over-scroll at top
+  const [revealLocked, setRevealLocked] = useState(false);
 
   const realtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingRef = useRef(false);
@@ -468,6 +470,7 @@ export default function ChatsScreen() {
 
   const openChat = useCallback(
     (convoId: string) => {
+      setRevealLocked(false);
       router.push(`/chat/${convoId}`);
     },
     [router]
@@ -480,6 +483,22 @@ export default function ChatsScreen() {
     },
     [router]
   );
+
+  // ---------- WhatsApp-style reveal ----------
+  function onScroll(e: any) {
+    const y = e.nativeEvent.contentOffset.y;
+    if (lockedConversations.length === 0) return;
+
+    if (y < -40 && !revealLocked) {
+      setRevealLocked(true);
+    } else if (y > 5 && revealLocked) {
+      setRevealLocked(false);
+    }
+  }
+
+  function closeReveal() {
+    setRevealLocked(false);
+  }
 
   async function deleteConversation(convoId: string) {
     setDeleteConfirmConvo(null);
@@ -684,33 +703,6 @@ export default function ChatsScreen() {
     []
   );
 
-  const listHeader = useCallback(() => {
-    if (lockedConversations.length === 0) return null;
-    return (
-      <TouchableOpacity
-        style={styles.lockedFolder}
-        onPress={openLockedSection}
-        activeOpacity={0.75}
-      >
-        <View style={styles.lockedFolderIcon}>
-          <Ionicons name="lock-closed" size={22} color="#FFFFFF" />
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.lockedFolderTitle}>Locked chats</Text>
-          <Text style={styles.lockedFolderSub}>
-            {lockedConversations.length}{' '}
-            {lockedConversations.length === 1 ? 'chat' : 'chats'} · Tap to unlock
-          </Text>
-        </View>
-        <Ionicons
-          name="chevron-forward"
-          size={18}
-          color="rgba(255,255,255,0.4)"
-        />
-      </TouchableOpacity>
-    );
-  }, [lockedConversations.length]);
-
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
@@ -727,53 +719,90 @@ export default function ChatsScreen() {
       {loading && conversations.length === 0 ? (
         <ChatListSkeleton />
       ) : (
-        <FlatList
-          data={unlockedConversations}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          getItemLayout={getItemLayout}
-          ListHeaderComponent={listHeader}
-          contentContainerStyle={styles.listContent}
-          initialNumToRender={12}
-          maxToRenderPerBatch={10}
-          windowSize={7}
-          updateCellsBatchingPeriod={50}
-          removeClippedSubviews={true}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={COLORS.violet}
-              colors={[COLORS.violet]}
-            />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <View style={styles.emptyIconWrap}>
-                <Ionicons
-                  name="chatbubbles-outline"
-                  size={44}
-                  color={COLORS.mist}
-                />
+        <View style={{ flex: 1 }}>
+          <FlatList
+            data={unlockedConversations}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
+            getItemLayout={getItemLayout}
+            contentContainerStyle={styles.listContent}
+            initialNumToRender={12}
+            maxToRenderPerBatch={10}
+            windowSize={7}
+            updateCellsBatchingPeriod={50}
+            removeClippedSubviews={true}
+            keyboardShouldPersistTaps="handled"
+            // WhatsApp-style over-scroll reveal for locked folder
+            bounces={true}
+            alwaysBounceVertical={true}
+            overScrollMode="always"
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={COLORS.violet}
+                colors={[COLORS.violet]}
+              />
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyWrap}>
+                <View style={styles.emptyIconWrap}>
+                  <Ionicons
+                    name="chatbubbles-outline"
+                    size={44}
+                    color={COLORS.mist}
+                  />
+                </View>
+                <Text style={styles.emptyTitle}>No conversations yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Tap Search to find people and start chatting
+                </Text>
+                <TouchableOpacity
+                  style={styles.emptyBtn}
+                  onPress={() => router.push('/(tabs)/search')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.emptyBtnText}>Find people</Text>
+                </TouchableOpacity>
               </View>
-              <Text style={styles.emptyTitle}>No conversations yet</Text>
-              <Text style={styles.emptySubtitle}>
-                Tap Search to find people and start chatting
-              </Text>
+            }
+          />
+
+          {/* WhatsApp-style locked folder overlay: only on over-scroll at top */}
+          {revealLocked && lockedConversations.length > 0 && (
+            <View style={styles.lockedFolderReveal} pointerEvents="box-none">
               <TouchableOpacity
-                style={styles.emptyBtn}
-                onPress={() => router.push('/(tabs)/search')}
-                activeOpacity={0.85}
+                style={styles.lockedFolder}
+                onPress={() => {
+                  closeReveal();
+                  openLockedSection();
+                }}
+                activeOpacity={0.75}
               >
-                <Text style={styles.emptyBtnText}>Find people</Text>
+                <View style={styles.lockedFolderIcon}>
+                  <Ionicons name="lock-closed" size={22} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.lockedFolderTitle}>Locked chats</Text>
+                  <Text style={styles.lockedFolderSub}>
+                    {lockedConversations.length}{' '}
+                    {lockedConversations.length === 1 ? 'chat' : 'chats'} · Tap to unlock
+                  </Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color="rgba(255,255,255,0.4)"
+                />
               </TouchableOpacity>
             </View>
-          }
-        />
+          )}
+        </View>
       )}
 
-      {/* ========== ACTION MENU (long press, centered + blur) ========== */}
+      {/* ========== ACTION MENU ========== */}
       <Modal
         visible={!!actionSheetConvo}
         transparent
@@ -880,7 +909,12 @@ export default function ChatsScreen() {
               style={styles.dialogCard}
               onPress={(e) => e.stopPropagation()}
             >
-              <View style={styles.dialogIconWrap}>
+              <View
+                style={[
+                  styles.dialogIconWrap,
+                  { backgroundColor: 'rgba(239,68,68,0.15)' },
+                ]}
+              >
                 <Ionicons
                   name="trash-outline"
                   size={26}
@@ -933,7 +967,12 @@ export default function ChatsScreen() {
               style={styles.dialogCard}
               onPress={(e) => e.stopPropagation()}
             >
-              <View style={[styles.dialogIconWrap, { backgroundColor: 'rgba(239,68,68,0.15)' }]}>
+              <View
+                style={[
+                  styles.dialogIconWrap,
+                  { backgroundColor: 'rgba(239,68,68,0.15)' },
+                ]}
+              >
                 <Ionicons name="ban" size={26} color={COLORS.danger} />
               </View>
               <Text style={styles.dialogTitle}>
@@ -965,7 +1004,7 @@ export default function ChatsScreen() {
         </BlurView>
       </Modal>
 
-      {/* ========== PIN SETUP (centered + blur + keyboard safe) ========== */}
+      {/* ========== PIN SETUP ========== */}
       <Modal
         visible={!!pinSetupConvo}
         transparent
@@ -1051,7 +1090,7 @@ export default function ChatsScreen() {
         </BlurView>
       </Modal>
 
-      {/* ========== PIN VERIFY (centered + blur + keyboard safe) ========== */}
+      {/* ========== PIN VERIFY ========== */}
       <Modal
         visible={pinModalVisible}
         transparent
@@ -1124,7 +1163,7 @@ export default function ChatsScreen() {
         </BlurView>
       </Modal>
 
-      {/* ========== LOCKED CHATS VIEW (session only) ========== */}
+      {/* ========== LOCKED CHATS VIEW ========== */}
       <Modal
         visible={lockedViewOpen}
         transparent={false}
@@ -1191,9 +1230,7 @@ function ActionRow({
         size={22}
         color={danger ? COLORS.danger : '#FFFFFF'}
       />
-      <Text
-        style={[styles.actionLabel, danger && { color: COLORS.danger }]}
-      >
+      <Text style={[styles.actionLabel, danger && { color: COLORS.danger }]}>
         {label}
       </Text>
     </TouchableOpacity>
@@ -1232,17 +1269,31 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
+  // ---------- Locked folder (reveal on over-scroll) ----------
+  lockedFolderReveal: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: SPACING.sm,
+    paddingTop: 6,
+    zIndex: 20,
+  },
   lockedFolder: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    marginBottom: 6,
     borderRadius: 14,
-    backgroundColor: 'rgba(124,92,255,0.08)',
+    backgroundColor: 'rgba(30,25,60,0.98)',
     borderWidth: 1,
-    borderColor: 'rgba(124,92,255,0.22)',
+    borderColor: 'rgba(124,92,255,0.35)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 12,
   },
   lockedFolderIcon: {
     width: 48,
@@ -1528,7 +1579,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // ---------- Action rows ----------
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1543,7 +1593,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // ---------- PIN inputs ----------
   pinInput: {
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
@@ -1567,7 +1616,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
-  // ---------- Locked view ----------
   lockedViewSafe: {
     flex: 1,
     backgroundColor: '#000000',
