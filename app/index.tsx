@@ -1,5 +1,5 @@
 // app/index.tsx
-// Entry point — decides where to send the user (login or tabs)
+// Entry point — decides where to send the user (welcome or tabs)
 
 import { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
@@ -24,11 +24,11 @@ export default function Index() {
         if (data.session) {
           router.replace('/(tabs)/home');
         } else {
-          router.replace('/(auth)/login');
+          router.replace('/(auth)/welcome');
         }
       } catch (err) {
         console.warn('Auth check crashed:', err);
-        if (mounted) router.replace('/(auth)/login');
+        if (mounted) router.replace('/(auth)/welcome');
       }
     }
 
