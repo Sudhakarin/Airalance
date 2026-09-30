@@ -1448,13 +1448,13 @@ export default function ChatScreen() {
               >
                 <Ionicons
                   name="trash-outline"
-                  size={26}
+                  size={22}
                   color={COLORS.danger}
                 />
               </View>
               <Text style={styles.dialogTitle}>Delete message?</Text>
 
-              <View style={{ paddingHorizontal: 8, marginTop: 4 }}>
+              <View style={{ paddingHorizontal: 6, marginTop: 2 }}>
                 <TouchableOpacity
                   style={styles.deleteOption}
                   onPress={() =>
@@ -1462,7 +1462,7 @@ export default function ChatScreen() {
                   }
                   activeOpacity={0.75}
                 >
-                  <Ionicons name="person-outline" size={20} color="#FFFFFF" />
+                  <Ionicons name="person-outline" size={18} color="#FFFFFF" />
                   <Text style={styles.deleteOptionText}>Delete for me</Text>
                 </TouchableOpacity>
 
@@ -1477,7 +1477,7 @@ export default function ChatScreen() {
                     >
                       <Ionicons
                         name="people-outline"
-                        size={20}
+                        size={18}
                         color="#FFFFFF"
                       />
                       <Text style={styles.deleteOptionText}>
@@ -1523,7 +1523,7 @@ function ActionRow({
     >
       <Ionicons
         name={icon}
-        size={22}
+        size={20}
         color={danger ? COLORS.danger : '#FFFFFF'}
       />
       <Text style={[styles.actionLabel, danger && { color: COLORS.danger }]}>
@@ -1825,12 +1825,12 @@ const styles = StyleSheet.create({
   },
   dialogCard: {
     width: '100%',
-    maxWidth: 380,
+    maxWidth: 320,
     backgroundColor: 'rgba(20,22,30,0.96)',
-    borderRadius: 24,
-    paddingTop: 16,
-    paddingBottom: 14,
-    paddingHorizontal: 8,
+    borderRadius: 20,
+    paddingTop: 12,
+    paddingBottom: 10,
+    paddingHorizontal: 6,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.09)',
     shadowColor: '#000',
@@ -1840,38 +1840,38 @@ const styles = StyleSheet.create({
     elevation: 16,
   },
   dialogIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: 'rgba(124,92,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   dialogTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
     paddingHorizontal: 8,
   },
   dialogButtons: {
     flexDirection: 'row',
     gap: 10,
-    paddingHorizontal: 8,
-    marginTop: 8,
+    paddingHorizontal: 6,
+    marginTop: 6,
   },
   dialogBtnSecondary: {
     flex: 1,
-    paddingVertical: 13,
-    borderRadius: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
   },
   dialogBtnSecondaryText: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mistLight,
   },
@@ -1879,13 +1879,13 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderRadius: 12,
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 10,
   },
   actionLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
   },
@@ -1893,13 +1893,13 @@ const styles = StyleSheet.create({
   deleteOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRadius: 12,
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 10,
   },
   deleteOptionText: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
   },
