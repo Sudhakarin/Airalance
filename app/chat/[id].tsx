@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics + entrance animation + sounds
+// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics + entrance animation + sounds + typing dots
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -44,6 +44,7 @@ import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import MessageBubble from '../../components/MessageBubble';
 import VerifiedBadge from '../../components/VerifiedBadge';
+import TypingDots from '../../components/TypingDots';
 import {
   hashPin,
   loadStoredPinHash,
@@ -1051,7 +1052,7 @@ export default function ChatScreen() {
     });
 
     hapticLight();
-    playSend(); // ✅ Send sound
+    playSend();
     if (other?.id) triggerPushNotification(other.id, content, 'text');
     setSending(false);
   }
@@ -1112,7 +1113,7 @@ export default function ChatScreen() {
         );
         setReplyingTo(null);
         hapticSuccess();
-        playSend(); // ✅ Send sound
+        playSend();
         if (other?.id) triggerPushNotification(other.id, '', 'image');
       }
     } catch (err: any) {
@@ -1195,7 +1196,7 @@ export default function ChatScreen() {
         );
         setReplyingTo(null);
         hapticSuccess();
-        playSend(); // ✅ Send sound
+        playSend();
         if (other?.id) triggerPushNotification(other.id, '', 'voice');
       }
     } catch (err: any) {
@@ -1415,15 +1416,34 @@ export default function ChatScreen() {
                 </Text>
                 {other?.verified && <VerifiedBadge size={15} />}
               </View>
-              <Text style={styles.headerSub} numberOfLines={1}>
-                {peerTyping ? (
-                  <Text style={{ color: COLORS.teal }}>typing…</Text>
-                ) : otherOnline ? (
-                  <Text style={{ color: COLORS.teal }}>Active now</Text>
-                ) : (
-                  formatLastSeen(other?.last_seen)
-                )}
-              </Text>
+              {peerTyping ? (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginTop: 1,
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.headerSub,
+                      { color: COLORS.teal, marginTop: 0 },
+                    ]}
+                  >
+                    typing
+                  </Text>
+                  <TypingDots />
+                </View>
+              ) : (
+                <Text style={styles.headerSub} numberOfLines={1}>
+                  {otherOnline ? (
+                    <Text style={{ color: COLORS.teal }}>Active now</Text>
+                  ) : (
+                    formatLastSeen(other?.last_seen)
+                  )}
+                </Text>
+              )}
             </View>
           </TouchableOpacity>
 
