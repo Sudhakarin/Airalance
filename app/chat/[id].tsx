@@ -16,6 +16,7 @@ import {
   Modal,
   Pressable,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -133,7 +134,7 @@ export default function ChatScreen() {
   const recorderState = useAudioRecorderState(audioRecorder, 100);
   const [isRecording, setIsRecording] = useState(false);
 
-  // ---------- Visible messages (filter out hidden-for-me) ----------
+  // ---------- Visible messages ----------
   const visibleMessages = messages.filter((m) => !hiddenForMeIds.has(m.id));
 
   // ---------- Bootstrap ----------
@@ -423,10 +424,7 @@ export default function ChatScreen() {
     [myId]
   );
 
-  // ============================================================
-  //  ACTION MENU HANDLERS
-  // ============================================================
-
+  // ---------- Long press handlers ----------
   const handleMessageLongPress = useCallback((msg: Message) => {
     if (msg.is_deleted) {
       setDeleteConfirmMsg(msg);
@@ -568,18 +566,14 @@ export default function ChatScreen() {
   function jumpToPinned() {
     if (!pinnedMessage) return;
     const idx = visibleMessages.findIndex((m) => m.id === pinnedMessage.id);
-    if (idx < 0) {
-      return;
-    }
+    if (idx < 0) return;
     try {
       flatListRef.current?.scrollToIndex({
         index: idx,
         animated: true,
         viewPosition: 0.5,
       });
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 
   // ---------- Send text ----------
@@ -826,14 +820,12 @@ export default function ChatScreen() {
     return msg.sender_id === myId ? 'You' : other?.display_name ?? 'Them';
   }
 
-  // ---------- FlatList callbacks ----------
   const keyExtractor = useCallback((item: Message) => item.id, []);
 
   const renderItem = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
       const prev = visibleMessages[index - 1];
       const next = visibleMessages[index + 1];
-      // ✅ Reply lookup
       const replyMsg = item.reply_to_id
         ? messages.find((m) => m.id === item.reply_to_id) ?? null
         : null;
@@ -936,9 +928,7 @@ export default function ChatScreen() {
               <Ionicons name="pin" size={14} color={COLORS.violetLight} />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.pinBannerLabel}>
-                Pinned message
-              </Text>
+              <Text style={styles.pinBannerLabel}>Pinned message</Text>
               <Text style={styles.pinBannerText} numberOfLines={1}>
                 {getMessagePreview(pinnedMessage)}
               </Text>
@@ -1101,106 +1091,131 @@ export default function ChatScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* ---------- Action Sheet ---------- */}
+      {/* ---------- Action Menu (long press, centered + blur) ---------- */}
       <Modal
         visible={!!actionSheetMsg}
         transparent
         animationType="fade"
         onRequestClose={() => setActionSheetMsg(null)}
+        statusBarTranslucent
       >
-        <Pressable
-          style={styles.sheetBackdrop}
-          onPress={() => setActionSheetMsg(null)}
-        >
+        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
           <Pressable
-            style={styles.sheetCard}
-            onPress={(e) => e.stopPropagation()}
+            style={styles.backdropPress}
+            onPress={() => setActionSheetMsg(null)}
           >
-            <View style={styles.sheetHandle} />
-
-            <ActionRow
-              icon="arrow-undo-outline"
-              label="Reply"
-              onPress={() => actionSheetMsg && handleReply(actionSheetMsg)}
-            />
-            {actionSheetMsg?.message_type === 'text' && (
+            <Pressable
+              style={styles.dialogCard}
+              onPress={(e) => e.stopPropagation()}
+            >
               <ActionRow
-                icon="copy-outline"
-                label="Copy"
-                onPress={() => actionSheetMsg && handleCopy(actionSheetMsg)}
+                icon="arrow-undo-outline"
+                label="Reply"
+                onPress={() => actionSheetMsg && handleReply(actionSheetMsg)}
               />
-            )}
-            <ActionRow
-              icon="pin-outline"
-              label={
-                pinnedMessage?.id === actionSheetMsg?.id ? 'Unpin' : 'Pin'
-              }
-              onPress={() => actionSheetMsg && handlePin(actionSheetMsg)}
-            />
-            <ActionRow
-              icon="trash-outline"
-              label="Delete"
-              danger
-              onPress={() =>
-                actionSheetMsg && handleDeletePress(actionSheetMsg)
-              }
-            />
+              {actionSheetMsg?.message_type === 'text' && (
+                <ActionRow
+                  icon="copy-outline"
+                  label="Copy"
+                  onPress={() => actionSheetMsg && handleCopy(actionSheetMsg)}
+                />
+              )}
+              <ActionRow
+                icon="pin-outline"
+                label={
+                  pinnedMessage?.id === actionSheetMsg?.id ? 'Unpin' : 'Pin'
+                }
+                onPress={() => actionSheetMsg && handlePin(actionSheetMsg)}
+              />
+              <ActionRow
+                icon="trash-outline"
+                label="Delete"
+                danger
+                onPress={() =>
+                  actionSheetMsg && handleDeletePress(actionSheetMsg)
+                }
+              />
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </BlurView>
       </Modal>
 
-      {/* ---------- Delete Confirm ---------- */}
+      {/* ---------- Delete Confirm (centered + blur) ---------- */}
       <Modal
         visible={!!deleteConfirmMsg}
         transparent
         animationType="fade"
         onRequestClose={() => setDeleteConfirmMsg(null)}
+        statusBarTranslucent
       >
-        <Pressable
-          style={styles.sheetBackdrop}
-          onPress={() => setDeleteConfirmMsg(null)}
-        >
+        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
           <Pressable
-            style={[styles.sheetCard, { paddingHorizontal: 0 }]}
-            onPress={(e) => e.stopPropagation()}
+            style={styles.backdropPress}
+            onPress={() => setDeleteConfirmMsg(null)}
           >
-            <View style={styles.sheetHandle} />
-            <Text style={styles.deleteTitle}>Delete message?</Text>
-
-            <TouchableOpacity
-              style={styles.deleteOption}
-              onPress={() => deleteConfirmMsg && deleteForMe(deleteConfirmMsg)}
-              activeOpacity={0.75}
+            <Pressable
+              style={styles.dialogCard}
+              onPress={(e) => e.stopPropagation()}
             >
-              <Ionicons name="person-outline" size={20} color="#FFFFFF" />
-              <Text style={styles.deleteOptionText}>Delete for me</Text>
-            </TouchableOpacity>
+              <View
+                style={[
+                  styles.dialogIconWrap,
+                  { backgroundColor: 'rgba(239,68,68,0.15)' },
+                ]}
+              >
+                <Ionicons
+                  name="trash-outline"
+                  size={26}
+                  color={COLORS.danger}
+                />
+              </View>
+              <Text style={styles.dialogTitle}>Delete message?</Text>
 
-            {deleteConfirmMsg?.sender_id === myId &&
-              !deleteConfirmMsg?.is_deleted && (
+              <View style={{ paddingHorizontal: 8, marginTop: 4 }}>
                 <TouchableOpacity
                   style={styles.deleteOption}
                   onPress={() =>
-                    deleteConfirmMsg && deleteForEveryone(deleteConfirmMsg)
+                    deleteConfirmMsg && deleteForMe(deleteConfirmMsg)
                   }
                   activeOpacity={0.75}
                 >
-                  <Ionicons name="people-outline" size={20} color="#FFFFFF" />
-                  <Text style={styles.deleteOptionText}>
-                    Delete for everyone
-                  </Text>
+                  <Ionicons name="person-outline" size={20} color="#FFFFFF" />
+                  <Text style={styles.deleteOptionText}>Delete for me</Text>
                 </TouchableOpacity>
-              )}
 
-            <TouchableOpacity
-              style={styles.deleteCancel}
-              onPress={() => setDeleteConfirmMsg(null)}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.deleteCancelText}>Cancel</Text>
-            </TouchableOpacity>
+                {deleteConfirmMsg?.sender_id === myId &&
+                  !deleteConfirmMsg?.is_deleted && (
+                    <TouchableOpacity
+                      style={styles.deleteOption}
+                      onPress={() =>
+                        deleteConfirmMsg && deleteForEveryone(deleteConfirmMsg)
+                      }
+                      activeOpacity={0.75}
+                    >
+                      <Ionicons
+                        name="people-outline"
+                        size={20}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.deleteOptionText}>
+                        Delete for everyone
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+              </View>
+
+              <View style={styles.dialogButtons}>
+                <TouchableOpacity
+                  style={styles.dialogBtnSecondary}
+                  onPress={() => setDeleteConfirmMsg(null)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.dialogBtnSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </BlurView>
       </Modal>
     </SafeAreaView>
   );
@@ -1229,12 +1244,7 @@ function ActionRow({
         size={22}
         color={danger ? COLORS.danger : '#FFFFFF'}
       />
-      <Text
-        style={[
-          styles.actionLabel,
-          danger && { color: COLORS.danger },
-        ]}
-      >
+      <Text style={[styles.actionLabel, danger && { color: COLORS.danger }]}>
         {label}
       </Text>
     </TouchableOpacity>
@@ -1479,29 +1489,79 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  sheetBackdrop: {
+  // ---------- Modal: centered + blur ----------
+  blurBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
   },
-  sheetCard: {
-    backgroundColor: '#1A1D27',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  backdropPress: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  dialogCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: 'rgba(20,22,30,0.96)',
+    borderRadius: 24,
+    paddingTop: 16,
+    paddingBottom: 14,
     paddingHorizontal: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 16,
   },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+  dialogIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(124,92,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
     alignSelf: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
+  dialogTitle: {
+    fontSize: 17,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 6,
+    paddingHorizontal: 8,
+  },
+  dialogSub: {
+    fontSize: 13.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 18,
+    paddingHorizontal: 8,
+  },
+  dialogButtons: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 8,
+    marginTop: 8,
+  },
+  dialogBtnSecondary: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  dialogBtnSecondaryText: {
+    fontSize: 14.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.mistLight,
+  },
+
+  // ---------- Action rows ----------
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1516,37 +1576,18 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  deleteTitle: {
-    fontSize: 16,
-    fontFamily: FONTS.displayBold,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: 12,
-    paddingHorizontal: 20,
-  },
+  // ---------- Delete options ----------
   deleteOption: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    paddingHorizontal: 22,
-    paddingVertical: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRadius: 12,
   },
   deleteOptionText: {
     fontSize: 16,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
-  },
-  deleteCancel: {
-    marginTop: 8,
-    marginHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-  },
-  deleteCancelText: {
-    fontSize: 15,
-    fontFamily: FONTS.bodySemiBold,
-    color: COLORS.mistLight,
   },
 });
