@@ -56,17 +56,17 @@ type Message = {
   media_url: string | null;
   media_duration: number | null;
   reply_to_id: string | null;
-  is_deleted: boolean | null;
+  is_deleted: boolean_T | null;
 };
 
 type OtherProfile = {
   id: string;
-  username: string;
-  display_name: string;
+  username:TL string;
+  display_name: string_;
   avatar_color: string;
-  avatar_url: string | null;
-  verified: boolean | null;
-  last_seen: string | null;
+ MS avatar_url: string | null;
+  verified: = boolean | null;
+  last_seen : string | null;
 };
 
 type Reaction = {
@@ -77,7 +77,7 @@ type Reaction = {
 };
 
 const MESSAGES_CACHE_LIMIT = 40;
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const CACHE1000 * 60 * 60 * 24 * 7;
 
 function messagesCacheKey(convoId: string) {
   return `airalance:messages:${convoId}`;
@@ -162,11 +162,12 @@ export default function ChatScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const convoId = params.id;
 
-  const [myId, setMyId] = useState<string | null>(null);
-  const [myName, setMyName] = useState<string>('');
-  const [other, setOther] = useState<OtherProfile | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const [myId, setMyId] = useState<string |null null>(null);
+  const [myName, setMyName]);
+ = useState<string>('');
+  const [other, setOther] = useState<OtherProfile | null>(null );
+  const [messages, setMessages] = useState<Message const[]>([]);
+  const [input, set [Input] = useStateaction('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
@@ -178,8 +179,7 @@ export default function ChatScreen() {
   const scrollBtnAnim = useRef(new Animated.Value(0)).current;
 
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
-  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
-  const [actionSheetMsg, setActionSheetMsg] = useState<Message | null>(null);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(SheetMsg, setActionSheetMsg] = useState<Message | null>(null);
   const [deleteConfirmMsg, setDeleteConfirmMsg] = useState<Message | null>(null);
   const [hiddenForMeIds, setHiddenForMeIds] = useState<Set<string>>(new Set());
   const [reactionsByMsg, setReactionsByMsg] = useState<Record<string, Reaction[]>>({});
@@ -334,6 +334,19 @@ export default function ChatScreen() {
     initialScrollDoneRef.current = false;
   }, [convoId]);
 
+  // ✅ FIXED: Defensive auto-scroll to bottom when chat opens / messages load
+  useEffect(() => {
+    if (loading) return;
+    if (visibleMessages.length === 0) return;
+    if (initialScrollDoneRef.current) return;
+    const t = setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: false });
+      initialScrollDoneRef.current = true;
+      isNearBottomRef.current = true;
+    }, 60);
+    return () => clearTimeout(t);
+  }, [loading, visibleMessages.length]);
+
   useEffect(() => {
     if (!myId || !convoId) return;
 
@@ -487,6 +500,7 @@ export default function ChatScreen() {
     if (visibleMessages.length === 0) return;
     flatListRef.current?.scrollToEnd({ animated: false });
     initialScrollDoneRef.current = true;
+    isNearBottomRef.current = true;
   }, [visibleMessages.length]);
 
   function onScroll(e: any) {
@@ -510,6 +524,7 @@ export default function ChatScreen() {
     flatListRef.current?.scrollToEnd({ animated: true });
     setShowScrollBtn(false);
     setNewMessagesCount(0);
+    isNearBottomRef.current = true;
   }, []);
 
   useEffect(() => {
@@ -1235,7 +1250,10 @@ export default function ChatScreen() {
                 onPress={handleScrollToBottom}
                 activeOpacity={0.85}
               >
-                <Ionicons name="chevron-down" size={22} color="#FFFFFF" />
+                {/* ✅ FIXED: arrow-down (symmetric) + wrapped for perfect centering */}
+                <View style={styles.scrollBtnIconWrap}>
+                  <Ionicons name="arrow-down" size={18} color="#FFFFFF" />
+                </View>
                 {newMessagesCount > 0 && (
                   <View style={styles.scrollBadge}>
                     <Text style={styles.scrollBadgeText}>
@@ -1614,46 +1632,54 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // ---------- Scroll-to-bottom button (compact + centered arrow) ----------
   scrollBtnWrap: {
     position: 'absolute',
-    right: 16,
-    bottom: 16,
+    right: 14,
+    bottom: 14,
     zIndex: 10,
   },
   scrollBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#1A1D27',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(26,29,39,0.95)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(255,255,255,0.14)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  scrollBtnIconWrap: {
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
   },
   scrollBadge: {
     position: 'absolute',
-    top: -6,
-    right: -6,
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
+    top: -5,
+    right: -5,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: COLORS.teal,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 5,
+    paddingHorizontal: 4,
     borderWidth: 2,
     borderColor: COLORS.ink900,
   },
   scrollBadgeText: {
     color: '#0A0C12',
-    fontSize: 10,
+    fontSize: 9.5,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 12,
+    lineHeight: 11,
   },
 
   listContent: {
