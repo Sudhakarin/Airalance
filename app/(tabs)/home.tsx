@@ -307,7 +307,7 @@ const ListHeader = memo(function ListHeader({
     <>
       <View style={styles.welcomeCard}>
         <View style={styles.welcomeLogoWrap}>
-          <AiralanceLogo width={78} />
+          <AiralanceLogo width={60} />
         </View>
         <Text style={styles.welcomeTitle}>Welcome to Airalance!</Text>
         <Text style={styles.welcomeSubtitle}>
@@ -671,9 +671,9 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.md,
   },
   welcomeLogoWrap: {
-    width: 116,
-    height: 116,
-    borderRadius: 58,
+    width: 92,
+    height: 92,
+    borderRadius: 46,
     backgroundColor: 'rgba(156,130,255,0.12)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
