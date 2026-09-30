@@ -1,5 +1,5 @@
 // supabase/functions/send-push/index.ts
-// Push notification bhejne wali Edge Function
+// Push notification bhejne wali Edge Function (locked chat support)
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -48,6 +48,34 @@ serve(async (req) => {
       );
     }
 
+    // ---- Check if this is a chat message AND the receiver has locked the chat ----
+    let finalTitle = title;
+    let finalBody = body;
+    let finalData: Record<string, unknown> = { ...(data || {}) };
+    let isLockedChat = false;
+
+    const chatId = data?.chatId;
+    if (chatId && data?.screen === 'chat') {
+      const { data: settings } = await supabase
+        .from('chat_settings')
+        .select('is_locked')
+        .eq('user_id', userId)
+        .eq('conversation_id', chatId)
+        .maybeSingle();
+
+      if (settings?.is_locked === true) {
+        isLockedChat = true;
+        // WhatsApp-style generic notification for locked chats
+        finalTitle = 'Airalance';
+        finalBody = '1 new message';
+        finalData = {
+          screen: 'chats',
+          locked: true,
+          chatId,
+        };
+      }
+    }
+
     // Send push via Expo
     const response = await fetch(EXPO_PUSH_URL, {
       method: 'POST',
@@ -59,18 +87,24 @@ serve(async (req) => {
       body: JSON.stringify({
         to: profile.expo_push_token,
         sound: 'default',
-        title,
-        body,
-        data: data || {},
+        title: finalTitle,
+        body: finalBody,
+        data: finalData,
       }),
     });
 
     const result = await response.json();
 
-    return new Response(JSON.stringify(result), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({
+        ...result,
+        locked: isLockedChat,
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
+    );
   } catch (error) {
     return new Response(JSON.stringify({ error: String(error) }), {
       status: 500,
