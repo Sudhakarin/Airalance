@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics + entrance animation
+// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics + entrance animation + sounds
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -57,6 +57,7 @@ import {
   hapticSuccess,
   hapticError,
 } from '../../lib/haptics';
+import { playSend, playReceive } from '../../lib/sounds';
 
 type Message = {
   id: string;
@@ -197,6 +198,9 @@ export default function ChatScreen() {
   const [pinVerifyError, setPinVerifyError] = useState('');
   const [lockChecked, setLockChecked] = useState(false);
 
+  // ✅ Mute state (per-conversation)
+  const [isMutedForConvo, setIsMutedForConvo] = useState(false);
+
   // ✅ Pagination state
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -323,7 +327,7 @@ export default function ChatScreen() {
           .eq('user_id', uid),
         supabase
           .from('chat_settings')
-          .select('is_locked')
+          .select('is_locked, is_muted')
           .eq('user_id', uid)
           .eq('conversation_id', convoId)
           .maybeSingle(),
@@ -335,6 +339,7 @@ export default function ChatScreen() {
       setStoredPinHash(pinHash);
 
       const chatLocked = chatSettingsRes.data?.is_locked === true;
+      setIsMutedForConvo(chatSettingsRes.data?.is_muted === true);
       const needsPin = chatLocked && !isSessionUnlocked();
 
       setMyId(uid);
@@ -501,9 +506,12 @@ export default function ChatScreen() {
           setPeerTyping(false);
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
-          // ✅ Mark received messages as animating (skip own — handled in sendMessage)
+          // ✅ Mark received messages as animating + play receive sound (respect mute)
           if (incoming.sender_id !== myId) {
             markAnimating(incoming.id);
+            if (!isMutedForConvo) {
+              playReceive();
+            }
           }
 
           setMessages((prev) => {
@@ -598,7 +606,7 @@ export default function ChatScreen() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [myId, convoId, lockRequired, markAnimating]);
+  }, [myId, convoId, lockRequired, markAnimating, isMutedForConvo]);
 
   useEffect(() => {
     if (!other?.id) return;
@@ -1008,7 +1016,7 @@ export default function ChatScreen() {
       is_deleted: false,
     };
     setMessages((prev) => [...prev, optimistic]);
-    markAnimating(tempId); // ✅ Animate optimistic bubble
+    markAnimating(tempId);
 
     const { data: inserted, error } = await supabase
       .from('messages')
@@ -1043,6 +1051,7 @@ export default function ChatScreen() {
     });
 
     hapticLight();
+    playSend(); // ✅ Send sound
     if (other?.id) triggerPushNotification(other.id, content, 'text');
     setSending(false);
   }
@@ -1095,7 +1104,7 @@ export default function ChatScreen() {
 
       if (error) throw error;
       if (inserted) {
-        markAnimating((inserted as Message).id); // ✅ Animate
+        markAnimating((inserted as Message).id);
         setMessages((prev) =>
           prev.some((m) => m.id === (inserted as Message).id)
             ? prev
@@ -1103,6 +1112,7 @@ export default function ChatScreen() {
         );
         setReplyingTo(null);
         hapticSuccess();
+        playSend(); // ✅ Send sound
         if (other?.id) triggerPushNotification(other.id, '', 'image');
       }
     } catch (err: any) {
@@ -1177,7 +1187,7 @@ export default function ChatScreen() {
 
       if (error) throw error;
       if (inserted) {
-        markAnimating((inserted as Message).id); // ✅ Animate
+        markAnimating((inserted as Message).id);
         setMessages((prev) =>
           prev.some((m) => m.id === (inserted as Message).id)
             ? prev
@@ -1185,6 +1195,7 @@ export default function ChatScreen() {
         );
         setReplyingTo(null);
         hapticSuccess();
+        playSend(); // ✅ Send sound
         if (other?.id) triggerPushNotification(other.id, '', 'voice');
       }
     } catch (err: any) {
