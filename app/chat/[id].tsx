@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions (WhatsApp-like)
+// Chat screen — messages, realtime, send, typing, images, voice, actions + scroll-to-bottom button
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -15,6 +15,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  Animated,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -114,6 +115,11 @@ export default function ChatScreen() {
   const [otherOnline, setOtherOnline] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // ---------- Scroll button ----------
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [newMessagesCount, setNewMessagesCount] = useState(0);
+  const scrollBtnAnim = useRef(new Animated.Value(0)).current;
+
   // ---------- Action states ----------
   const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -136,6 +142,15 @@ export default function ChatScreen() {
 
   // ---------- Visible messages ----------
   const visibleMessages = messages.filter((m) => !hiddenForMeIds.has(m.id));
+
+  // ---------- Scroll button animation ----------
+  useEffect(() => {
+    Animated.timing(scrollBtnAnim, {
+      toValue: showScrollBtn ? 1 : 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  }, [showScrollBtn, scrollBtnAnim]);
 
   // ---------- Bootstrap ----------
   useEffect(() => {
@@ -253,6 +268,11 @@ export default function ChatScreen() {
             return [...withoutTemp, incoming];
           });
 
+          // ✅ Increment unread counter if user is scrolled up
+          if (!isNearBottomRef.current && incoming.sender_id !== myId) {
+            setNewMessagesCount((c) => c + 1);
+          }
+
           if (incoming.sender_id !== myId) {
             supabase
               .from('messages')
@@ -349,12 +369,32 @@ export default function ChatScreen() {
     initialScrollDoneRef.current = true;
   }, [visibleMessages.length]);
 
+  // ---------- UPDATED: onScroll tracks button visibility ----------
   function onScroll(e: any) {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     const distanceFromBottom =
       contentSize.height - contentOffset.y - layoutMeasurement.height;
-    isNearBottomRef.current = distanceFromBottom < 120;
+    const nearBottom = distanceFromBottom < 120;
+    isNearBottomRef.current = nearBottom;
+
+    // ✅ Show button when scrolled up more than 200px from bottom
+    const shouldShow = distanceFromBottom > 200;
+    if (shouldShow !== showScrollBtn) {
+      setShowScrollBtn(shouldShow);
+    }
+
+    // Reset unread counter when user reaches bottom
+    if (nearBottom && newMessagesCount > 0) {
+      setNewMessagesCount(0);
+    }
   }
+
+  // ---------- Scroll to bottom ----------
+  const handleScrollToBottom = useCallback(() => {
+    flatListRef.current?.scrollToEnd({ animated: true });
+    setShowScrollBtn(false);
+    setNewMessagesCount(0);
+  }, []);
 
   // ---------- Web height ----------
   useEffect(() => {
@@ -633,6 +673,11 @@ export default function ChatScreen() {
       if (prev.some((m) => m.id === (inserted as Message).id))
         return prev.filter((m) => m.id !== tempId);
       return prev.map((m) => (m.id === tempId ? (inserted as Message) : m));
+    });
+
+    // Ensure view scrolls to bottom after sending
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated: true });
     });
 
     if (other?.id) triggerPushNotification(other.id, content, 'text');
@@ -943,35 +988,77 @@ export default function ChatScreen() {
           </TouchableOpacity>
         )}
 
-        {/* ---------- Messages list ---------- */}
-        <FlatList
-          ref={flatListRef}
-          data={visibleMessages}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          onScroll={onScroll}
-          scrollEventThrottle={100}
-          onContentSizeChange={onContentSizeChange}
-          initialNumToRender={20}
-          maxToRenderPerBatch={12}
-          windowSize={11}
-          updateCellsBatchingPeriod={50}
-          removeClippedSubviews={Platform.OS === 'android'}
-          keyboardShouldPersistTaps="handled"
-          onScrollToIndexFailed={(info) => {
-            setTimeout(() => {
-              flatListRef.current?.scrollToEnd({ animated: true });
-            }, 200);
-          }}
-          ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <Text style={styles.emptyText}>
-                No messages yet — say hello 👋
-              </Text>
-            </View>
-          }
-        />
+        {/* ---------- Messages list (with wrapper for floating button) ---------- */}
+        <View style={{ flex: 1 }}>
+          <FlatList
+            ref={flatListRef}
+            data={visibleMessages}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            onScroll={onScroll}
+            scrollEventThrottle={100}
+            onContentSizeChange={onContentSizeChange}
+            initialNumToRender={20}
+            maxToRenderPerBatch={12}
+            windowSize={11}
+            updateCellsBatchingPeriod={50}
+            removeClippedSubviews={Platform.OS === 'android'}
+            keyboardShouldPersistTaps="handled"
+            onScrollToIndexFailed={(info) => {
+              setTimeout(() => {
+                flatListRef.current?.scrollToEnd({ animated: true });
+              }, 200);
+            }}
+            ListEmptyComponent={
+              <View style={styles.emptyWrap}>
+                <Text style={styles.emptyText}>
+                  No messages yet — say hello 👋
+                </Text>
+              </View>
+            }
+          />
+
+          {/* ---------- Floating "Jump to latest" button (WhatsApp-style) ---------- */}
+          {showScrollBtn && (
+            <Animated.View
+              style={[
+                styles.scrollBtnWrap,
+                {
+                  opacity: scrollBtnAnim,
+                  transform: [
+                    {
+                      translateY: scrollBtnAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [20, 0],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+              pointerEvents="box-none"
+            >
+              <TouchableOpacity
+                style={styles.scrollBtn}
+                onPress={handleScrollToBottom}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name="chevron-down"
+                  size={22}
+                  color="#FFFFFF"
+                />
+                {newMessagesCount > 0 && (
+                  <View style={styles.scrollBadge}>
+                    <Text style={styles.scrollBadgeText}>
+                      {newMessagesCount > 99 ? '99+' : newMessagesCount}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+        </View>
 
         {/* ---------- Reply preview ---------- */}
         {replyingTo && (
@@ -1091,7 +1178,7 @@ export default function ChatScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* ---------- Action Menu (long press, centered + blur) ---------- */}
+      {/* ---------- Action Menu ---------- */}
       <Modal
         visible={!!actionSheetMsg}
         transparent
@@ -1140,7 +1227,7 @@ export default function ChatScreen() {
         </BlurView>
       </Modal>
 
-      {/* ---------- Delete Confirm (centered + blur) ---------- */}
+      {/* ---------- Delete Confirm ---------- */}
       <Modal
         visible={!!deleteConfirmMsg}
         transparent
@@ -1333,6 +1420,49 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // ---------- Floating scroll button ----------
+  scrollBtnWrap: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    zIndex: 10,
+  },
+  scrollBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#1A1D27',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  scrollBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: COLORS.teal,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+    borderWidth: 2,
+    borderColor: COLORS.ink900,
+  },
+  scrollBadgeText: {
+    color: '#0A0C12',
+    fontSize: 10,
+    fontFamily: FONTS.bodySemiBold,
+    lineHeight: 12,
+  },
+
   listContent: {
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
@@ -1489,7 +1619,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---------- Modal: centered + blur ----------
   blurBackdrop: {
     flex: 1,
   },
@@ -1533,15 +1662,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     paddingHorizontal: 8,
   },
-  dialogSub: {
-    fontSize: 13.5,
-    fontFamily: FONTS.body,
-    color: COLORS.mistLight,
-    textAlign: 'center',
-    lineHeight: 19,
-    marginBottom: 18,
-    paddingHorizontal: 8,
-  },
   dialogButtons: {
     flexDirection: 'row',
     gap: 10,
@@ -1561,7 +1681,6 @@ const styles = StyleSheet.create({
     color: COLORS.mistLight,
   },
 
-  // ---------- Action rows ----------
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1576,7 +1695,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // ---------- Delete options ----------
   deleteOption: {
     flexDirection: 'row',
     alignItems: 'center',
