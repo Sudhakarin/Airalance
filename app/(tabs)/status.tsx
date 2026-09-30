@@ -1,5 +1,5 @@
 // app/(tabs)/status.tsx
-// Status tab — grouped by user with story rings + AsyncStorage cache
+// Status tab — shows status list grouped by user with story rings + proper spacing
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -14,7 +14,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
@@ -48,51 +47,6 @@ type UserStatusGroup = {
   statuses: Status[];
   latestAt: string;
 };
-
-const CACHE_TTL_MS = 1000 * 60 * 60 * 6; // 6 hours
-
-function statusesCacheKey(uid: string) {
-  return `airalance:statuses:${uid}`;
-}
-
-type StatusCache = {
-  t: number;
-  statuses: Status[];
-  viewedIds: string[];
-};
-
-async function readStatusesCache(uid: string): Promise<StatusCache | null> {
-  try {
-    const raw = await AsyncStorage.getItem(statusesCacheKey(uid));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StatusCache;
-    if (!parsed?.statuses || !Array.isArray(parsed.statuses)) return null;
-    if (Date.now() - (parsed.t ?? 0) > CACHE_TTL_MS) return null;
-    // Drop expired statuses
-    const now = Date.now();
-    const fresh = parsed.statuses.filter(
-      (s) => new Date(s.expires_at).getTime() > now
-    );
-    return { t: parsed.t, statuses: fresh, viewedIds: parsed.viewedIds ?? [] };
-  } catch {
-    return null;
-  }
-}
-
-async function writeStatusesCache(
-  uid: string,
-  statuses: Status[],
-  viewedIds: string[]
-) {
-  try {
-    const now = Date.now();
-    const fresh = statuses.filter(
-      (s) => new Date(s.expires_at).getTime() > now
-    );
-    const payload: StatusCache = { t: Date.now(), statuses: fresh, viewedIds };
-    await AsyncStorage.setItem(statusesCacheKey(uid), JSON.stringify(payload));
-  } catch {}
-}
 
 function SkeletonBlock({
   width,
@@ -163,7 +117,6 @@ export default function StatusScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [myId, setMyId] = useState<string | null>(null);
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
-  const cacheShownRef = { current: false } as { current: boolean };
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -180,40 +133,6 @@ export default function StatusScreen() {
       }
     });
   }, []);
-
-  // ✅ Cache-first: show cached statuses instantly
-  useEffect(() => {
-    if (!myId || cacheShownRef.current) return;
-    (async () => {
-      const cache = await readStatusesCache(myId);
-      if (cache && cache.statuses.length > 0) {
-        const mine = cache.statuses.filter((s) => s.user_id === myId);
-        const others = cache.statuses.filter((s) => s.user_id !== myId);
-
-        const grouped: Record<string, UserStatusGroup> = {};
-        others.forEach((s) => {
-          if (!grouped[s.user_id]) {
-            grouped[s.user_id] = {
-              userId: s.user_id,
-              profile: s.profile,
-              statuses: [],
-              latestAt: s.created_at,
-            };
-          }
-          grouped[s.user_id].statuses.push(s);
-          if (s.created_at > grouped[s.user_id].latestAt) {
-            grouped[s.user_id].latestAt = s.created_at;
-          }
-        });
-
-        setMyStatuses(mine);
-        setOtherGroups(Object.values(grouped));
-        setViewedIds(new Set(cache.viewedIds));
-        setLoading(false);
-      }
-      cacheShownRef.current = true;
-    })();
-  }, [myId]);
 
   const loadStatuses = useCallback(async () => {
     if (!myId) return;
@@ -253,13 +172,7 @@ export default function StatusScreen() {
         .from('status_views')
         .select('status_id')
         .eq('viewer_id', myId);
-      const viewedSet = new Set<string>(
-        (views ?? []).map((v: any) => v.status_id)
-      );
-      setViewedIds(viewedSet);
-
-      // ✅ Save cache after fresh fetch
-      await writeStatusesCache(myId, all, Array.from(viewedSet));
+      setViewedIds(new Set((views ?? []).map((v: any) => v.status_id)));
     } catch (err) {
       console.warn('Load statuses error:', err);
     } finally {
@@ -272,7 +185,7 @@ export default function StatusScreen() {
     loadStatuses();
   }, [loadStatuses]);
 
-  // Safe realtime — only INSERT events, debounced
+  // Safe realtime — only INSERT events, debounced, crash-safe
   useEffect(() => {
     if (!myId) return;
 
