@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions + scroll-to-bottom button
+// Chat screen — messages, realtime, send, typing, images, voice + AsyncStorage cache
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -24,6 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   useAudioRecorder,
   useAudioRecorderState,
@@ -67,6 +68,51 @@ type OtherProfile = {
   verified: boolean | null;
   last_seen: string | null;
 };
+
+const MESSAGES_CACHE_LIMIT = 40;
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+function messagesCacheKey(convoId: string) {
+  return `airalance:messages:${convoId}`;
+}
+
+type MessagesCache = {
+  t: number;
+  messages: Message[];
+  hiddenIds: string[];
+};
+
+async function readMessagesCache(convoId: string): Promise<MessagesCache | null> {
+  try {
+    const raw = await AsyncStorage.getItem(messagesCacheKey(convoId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as MessagesCache;
+    if (!parsed?.messages || !Array.isArray(parsed.messages)) return null;
+    if (Date.now() - (parsed.t ?? 0) > CACHE_TTL_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeMessagesCache(
+  convoId: string,
+  messages: Message[],
+  hiddenIds: string[]
+) {
+  try {
+    // Only cache non-temp messages, last MESSAGES_CACHE_LIMIT
+    const cleaned = messages
+      .filter((m) => !m.id.startsWith('temp-'))
+      .slice(-MESSAGES_CACHE_LIMIT);
+    const payload: MessagesCache = {
+      t: Date.now(),
+      messages: cleaned,
+      hiddenIds,
+    };
+    await AsyncStorage.setItem(messagesCacheKey(convoId), JSON.stringify(payload));
+  } catch {}
+}
 
 // ---------- Memoized row ----------
 const MessageRow = memo(function MessageRow({
@@ -152,6 +198,35 @@ export default function ChatScreen() {
     }).start();
   }, [showScrollBtn, scrollBtnAnim]);
 
+  // ---------- Cache-first: load cached messages instantly ----------
+  useEffect(() => {
+    if (!convoId) return;
+    let cancelled = false;
+    (async () => {
+      const cache = await readMessagesCache(convoId);
+      if (cancelled || !cache) return;
+      if (cache.messages.length > 0) {
+        setMessages(cache.messages);
+        setHiddenForMeIds(new Set(cache.hiddenIds ?? []));
+        setLoading(false);
+        prevMsgCountRef.current = cache.messages.length;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [convoId]);
+
+  // ---------- Debounced write cache on any change ----------
+  useEffect(() => {
+    if (!convoId) return;
+    if (messages.length === 0 && hiddenForMeIds.size === 0) return;
+    const timer = setTimeout(() => {
+      writeMessagesCache(convoId, messages, Array.from(hiddenForMeIds));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [messages, hiddenForMeIds, convoId]);
+
   // ---------- Bootstrap ----------
   useEffect(() => {
     let mounted = true;
@@ -212,6 +287,9 @@ export default function ChatScreen() {
         );
         setHiddenForMeIds(hiddenIds);
 
+        // Save fresh cache
+        await writeMessagesCache(convoId, ordered, Array.from(hiddenIds));
+
         const unreadIds = msgs
           .filter((m: any) => m.sender_id !== uid && !m.read_at)
           .map((m: any) => m.id);
@@ -268,7 +346,6 @@ export default function ChatScreen() {
             return [...withoutTemp, incoming];
           });
 
-          // ✅ Increment unread counter if user is scrolled up
           if (!isNearBottomRef.current && incoming.sender_id !== myId) {
             setNewMessagesCount((c) => c + 1);
           }
@@ -369,7 +446,6 @@ export default function ChatScreen() {
     initialScrollDoneRef.current = true;
   }, [visibleMessages.length]);
 
-  // ---------- UPDATED: onScroll tracks button visibility ----------
   function onScroll(e: any) {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     const distanceFromBottom =
@@ -377,19 +453,16 @@ export default function ChatScreen() {
     const nearBottom = distanceFromBottom < 120;
     isNearBottomRef.current = nearBottom;
 
-    // ✅ Show button when scrolled up more than 200px from bottom
     const shouldShow = distanceFromBottom > 200;
     if (shouldShow !== showScrollBtn) {
       setShowScrollBtn(shouldShow);
     }
 
-    // Reset unread counter when user reaches bottom
     if (nearBottom && newMessagesCount > 0) {
       setNewMessagesCount(0);
     }
   }
 
-  // ---------- Scroll to bottom ----------
   const handleScrollToBottom = useCallback(() => {
     flatListRef.current?.scrollToEnd({ animated: true });
     setShowScrollBtn(false);
@@ -675,7 +748,6 @@ export default function ChatScreen() {
       return prev.map((m) => (m.id === tempId ? (inserted as Message) : m));
     });
 
-    // Ensure view scrolls to bottom after sending
     requestAnimationFrame(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
     });
@@ -988,7 +1060,7 @@ export default function ChatScreen() {
           </TouchableOpacity>
         )}
 
-        {/* ---------- Messages list (with wrapper for floating button) ---------- */}
+        {/* ---------- Messages list ---------- */}
         <View style={{ flex: 1 }}>
           <FlatList
             ref={flatListRef}
@@ -1019,7 +1091,6 @@ export default function ChatScreen() {
             }
           />
 
-          {/* ---------- Floating "Jump to latest" button (WhatsApp-style) ---------- */}
           {showScrollBtn && (
             <Animated.View
               style={[
@@ -1420,7 +1491,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---------- Floating scroll button ----------
   scrollBtnWrap: {
     position: 'absolute',
     right: 16,
