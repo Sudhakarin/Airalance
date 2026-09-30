@@ -1,7 +1,7 @@
 // app/(tabs)/profile.tsx
-// My profile — larger fonts + spacing
+// My profile — larger fonts + spacing + AsyncStorage cache
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   COLORS,
   FONTS,
@@ -48,6 +49,46 @@ type Profile = {
 };
 
 type ListTab = 'followers' | 'following';
+
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+function profileCacheKey(uid: string) {
+  return `airalance:profile:me:${uid}`;
+}
+
+type ProfileCachePayload = {
+  t: number;
+  profile: Profile;
+  followersCount: number;
+  followingCount: number;
+  statusCount: number;
+  followingIds: string[];
+};
+
+async function readProfileCache(uid: string): Promise<ProfileCachePayload | null> {
+  try {
+    const raw = await AsyncStorage.getItem(profileCacheKey(uid));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ProfileCachePayload;
+    if (!parsed?.profile) return null;
+    if (Date.now() - (parsed.t ?? 0) > CACHE_TTL_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeProfileCache(
+  uid: string,
+  payload: Omit<ProfileCachePayload, 't'>
+) {
+  try {
+    await AsyncStorage.setItem(
+      profileCacheKey(uid),
+      JSON.stringify({ t: Date.now(), ...payload })
+    );
+  } catch {}
+}
 
 function formatCount(n: number): string {
   if (n < 1000) return String(n);
@@ -182,7 +223,9 @@ export default function ProfileScreen() {
   const [myFollowingIds, setMyFollowingIds] = useState<Set<string>>(new Set());
   const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
 
-  // ✅ FIXED: cast VERIFIED_USERNAMES to readonly string[] for .includes()
+  const cacheShownRef = useRef(false);
+  const myIdRef = useRef<string | null>(null);
+
   const isVerified = (p: Profile | null) =>
     !!p &&
     (!!p.verified ||
@@ -190,51 +233,80 @@ export default function ProfileScreen() {
         p.username?.toLowerCase() ?? ''
       ));
 
+  // ---------- Cache-first: show cached profile instantly ----------
+  useEffect(() => {
+    (async () => {
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) return;
+      const uid = authData.user.id;
+      myIdRef.current = uid;
+
+      if (cacheShownRef.current) return;
+      const cache = await readProfileCache(uid);
+      if (cache) {
+        setProfile(cache.profile);
+        setNameDraft(cache.profile.display_name ?? '');
+        setBioDraft(cache.profile.bio ?? '');
+        setFollowersCount(cache.followersCount);
+        setFollowingCount(cache.followingCount);
+        setStatusCount(cache.statusCount);
+        setMyFollowingIds(new Set(cache.followingIds ?? []));
+        setLoading(false);
+      }
+      cacheShownRef.current = true;
+    })();
+  }, []);
+
   const loadProfile = useCallback(async () => {
     try {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) return;
+      const uid = authData.user.id;
+      myIdRef.current = uid;
       setEmail(authData.user.email ?? '');
 
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', authData.user.id)
+        .eq('id', uid)
         .single();
 
       if (error) throw error;
-      setProfile(data as Profile);
-      setNameDraft((data as Profile).display_name ?? '');
-      setBioDraft((data as Profile).bio ?? '');
+      const p = data as Profile;
+      setProfile(p);
+      setNameDraft(p.display_name ?? '');
+      setBioDraft(p.bio ?? '');
 
       const [f1, f2, statusRes, followingRes] = await Promise.all([
         supabase
           .from('follows')
           .select('follower_id', { count: 'exact', head: true })
-          .eq('followed_id', authData.user.id),
+          .eq('followed_id', uid),
         supabase
           .from('follows')
           .select('followed_id', { count: 'exact', head: true })
-          .eq('follower_id', authData.user.id),
+          .eq('follower_id', uid),
         supabase
           .from('statuses')
           .select('id', { count: 'exact', head: true })
-          .eq('user_id', authData.user.id),
+          .eq('user_id', uid),
         supabase
           .from('follows')
           .select('followed_id')
-          .eq('follower_id', authData.user.id),
+          .eq('follower_id', uid),
       ]);
 
-      setFollowersCount(f1.count ?? 0);
-      setFollowingCount(f2.count ?? 0);
-      const totalFromProfile = (data as any)?.status_total;
+      const followers = f1.count ?? 0;
+      const following = f2.count ?? 0;
+      const totalFromProfile = (p as any)?.status_total;
       const liveCount = statusRes.count ?? 0;
-      setStatusCount(
-        typeof totalFromProfile === 'number'
-          ? Math.max(totalFromProfile, liveCount)
-          : liveCount
-      );
+      const finalStatus = typeof totalFromProfile === 'number'
+        ? Math.max(totalFromProfile, liveCount)
+        : liveCount;
+
+      setFollowersCount(followers);
+      setFollowingCount(following);
+      setStatusCount(finalStatus);
 
       const ids = new Set<string>(
         (followingRes.data ?? []).map((r: any) => r.followed_id)
@@ -245,6 +317,15 @@ export default function ProfileScreen() {
         const { status } = await Notifications.getPermissionsAsync();
         setNotifPermission(status);
       }
+
+      // ✅ Save to cache
+      await writeProfileCache(uid, {
+        profile: p,
+        followersCount: followers,
+        followingCount: following,
+        statusCount: finalStatus,
+        followingIds: Array.from(ids),
+      });
     } catch (err) {
       console.warn('Load profile error:', err);
     } finally {
@@ -255,6 +336,41 @@ export default function ProfileScreen() {
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
+
+  // Helper: sync cache after local profile changes
+  const syncCache = useCallback(
+    async (patch: Partial<{
+      profile: Profile;
+      followersCount: number;
+      followingCount: number;
+      statusCount: number;
+      followingIds: Set<string>;
+    }>) => {
+      const uid = myIdRef.current;
+      if (!uid) return;
+      const cached = await readProfileCache(uid);
+      const base: ProfileCachePayload =
+        cached ?? {
+          t: Date.now(),
+          profile: profile as Profile,
+          followersCount: followersCount ?? 0,
+          followingCount: followingCount ?? 0,
+          statusCount: statusCount ?? 0,
+          followingIds: Array.from(myFollowingIds),
+        };
+      const next = {
+        profile: patch.profile ?? base.profile,
+        followersCount: patch.followersCount ?? base.followersCount,
+        followingCount: patch.followingCount ?? base.followingCount,
+        statusCount: patch.statusCount ?? base.statusCount,
+        followingIds: patch.followingIds
+          ? Array.from(patch.followingIds)
+          : base.followingIds,
+      };
+      await writeProfileCache(uid, next);
+    },
+    [profile, followersCount, followingCount, statusCount, myFollowingIds]
+  );
 
   const loadFollowList = useCallback(
     async (tab: ListTab) => {
@@ -307,26 +423,31 @@ export default function ProfileScreen() {
           .eq('follower_id', profile.id)
           .eq('followed_id', targetId);
         if (!error) {
-          setMyFollowingIds((prev) => {
-            const next = new Set(prev);
-            next.delete(targetId);
-            return next;
+          const nextIds = new Set(myFollowingIds);
+          nextIds.delete(targetId);
+          setMyFollowingIds(nextIds);
+          const nextFollowing = followingCount !== null ? Math.max(0, followingCount - 1) : null;
+          if (nextFollowing !== null) setFollowingCount(nextFollowing);
+          await syncCache({
+            followingIds: nextIds,
+            ...(nextFollowing !== null ? { followingCount: nextFollowing } : {}),
           });
-          setFollowingCount((c) => (c === null ? c : Math.max(0, c - 1)));
         }
       } else {
         const { error } = await supabase
           .from('follows')
           .insert({ follower_id: profile.id, followed_id: targetId });
         if (!error) {
-          setMyFollowingIds((prev) => {
-            const next = new Set(prev);
-            next.add(targetId);
-            return next;
+          const nextIds = new Set(myFollowingIds);
+          nextIds.add(targetId);
+          setMyFollowingIds(nextIds);
+          const nextFollowing = followingCount !== null ? followingCount + 1 : null;
+          if (nextFollowing !== null) setFollowingCount(nextFollowing);
+          await syncCache({
+            followingIds: nextIds,
+            ...(nextFollowing !== null ? { followingCount: nextFollowing } : {}),
           });
-          setFollowingCount((c) => (c === null ? c : c + 1));
 
-          // ✅ Notify: New follower
           await supabase.functions.invoke('send-push', {
             body: {
               userId: targetId,
@@ -397,7 +518,9 @@ export default function ProfileScreen() {
 
       if (updateError) throw updateError;
 
-      setProfile({ ...profile, avatar_url: avatarUrl });
+      const nextProfile = { ...profile, avatar_url: avatarUrl };
+      setProfile(nextProfile);
+      await syncCache({ profile: nextProfile });
     } catch (err: any) {
       console.warn('Avatar upload error:', err);
       Alert.alert('Upload failed', err?.message ?? 'Please try again.');
@@ -429,11 +552,13 @@ export default function ProfileScreen() {
 
       if (error) throw error;
 
-      setProfile({
+      const nextProfile: Profile = {
         ...profile,
         display_name: nameChanged ? trimmedName : profile.display_name,
         bio: bioChanged ? trimmedBio : profile.bio,
-      });
+      };
+      setProfile(nextProfile);
+      await syncCache({ profile: nextProfile });
     } catch (err: any) {
       Alert.alert('Save failed', err?.message ?? 'Please try again.');
     } finally {
@@ -471,6 +596,10 @@ export default function ProfileScreen() {
         style: 'destructive',
         onPress: async () => {
           setLoggingOut(true);
+          try {
+            const uid = myIdRef.current;
+            if (uid) await AsyncStorage.removeItem(profileCacheKey(uid));
+          } catch {}
           await supabase.auth.signOut();
           router.replace('/(auth)/login');
         },
