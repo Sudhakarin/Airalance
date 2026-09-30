@@ -306,14 +306,14 @@ export default function NotificationsScreen() {
                   name={p?.display_name ?? 'User'}
                   color={p?.avatar_color ?? COLORS.violet}
                   avatarUrl={p?.avatar_url ?? null}
-                  size={40}
+                  size={34}
                 />
                 <View style={styles.cardBody}>
-                  <Text style={styles.cardTitle}>
+                  <Text style={styles.cardTitle} numberOfLines={1}>
                     <Text style={styles.bold}>
                       {p?.display_name ?? 'Someone'}
                     </Text>{' '}
-                    wants to connect with you
+                    wants to connect
                   </Text>
                   <Text style={styles.cardSub}>@{p?.username}</Text>
                   <View style={styles.requestActions}>
@@ -368,7 +368,7 @@ export default function NotificationsScreen() {
               onPress={() => deleteNotification(n.id)}
               activeOpacity={0.8}
             >
-              <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
+              <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
             </TouchableOpacity>
           );
 
@@ -384,13 +384,13 @@ export default function NotificationsScreen() {
                     name={ap.display_name}
                     color={ap.avatar_color}
                     avatarUrl={ap.avatar_url}
-                    size={40}
+                    size={34}
                   />
                 ) : (
                   <View style={styles.iconCircle}>
                     <Ionicons
                       name="notifications"
-                      size={20}
+                      size={18}
                       color={COLORS.violetLight}
                     />
                   </View>
@@ -406,7 +406,7 @@ export default function NotificationsScreen() {
                       </Text>
                       {ap?.verified && (
                         <View style={styles.badgeInline}>
-                          <VerifiedBadge size={13} />
+                          <VerifiedBadge size={12} />
                         </View>
                       )}
                       {afterName ? (
@@ -418,7 +418,7 @@ export default function NotificationsScreen() {
                       <Text style={styles.cardTitle}>{bodyText}</Text>
                       {ap?.verified && (
                         <View style={styles.badgeInline}>
-                          <VerifiedBadge size={13} />
+                          <VerifiedBadge size={12} />
                         </View>
                       )}
                     </View>
@@ -445,49 +445,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   headerBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 19,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   markReadBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    minWidth: 80,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minWidth: 76,
     alignItems: 'flex-end',
   },
   markReadText: {
     color: COLORS.violetLight,
-    fontSize: 14,
+    fontSize: 13.5,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  list: { paddingHorizontal: 16, paddingBottom: SPACING.xl, flexGrow: 1 },
+  list: { paddingHorizontal: 14, paddingBottom: SPACING.lg, flexGrow: 1 },
 
+  // ---------- Card (compact) ----------
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
-    padding: 14,
-    borderRadius: RADII.xl,
+    gap: 10,
+    padding: 11,
+    borderRadius: 16,
     backgroundColor: '#121212',
     borderWidth: 1,
     borderColor: '#1F1F23',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   iconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#1A1C23',
@@ -506,36 +507,36 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: '#FFFFFF',
-    fontSize: 13.5,
+    fontSize: 13,
     fontFamily: FONTS.body,
-    lineHeight: 19,
+    lineHeight: 17,
   },
   bold: { fontFamily: FONTS.bodySemiBold },
   cardSub: {
     color: COLORS.mist,
-    fontSize: 12,
+    fontSize: 11.5,
     fontFamily: FONTS.body,
-    marginTop: 2,
+    marginTop: 1,
   },
   requestActions: {
     flexDirection: 'row',
     gap: 6,
-    marginTop: 8,
+    marginTop: 7,
   },
   acceptBtn: { borderRadius: 999, overflow: 'hidden', flex: 1 },
   acceptBtnInner: {
-    paddingVertical: 7,
+    paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   acceptText: {
     color: '#FFFFFF',
-    fontSize: 13,
+    fontSize: 12.5,
     fontFamily: FONTS.bodySemiBold,
   },
   declineBtn: {
     flex: 1,
-    paddingVertical: 7,
+    paddingVertical: 6,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 999,
@@ -544,19 +545,19 @@ const styles = StyleSheet.create({
   },
   declineText: {
     color: COLORS.mistLight,
-    fontSize: 13,
+    fontSize: 12.5,
     fontFamily: FONTS.bodySemiBold,
   },
 
   deleteAction: {
-    width: 60,
-    height: '80%',
+    width: 56,
+    height: '82%',
     backgroundColor: COLORS.danger,
-    borderRadius: 16,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
-    marginTop: 2,
+    marginLeft: 6,
+    marginTop: 1,
   },
 
   emptyWrap: {
