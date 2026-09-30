@@ -16,6 +16,7 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -286,7 +287,6 @@ export default function ChatsScreen() {
     });
   }, []);
 
-  // Load saved PIN when myId is ready
   useEffect(() => {
     if (!myId) return;
     (async () => {
@@ -481,7 +481,6 @@ export default function ChatsScreen() {
     [router]
   );
 
-  // ---------- Action: Delete ----------
   async function deleteConversation(convoId: string) {
     setDeleteConfirmConvo(null);
     setConversations((prev) => prev.filter((c) => c.id !== convoId));
@@ -492,7 +491,6 @@ export default function ChatsScreen() {
         .delete()
         .eq('conversation_id', convoId)
         .eq('user_id', myId);
-      // Clean settings row too
       await supabase
         .from('chat_settings')
         .delete()
@@ -505,13 +503,11 @@ export default function ChatsScreen() {
     }
   }
 
-  // ---------- Action: Mute ----------
   async function toggleMute(convo: Conversation) {
     if (!myId) return;
     setActionSheetConvo(null);
     const nextMuted = !convo.is_muted;
 
-    // Optimistic
     setConversations((prev) =>
       prev.map((c) =>
         c.id === convo.id ? { ...c, is_muted: nextMuted } : c
@@ -531,7 +527,6 @@ export default function ChatsScreen() {
       if (error) throw error;
     } catch (err) {
       console.warn('Mute failed:', err);
-      // Revert
       setConversations((prev) =>
         prev.map((c) =>
           c.id === convo.id ? { ...c, is_muted: !nextMuted } : c
@@ -541,31 +536,25 @@ export default function ChatsScreen() {
     }
   }
 
-  // ---------- Action: Lock ----------
   function startLockFlow(convo: Conversation) {
     setActionSheetConvo(null);
     if (convo.is_locked) {
-      // Unlock directly
       unlockChat(convo);
       return;
     }
-    // New lock: need PIN
     if (!storedPin) {
-      // Setup PIN first
       setPinSetupConvo(convo);
       setPinInput1('');
       setPinInput2('');
       setPinError('');
       return;
     }
-    // PIN exists → lock immediately
     applyLock(convo.id, true);
   }
 
   async function applyLock(convoId: string, lock: boolean) {
     if (!myId) return;
     try {
-      // Find convo for is_muted state
       const convo = conversations.find((c) => c.id === convoId);
       const { error } = await supabase.from('chat_settings').upsert(
         {
@@ -590,7 +579,6 @@ export default function ChatsScreen() {
     await applyLock(convo.id, false);
   }
 
-  // ---------- PIN setup ----------
   async function confirmPinSetup() {
     if (!pinSetupConvo || !myId) return;
     if (pinInput1.length !== 4) {
@@ -615,7 +603,6 @@ export default function ChatsScreen() {
     }
   }
 
-  // ---------- PIN verify (view locked) ----------
   function openLockedSection() {
     if (lockedConversations.length === 0) return;
     setPinVerifyInput('');
@@ -625,7 +612,6 @@ export default function ChatsScreen() {
 
   function confirmPinVerify() {
     if (!storedPin) {
-      // No PIN set but has locked chats? Force setup.
       setPinModalVisible(false);
       return;
     }
@@ -639,7 +625,6 @@ export default function ChatsScreen() {
     }
   }
 
-  // ---------- Action: Block ----------
   async function blockUser(convo: Conversation) {
     if (!myId) return;
     const targetUserId = convo.other_profile?.id;
@@ -654,7 +639,6 @@ export default function ChatsScreen() {
         .from('blocked_users')
         .insert({ blocker_id: myId, blocked_id: targetUserId });
 
-      // Remove chat
       await supabase
         .from('conversation_participants')
         .delete()
@@ -789,86 +773,94 @@ export default function ChatsScreen() {
         />
       )}
 
-      {/* ========== ACTION SHEET ========== */}
+      {/* ========== ACTION MENU (long press, centered + blur) ========== */}
       <Modal
         visible={!!actionSheetConvo}
         transparent
         animationType="fade"
         onRequestClose={() => setActionSheetConvo(null)}
+        statusBarTranslucent
       >
-        <Pressable
-          style={styles.sheetBackdrop}
-          onPress={() => setActionSheetConvo(null)}
-        >
+        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
           <Pressable
-            style={styles.sheetCard}
-            onPress={(e) => e.stopPropagation()}
+            style={styles.backdropPress}
+            onPress={() => setActionSheetConvo(null)}
           >
-            <View style={styles.sheetHandle} />
-
-            {actionSheetConvo && (
-              <View style={styles.sheetHeader}>
-                <Avatar
-                  name={
-                    actionSheetConvo.other_profile?.display_name ?? 'Unknown'
-                  }
-                  color={
-                    actionSheetConvo.other_profile?.avatar_color ?? COLORS.violet
-                  }
-                  avatarUrl={actionSheetConvo.other_profile?.avatar_url ?? null}
-                  size={44}
-                />
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.sheetHeaderName} numberOfLines={1}>
-                    {actionSheetConvo.other_profile?.display_name ?? 'Chat'}
-                  </Text>
-                  <Text style={styles.sheetHeaderSub}>
-                    @{actionSheetConvo.other_profile?.username}
-                  </Text>
+            <Pressable
+              style={styles.dialogCard}
+              onPress={(e) => e.stopPropagation()}
+            >
+              {actionSheetConvo && (
+                <View style={styles.dialogHeader}>
+                  <Avatar
+                    name={
+                      actionSheetConvo.other_profile?.display_name ?? 'Unknown'
+                    }
+                    color={
+                      actionSheetConvo.other_profile?.avatar_color ??
+                      COLORS.violet
+                    }
+                    avatarUrl={
+                      actionSheetConvo.other_profile?.avatar_url ?? null
+                    }
+                    size={48}
+                  />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.dialogHeaderName} numberOfLines={1}>
+                      {actionSheetConvo.other_profile?.display_name ?? 'Chat'}
+                    </Text>
+                    <Text style={styles.dialogHeaderSub}>
+                      @{actionSheetConvo.other_profile?.username}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            )}
+              )}
 
-            <ActionRow
-              icon="trash-outline"
-              label="Delete"
-              danger
-              onPress={() =>
-                actionSheetConvo &&
-                (setDeleteConfirmConvo(actionSheetConvo),
-                setActionSheetConvo(null))
-              }
-            />
-            <ActionRow
-              icon={
-                actionSheetConvo?.is_muted ? 'volume-high-outline' : 'volume-mute-outline'
-              }
-              label={actionSheetConvo?.is_muted ? 'Unmute' : 'Mute'}
-              onPress={() => actionSheetConvo && toggleMute(actionSheetConvo)}
-            />
-            <ActionRow
-              icon={
-                actionSheetConvo?.is_locked
-                  ? 'lock-open-outline'
-                  : 'lock-closed-outline'
-              }
-              label={actionSheetConvo?.is_locked ? 'Unlock chat' : 'Lock chat'}
-              onPress={() =>
-                actionSheetConvo && startLockFlow(actionSheetConvo)
-              }
-            />
-            <ActionRow
-              icon="ban-outline"
-              label="Block"
-              danger
-              onPress={() =>
-                actionSheetConvo &&
-                (setBlockConfirmConvo(actionSheetConvo),
-                setActionSheetConvo(null))
-              }
-            />
+              <ActionRow
+                icon="trash-outline"
+                label="Delete"
+                danger
+                onPress={() =>
+                  actionSheetConvo &&
+                  (setDeleteConfirmConvo(actionSheetConvo),
+                  setActionSheetConvo(null))
+                }
+              />
+              <ActionRow
+                icon={
+                  actionSheetConvo?.is_muted
+                    ? 'volume-high-outline'
+                    : 'volume-mute-outline'
+                }
+                label={actionSheetConvo?.is_muted ? 'Unmute' : 'Mute'}
+                onPress={() => actionSheetConvo && toggleMute(actionSheetConvo)}
+              />
+              <ActionRow
+                icon={
+                  actionSheetConvo?.is_locked
+                    ? 'lock-open-outline'
+                    : 'lock-closed-outline'
+                }
+                label={
+                  actionSheetConvo?.is_locked ? 'Unlock chat' : 'Lock chat'
+                }
+                onPress={() =>
+                  actionSheetConvo && startLockFlow(actionSheetConvo)
+                }
+              />
+              <ActionRow
+                icon="ban-outline"
+                label="Block"
+                danger
+                onPress={() =>
+                  actionSheetConvo &&
+                  (setBlockConfirmConvo(actionSheetConvo),
+                  setActionSheetConvo(null))
+                }
+              />
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </BlurView>
       </Modal>
 
       {/* ========== DELETE CONFIRM ========== */}
@@ -877,41 +869,51 @@ export default function ChatsScreen() {
         transparent
         animationType="fade"
         onRequestClose={() => setDeleteConfirmConvo(null)}
+        statusBarTranslucent
       >
-        <Pressable
-          style={styles.sheetBackdrop}
-          onPress={() => setDeleteConfirmConvo(null)}
-        >
+        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
           <Pressable
-            style={[styles.sheetCard, { paddingHorizontal: 20 }]}
-            onPress={(e) => e.stopPropagation()}
+            style={styles.backdropPress}
+            onPress={() => setDeleteConfirmConvo(null)}
           >
-            <View style={styles.sheetHandle} />
-            <Text style={styles.confirmTitle}>Delete this chat?</Text>
-            <Text style={styles.confirmSub}>
-              This will remove the chat from your list. The other person will
-              still see the conversation.
-            </Text>
-            <View style={styles.confirmRow}>
-              <TouchableOpacity
-                style={styles.confirmCancel}
-                onPress={() => setDeleteConfirmConvo(null)}
-                activeOpacity={0.75}
-              >
-                <Text style={styles.confirmCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmDanger}
-                onPress={() =>
-                  deleteConfirmConvo && deleteConversation(deleteConfirmConvo.id)
-                }
-                activeOpacity={0.75}
-              >
-                <Text style={styles.confirmDangerText}>Delete</Text>
-              </TouchableOpacity>
-            </View>
+            <Pressable
+              style={styles.dialogCard}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.dialogIconWrap}>
+                <Ionicons
+                  name="trash-outline"
+                  size={26}
+                  color={COLORS.danger}
+                />
+              </View>
+              <Text style={styles.dialogTitle}>Delete this chat?</Text>
+              <Text style={styles.dialogSub}>
+                This will remove the chat from your list. The other person will
+                still see the conversation.
+              </Text>
+              <View style={styles.dialogButtons}>
+                <TouchableOpacity
+                  style={styles.dialogBtnSecondary}
+                  onPress={() => setDeleteConfirmConvo(null)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.dialogBtnSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.dialogBtnDanger}
+                  onPress={() =>
+                    deleteConfirmConvo &&
+                    deleteConversation(deleteConfirmConvo.id)
+                  }
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.dialogBtnPrimaryText}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </BlurView>
       </Modal>
 
       {/* ========== BLOCK CONFIRM ========== */}
@@ -920,181 +922,206 @@ export default function ChatsScreen() {
         transparent
         animationType="fade"
         onRequestClose={() => setBlockConfirmConvo(null)}
+        statusBarTranslucent
       >
-        <Pressable
-          style={styles.sheetBackdrop}
-          onPress={() => setBlockConfirmConvo(null)}
-        >
+        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
           <Pressable
-            style={[styles.sheetCard, { paddingHorizontal: 20 }]}
-            onPress={(e) => e.stopPropagation()}
+            style={styles.backdropPress}
+            onPress={() => setBlockConfirmConvo(null)}
           >
-            <View style={styles.sheetHandle} />
-            <Text style={styles.confirmTitle}>
-              Block @{blockConfirmConvo?.other_profile?.username}?
-            </Text>
-            <Text style={styles.confirmSub}>
-              They won't be able to message you. This chat will be removed.
-            </Text>
-            <View style={styles.confirmRow}>
-              <TouchableOpacity
-                style={styles.confirmCancel}
-                onPress={() => setBlockConfirmConvo(null)}
-                activeOpacity={0.75}
-              >
-                <Text style={styles.confirmCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.confirmDanger}
-                onPress={() => blockConfirmConvo && blockUser(blockConfirmConvo)}
-                activeOpacity={0.75}
-              >
-                <Text style={styles.confirmDangerText}>Block</Text>
-              </TouchableOpacity>
-            </View>
+            <Pressable
+              style={styles.dialogCard}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={[styles.dialogIconWrap, { backgroundColor: 'rgba(239,68,68,0.15)' }]}>
+                <Ionicons name="ban" size={26} color={COLORS.danger} />
+              </View>
+              <Text style={styles.dialogTitle}>
+                Block @{blockConfirmConvo?.other_profile?.username}?
+              </Text>
+              <Text style={styles.dialogSub}>
+                They won't be able to message you. This chat will be removed.
+              </Text>
+              <View style={styles.dialogButtons}>
+                <TouchableOpacity
+                  style={styles.dialogBtnSecondary}
+                  onPress={() => setBlockConfirmConvo(null)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.dialogBtnSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.dialogBtnDanger}
+                  onPress={() =>
+                    blockConfirmConvo && blockUser(blockConfirmConvo)
+                  }
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.dialogBtnPrimaryText}>Block</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </BlurView>
       </Modal>
 
-      {/* ========== PIN SETUP ========== */}
+      {/* ========== PIN SETUP (centered + blur + keyboard safe) ========== */}
       <Modal
         visible={!!pinSetupConvo}
         transparent
         animationType="fade"
         onRequestClose={() => setPinSetupConvo(null)}
+        statusBarTranslucent
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1 }}
-        >
-          <Pressable
-            style={styles.sheetBackdrop}
-            onPress={() => setPinSetupConvo(null)}
+        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardAvoid}
           >
             <Pressable
-              style={[styles.sheetCard, { paddingHorizontal: 22 }]}
-              onPress={(e) => e.stopPropagation()}
+              style={styles.backdropPress}
+              onPress={() => setPinSetupConvo(null)}
             >
-              <View style={styles.sheetHandle} />
-              <View style={styles.pinIconWrap}>
-                <Ionicons name="lock-closed" size={26} color={COLORS.violetLight} />
-              </View>
-              <Text style={styles.pinTitle}>Set a chat lock PIN</Text>
-              <Text style={styles.pinSub}>
-                Enter a 4-digit PIN. You'll need it every time you open locked
-                chats.
-              </Text>
+              <Pressable
+                style={styles.dialogCard}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <View style={styles.dialogIconWrap}>
+                  <Ionicons
+                    name="lock-closed"
+                    size={26}
+                    color={COLORS.violetLight}
+                  />
+                </View>
+                <Text style={styles.dialogTitle}>Set a chat lock PIN</Text>
+                <Text style={styles.dialogSub}>
+                  Enter a 4-digit PIN. You'll need it every time you open
+                  locked chats.
+                </Text>
 
-              <TextInput
-                style={styles.pinInput}
-                value={pinInput1}
-                onChangeText={(t) => setPinInput1(t.replace(/\D/g, '').slice(0, 4))}
-                placeholder="Enter 4-digit PIN"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                keyboardType="number-pad"
-                secureTextEntry
-                maxLength={4}
-              />
+                <TextInput
+                  style={styles.pinInput}
+                  value={pinInput1}
+                  onChangeText={(t) =>
+                    setPinInput1(t.replace(/\D/g, '').slice(0, 4))
+                  }
+                  placeholder="Enter 4-digit PIN"
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  maxLength={4}
+                />
 
-              <TextInput
-                style={styles.pinInput}
-                value={pinInput2}
-                onChangeText={(t) => setPinInput2(t.replace(/\D/g, '').slice(0, 4))}
-                placeholder="Confirm PIN"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                keyboardType="number-pad"
-                secureTextEntry
-                maxLength={4}
-              />
+                <TextInput
+                  style={styles.pinInput}
+                  value={pinInput2}
+                  onChangeText={(t) =>
+                    setPinInput2(t.replace(/\D/g, '').slice(0, 4))
+                  }
+                  placeholder="Confirm PIN"
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  maxLength={4}
+                />
 
-              {!!pinError && <Text style={styles.pinError}>{pinError}</Text>}
+                {!!pinError && (
+                  <Text style={styles.pinError}>{pinError}</Text>
+                )}
 
-              <View style={styles.confirmRow}>
-                <TouchableOpacity
-                  style={styles.confirmCancel}
-                  onPress={() => setPinSetupConvo(null)}
-                  activeOpacity={0.75}
-                >
-                  <Text style={styles.confirmCancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.confirmPrimary}
-                  onPress={confirmPinSetup}
-                  activeOpacity={0.75}
-                >
-                  <Text style={styles.confirmPrimaryText}>Save & Lock</Text>
-                </TouchableOpacity>
-              </View>
+                <View style={styles.dialogButtons}>
+                  <TouchableOpacity
+                    style={styles.dialogBtnSecondary}
+                    onPress={() => setPinSetupConvo(null)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.dialogBtnSecondaryText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.dialogBtnPrimary}
+                    onPress={confirmPinSetup}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.dialogBtnPrimaryText}>Save & Lock</Text>
+                  </TouchableOpacity>
+                </View>
+              </Pressable>
             </Pressable>
-          </Pressable>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </BlurView>
       </Modal>
 
-      {/* ========== PIN VERIFY ========== */}
+      {/* ========== PIN VERIFY (centered + blur + keyboard safe) ========== */}
       <Modal
         visible={pinModalVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setPinModalVisible(false)}
+        statusBarTranslucent
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1 }}
-        >
-          <Pressable
-            style={styles.sheetBackdrop}
-            onPress={() => setPinModalVisible(false)}
+        <BlurView intensity={40} tint="dark" style={styles.blurBackdrop}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardAvoid}
           >
             <Pressable
-              style={[styles.sheetCard, { paddingHorizontal: 22 }]}
-              onPress={(e) => e.stopPropagation()}
+              style={styles.backdropPress}
+              onPress={() => setPinModalVisible(false)}
             >
-              <View style={styles.sheetHandle} />
-              <View style={styles.pinIconWrap}>
-                <Ionicons name="lock-closed" size={26} color={COLORS.violetLight} />
-              </View>
-              <Text style={styles.pinTitle}>Enter your PIN</Text>
-              <Text style={styles.pinSub}>
-                Unlock to view your locked chats.
-              </Text>
+              <Pressable
+                style={styles.dialogCard}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <View style={styles.dialogIconWrap}>
+                  <Ionicons
+                    name="lock-closed"
+                    size={26}
+                    color={COLORS.violetLight}
+                  />
+                </View>
+                <Text style={styles.dialogTitle}>Enter your PIN</Text>
+                <Text style={styles.dialogSub}>
+                  Unlock to view your locked chats.
+                </Text>
 
-              <TextInput
-                style={styles.pinInput}
-                value={pinVerifyInput}
-                onChangeText={(t) =>
-                  setPinVerifyInput(t.replace(/\D/g, '').slice(0, 4))
-                }
-                placeholder="4-digit PIN"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                keyboardType="number-pad"
-                secureTextEntry
-                maxLength={4}
-                autoFocus
-              />
+                <TextInput
+                  style={styles.pinInput}
+                  value={pinVerifyInput}
+                  onChangeText={(t) =>
+                    setPinVerifyInput(t.replace(/\D/g, '').slice(0, 4))
+                  }
+                  placeholder="4-digit PIN"
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  maxLength={4}
+                  autoFocus
+                />
 
-              {!!pinVerifyError && (
-                <Text style={styles.pinError}>{pinVerifyError}</Text>
-              )}
+                {!!pinVerifyError && (
+                  <Text style={styles.pinError}>{pinVerifyError}</Text>
+                )}
 
-              <View style={styles.confirmRow}>
-                <TouchableOpacity
-                  style={styles.confirmCancel}
-                  onPress={() => setPinModalVisible(false)}
-                  activeOpacity={0.75}
-                >
-                  <Text style={styles.confirmCancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.confirmPrimary}
-                  onPress={confirmPinVerify}
-                  activeOpacity={0.75}
-                >
-                  <Text style={styles.confirmPrimaryText}>Unlock</Text>
-                </TouchableOpacity>
-              </View>
+                <View style={styles.dialogButtons}>
+                  <TouchableOpacity
+                    style={styles.dialogBtnSecondary}
+                    onPress={() => setPinModalVisible(false)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.dialogBtnSecondaryText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.dialogBtnPrimary}
+                    onPress={confirmPinVerify}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.dialogBtnPrimaryText}>Unlock</Text>
+                  </TouchableOpacity>
+                </View>
+              </Pressable>
             </Pressable>
-          </Pressable>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </BlurView>
       </Modal>
 
       {/* ========== LOCKED CHATS VIEW (session only) ========== */}
@@ -1386,56 +1413,127 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // ---------- Sheet base ----------
-  sheetBackdrop: {
+  // ---------- Modal: blur backdrop + centered dialog ----------
+  blurBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
   },
-  sheetCard: {
-    backgroundColor: '#1A1D27',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
+  keyboardAvoid: {
+    flex: 1,
   },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    alignSelf: 'center',
-    marginBottom: 12,
+  backdropPress: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
-  sheetHeader: {
+  dialogCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: 'rgba(20,22,30,0.96)',
+    borderRadius: 24,
+    paddingTop: 22,
+    paddingBottom: 16,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  dialogHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingHorizontal: 18,
-    paddingBottom: 12,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
     marginBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  sheetHeaderName: {
-    fontSize: 15.5,
+  dialogHeaderName: {
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
   },
-  sheetHeaderSub: {
+  dialogHeaderSub: {
     fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginTop: 2,
   },
+  dialogIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(124,92,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  dialogTitle: {
+    fontSize: 17,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 6,
+    paddingHorizontal: 8,
+  },
+  dialogSub: {
+    fontSize: 13.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 18,
+    paddingHorizontal: 8,
+  },
+  dialogButtons: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 8,
+    marginTop: 4,
+  },
+  dialogBtnSecondary: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  dialogBtnSecondaryText: {
+    fontSize: 14.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.mistLight,
+  },
+  dialogBtnDanger: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: COLORS.danger,
+    alignItems: 'center',
+  },
+  dialogBtnPrimary: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: COLORS.violet,
+    alignItems: 'center',
+  },
+  dialogBtnPrimaryText: {
+    fontSize: 14.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+  },
 
+  // ---------- Action rows ----------
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
     paddingVertical: 14,
     borderRadius: 12,
   },
@@ -1445,88 +1543,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // ---------- Confirm dialogs ----------
-  confirmTitle: {
-    fontSize: 17,
-    fontFamily: FONTS.displayBold,
-    color: '#FFFFFF',
-    marginBottom: 6,
-  },
-  confirmSub: {
-    fontSize: 13.5,
-    fontFamily: FONTS.body,
-    color: COLORS.mistLight,
-    marginBottom: 18,
-    lineHeight: 19,
-  },
-  confirmRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 4,
-  },
-  confirmCancel: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    alignItems: 'center',
-  },
-  confirmCancelText: {
-    fontSize: 14.5,
-    fontFamily: FONTS.bodySemiBold,
-    color: COLORS.mistLight,
-  },
-  confirmDanger: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 14,
-    backgroundColor: COLORS.danger,
-    alignItems: 'center',
-  },
-  confirmDangerText: {
-    fontSize: 14.5,
-    fontFamily: FONTS.bodySemiBold,
-    color: '#FFFFFF',
-  },
-  confirmPrimary: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 14,
-    backgroundColor: COLORS.violet,
-    alignItems: 'center',
-  },
-  confirmPrimaryText: {
-    fontSize: 14.5,
-    fontFamily: FONTS.bodySemiBold,
-    color: '#FFFFFF',
-  },
-
-  // ---------- PIN ----------
-  pinIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(124,92,255,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  pinTitle: {
-    fontSize: 17,
-    fontFamily: FONTS.displayBold,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  pinSub: {
-    fontSize: 13,
-    fontFamily: FONTS.body,
-    color: COLORS.mist,
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 18,
-  },
+  // ---------- PIN inputs ----------
   pinInput: {
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
@@ -1540,6 +1557,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 8,
     marginBottom: 10,
+    marginHorizontal: 8,
   },
   pinError: {
     fontSize: 13,
