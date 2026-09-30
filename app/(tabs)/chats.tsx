@@ -730,7 +730,7 @@ export default function ChatsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 🔒 Locked chats chip — permanent (Android doesn't support over-scroll reveal) */}
+      {/* 🔒 Locked chats chip */}
       {!loading && lockedConversations.length > 0 && (
         <TouchableOpacity
           style={styles.lockedChip}
@@ -827,7 +827,7 @@ export default function ChatsScreen() {
                     avatarUrl={
                       actionSheetConvo.other_profile?.avatar_url ?? null
                     }
-                    size={48}
+                    size={42}
                   />
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.dialogHeaderName} numberOfLines={1}>
@@ -917,7 +917,7 @@ export default function ChatsScreen() {
               >
                 <Ionicons
                   name="trash-outline"
-                  size={26}
+                  size={22}
                   color={COLORS.danger}
                 />
               </View>
@@ -978,7 +978,7 @@ export default function ChatsScreen() {
                   { backgroundColor: 'rgba(239,68,68,0.15)' },
                 ]}
               >
-                <Ionicons name="ban" size={26} color={COLORS.danger} />
+                <Ionicons name="ban" size={22} color={COLORS.danger} />
               </View>
               <Text style={styles.dialogTitle}>
                 Block @{blockConfirmConvo?.other_profile?.username}?
@@ -1038,7 +1038,7 @@ export default function ChatsScreen() {
                 <View style={styles.dialogIconWrap}>
                   <Ionicons
                     name="lock-closed"
-                    size={26}
+                    size={22}
                     color={COLORS.violetLight}
                   />
                 </View>
@@ -1129,7 +1129,7 @@ export default function ChatsScreen() {
                 <View style={styles.dialogIconWrap}>
                   <Ionicons
                     name="lock-closed"
-                    size={26}
+                    size={22}
                     color={COLORS.violetLight}
                   />
                 </View>
@@ -1241,7 +1241,7 @@ function ActionRow({
     >
       <Ionicons
         name={icon}
-        size={22}
+        size={20}
         color={danger ? COLORS.danger : '#FFFFFF'}
       />
       <Text style={[styles.actionLabel, danger && { color: COLORS.danger }]}>
@@ -1276,7 +1276,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // 🔒 Locked chip
   lockedChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1458,12 +1457,12 @@ const styles = StyleSheet.create({
   },
   dialogCard: {
     width: '100%',
-    maxWidth: 380,
+    maxWidth: 320,
     backgroundColor: 'rgba(20,22,30,0.96)',
-    borderRadius: 24,
-    paddingTop: 22,
-    paddingBottom: 16,
-    paddingHorizontal: 12,
+    borderRadius: 20,
+    paddingTop: 16,
+    paddingBottom: 10,
+    paddingHorizontal: 8,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.09)',
     shadowColor: '#000',
@@ -1475,49 +1474,49 @@ const styles = StyleSheet.create({
   dialogHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-    marginBottom: 6,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    marginBottom: 4,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
   },
   dialogHeaderName: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
   },
   dialogHeaderSub: {
-    fontSize: 12.5,
+    fontSize: 11.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
     marginTop: 2,
   },
   dialogIconWrap: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: 'rgba(124,92,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
   },
   dialogTitle: {
-    fontSize: 17,
+    fontSize: 16,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: 5,
     paddingHorizontal: 8,
   },
   dialogSub: {
-    fontSize: 13.5,
+    fontSize: 13,
     fontFamily: FONTS.body,
     color: COLORS.mistLight,
     textAlign: 'center',
-    lineHeight: 19,
-    marginBottom: 18,
+    lineHeight: 18,
+    marginBottom: 14,
     paddingHorizontal: 8,
   },
   dialogButtons: {
@@ -1528,32 +1527,32 @@ const styles = StyleSheet.create({
   },
   dialogBtnSecondary: {
     flex: 1,
-    paddingVertical: 13,
-    borderRadius: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
   },
   dialogBtnSecondaryText: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
     color: COLORS.mistLight,
   },
   dialogBtnDanger: {
     flex: 1,
-    paddingVertical: 13,
-    borderRadius: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
     backgroundColor: COLORS.danger,
     alignItems: 'center',
   },
   dialogBtnPrimary: {
     flex: 1,
-    paddingVertical: 13,
-    borderRadius: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
   },
   dialogBtnPrimaryText: {
-    fontSize: 14.5,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
   },
@@ -1561,13 +1560,13 @@ const styles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRadius: 12,
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderRadius: 10,
   },
   actionLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
   },
@@ -1576,15 +1575,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 18,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 17,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
     textAlign: 'center',
     letterSpacing: 8,
-    marginBottom: 10,
+    marginBottom: 8,
     marginHorizontal: 8,
   },
   pinError: {
