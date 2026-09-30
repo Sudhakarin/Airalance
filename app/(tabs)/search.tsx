@@ -417,11 +417,12 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
+  // ✅ FIXED: align suggestion header + card with search bar (18px total)
   suggestHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 4,
+    paddingHorizontal: 10, // was 4 → 8 + 10 = 18 = matches search bar
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.sm,
   },
@@ -439,6 +440,7 @@ const styles = StyleSheet.create({
     borderRadius: RADII.xl,
     paddingVertical: 4,
     paddingHorizontal: 6,
+    marginHorizontal: 10, // ✅ NEW: 8 + 10 = 18 = matches search bar
     marginBottom: 4,
   },
   suggestionRow: {
