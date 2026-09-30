@@ -1,5 +1,5 @@
 // components/MessageBubble.tsx
-// Double-tap heart reaction + reaction pills + haptics + entrance animation + swipe-to-reply
+// Double-tap heart reaction + reaction pills + haptics + entrance animation + swipe-to-reply + voice waveform
 
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
@@ -47,13 +47,14 @@ type Props = {
   myId: string;
   onLongPress?: (msg: Message) => void;
   onDoubleTap?: (msg: Message) => void;
-  onSwipeReply?: (msg: Message) => void; // ✅ NEW
+  onSwipeReply?: (msg: Message) => void;
   replyMessage?: Message | null;
   reactions?: Reaction[];
   animate?: boolean;
 };
 
 const DOUBLE_TAP_MS = 300;
+const WAVE_BAR_COUNT = 32;
 
 // ---------- Pure helpers ----------
 function formatTime(iso: string) {
@@ -89,15 +90,39 @@ function replyPreviewText(msg: Message): string {
   return msg.content || '';
 }
 
-// ---------- Voice bubble ----------
+/**
+ * Deterministic pseudo-random waveform generator.
+ * Same seed → same bars. So each voice note has a stable pattern.
+ */
+function generateWaveform(seed: string, count = WAVE_BAR_COUNT): number[] {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  const bars: number[] = [];
+  let state = Math.abs(hash) || 1;
+  for (let i = 0; i < count; i++) {
+    state = (state * 9301 + 49297) % 233280;
+    const r = state / 233280;
+    // Bias toward mid heights for more natural look
+    const shaped = 0.25 + Math.pow(r, 0.7) * 0.75;
+    bars.push(shaped);
+  }
+  return bars;
+}
+
+// ---------- Voice bubble with waveform ----------
 function VoiceBubble({
   url,
   duration,
   isMine,
+  messageId,
 }: {
   url: string;
   duration: number;
   isMine: boolean;
+  messageId: string;
 }) {
   const player = useAudioPlayer(url);
   const status = useAudioPlayerStatus(player);
@@ -106,6 +131,15 @@ function VoiceBubble({
     status.duration && status.duration > 0
       ? Math.min(1, status.currentTime / status.duration)
       : 0;
+
+  // ✅ Deterministic bars — same message = same pattern
+  const bars = useMemo(
+    () => generateWaveform(messageId, WAVE_BAR_COUNT),
+    [messageId]
+  );
+
+  // How many bars are "played"
+  const activeCount = Math.round(progress * bars.length);
 
   const toggle = useCallback(() => {
     if (status.playing) {
@@ -129,6 +163,7 @@ function VoiceBubble({
 
   return (
     <View style={[styles.voiceWrap, isMine && styles.voiceWrapMine]}>
+      {/* Play / pause button */}
       <TouchableOpacity
         onPress={toggle}
         activeOpacity={0.75}
@@ -144,19 +179,36 @@ function VoiceBubble({
         />
       </TouchableOpacity>
 
-      <View style={styles.voiceBarWrap}>
-        <View style={[styles.voiceBarBg, isMine && styles.voiceBarBgMine]}>
-          <View
-            style={[
-              styles.voiceBarFill,
-              { width: `${progress * 100}%` },
-              isMine ? styles.voiceBarFillMine : styles.voiceBarFillOther,
-            ]}
-          />
-        </View>
+      {/* Waveform */}
+      <View style={styles.waveWrap}>
+        {bars.map((h, i) => {
+          const active = i < activeCount;
+          const barHeight = 4 + h * 18; // 4px → 22px
+          return (
+            <View
+              key={i}
+              style={[
+                styles.waveBar,
+                {
+                  height: barHeight,
+                  backgroundColor: isMine
+                    ? active
+                      ? '#FFFFFF'
+                      : 'rgba(255,255,255,0.35)'
+                    : active
+                    ? COLORS.violet
+                    : 'rgba(124,92,255,0.28)',
+                },
+              ]}
+            />
+          );
+        })}
       </View>
 
-      <Text style={[styles.voiceDuration, isMine && styles.voiceDurationMine]}>
+      {/* Duration */}
+      <Text
+        style={[styles.voiceDuration, isMine && styles.voiceDurationMine]}
+      >
         {formatDuration(shownDuration)}
       </Text>
     </View>
@@ -267,11 +319,7 @@ function MessageBubbleBase({
     () => (
       <View style={styles.swipeLeftAction}>
         <View style={styles.swipeReplyIcon}>
-          <Ionicons
-            name="arrow-undo"
-            size={18}
-            color={COLORS.violetLight}
-          />
+          <Ionicons name="arrow-undo" size={18} color={COLORS.violetLight} />
         </View>
       </View>
     ),
@@ -428,6 +476,7 @@ function MessageBubbleBase({
                     url={message.media_url!}
                     duration={message.media_duration ?? 0}
                     isMine={isMine}
+                    messageId={message.id}
                   />
                 </View>
               ) : isMine ? (
@@ -544,12 +593,10 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
 
-  // ✅ Swipe container — transparent, no clipping
   swipeContainer: {
     backgroundColor: 'transparent',
   },
 
-  // ✅ Left action reveal (reply icon)
   swipeLeftAction: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -689,11 +736,12 @@ const styles = StyleSheet.create({
   },
   image: { width: 220, height: 220, borderRadius: 16 },
 
+  // ---------- Voice bubble with waveform ----------
   voiceWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    minWidth: 180,
+    minWidth: 200,
     paddingVertical: 2,
   },
   voiceWrapMine: {},
@@ -706,17 +754,21 @@ const styles = StyleSheet.create({
   },
   voicePlayBtnMine: { backgroundColor: 'rgba(255,255,255,0.22)' },
   voicePlayBtnOther: { backgroundColor: 'rgba(124,92,255,0.15)' },
-  voiceBarWrap: { flex: 1, minWidth: 80 },
-  voiceBarBg: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    overflow: 'hidden',
+
+  // Waveform container
+  waveWrap: {
+    flex: 1,
+    minWidth: 120,
+    height: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
   },
-  voiceBarBgMine: { backgroundColor: 'rgba(255,255,255,0.28)' },
-  voiceBarFill: { height: '100%', borderRadius: 2 },
-  voiceBarFillMine: { backgroundColor: '#FFFFFF' },
-  voiceBarFillOther: { backgroundColor: COLORS.violet },
+  waveBar: {
+    width: 2.5,
+    borderRadius: 1.5,
+  },
+
   voiceDuration: {
     fontSize: 12,
     fontFamily: FONTS.body,
