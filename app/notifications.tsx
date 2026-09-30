@@ -301,7 +301,7 @@ export default function NotificationsScreen() {
             const req = entry.item;
             const p = req.from_profile;
             return (
-              <View style={styles.card}>
+              <View style={[styles.card, styles.requestCard]}>
                 <Avatar
                   name={p?.display_name ?? 'User'}
                   color={p?.avatar_color ?? COLORS.violet}
@@ -473,7 +473,7 @@ const styles = StyleSheet.create({
 
   list: { paddingHorizontal: 14, paddingBottom: SPACING.lg, flexGrow: 1 },
 
-  // ---------- Card (compact) ----------
+  // ---------- Card ----------
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -484,6 +484,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1F1F23',
     marginBottom: 8,
+  },
+  // ✅ Extra bottom room for request cards (Accept/Leave buttons)
+  requestCard: {
+    paddingBottom: 16,
+    marginBottom: 10,
   },
   iconCircle: {
     width: 34,
@@ -521,22 +526,30 @@ const styles = StyleSheet.create({
   requestActions: {
     flexDirection: 'row',
     gap: 6,
-    marginTop: 7,
+    marginTop: 9,
+    marginBottom: 2,
   },
-  acceptBtn: { borderRadius: 999, overflow: 'hidden', flex: 1 },
+  acceptBtn: {
+    borderRadius: 999,
+    overflow: 'hidden',
+    flex: 1,
+    minHeight: 32,
+  },
   acceptBtnInner: {
-    paddingVertical: 6,
+    flex: 1,
+    minHeight: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
   acceptText: {
     color: '#FFFFFF',
-    fontSize: 12.5,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
+    lineHeight: 16,
   },
   declineBtn: {
     flex: 1,
-    paddingVertical: 6,
+    minHeight: 32,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 999,
@@ -545,8 +558,9 @@ const styles = StyleSheet.create({
   },
   declineText: {
     color: COLORS.mistLight,
-    fontSize: 12.5,
+    fontSize: 13,
     fontFamily: FONTS.bodySemiBold,
+    lineHeight: 16,
   },
 
   deleteAction: {
