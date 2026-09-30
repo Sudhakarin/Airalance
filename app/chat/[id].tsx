@@ -74,6 +74,7 @@ const MessageRow = memo(function MessageRow({
   nextMessage,
   myId,
   onLongPress,
+  replyMessage,
 }: {
   item: Message;
   isMine: boolean;
@@ -81,6 +82,7 @@ const MessageRow = memo(function MessageRow({
   nextMessage?: Message;
   myId: string;
   onLongPress: (msg: Message) => void;
+  replyMessage?: Message | null;
 }) {
   return (
     <MessageBubble
@@ -90,6 +92,7 @@ const MessageRow = memo(function MessageRow({
       nextMessage={nextMessage}
       myId={myId}
       onLongPress={onLongPress}
+      replyMessage={replyMessage}
     />
   );
 });
@@ -182,20 +185,17 @@ export default function ChatScreen() {
         setMessages(ordered);
         prevMsgCountRef.current = ordered.length;
 
-        // Load pinned message preview (if any)
         const pinnedId = pinsRes.data?.[0]?.message_id;
         if (pinnedId) {
           const found = ordered.find((m) => m.id === pinnedId);
           if (found) setPinnedMessage(found);
         }
 
-        // Hidden for me
         const hiddenIds = new Set<string>(
           (delRes.data ?? []).map((r: any) => r.message_id)
         );
         setHiddenForMeIds(hiddenIds);
 
-        // Mark unread as read
         const unreadIds = msgs
           .filter((m: any) => m.sender_id !== uid && !m.read_at)
           .map((m: any) => m.id);
@@ -274,7 +274,6 @@ export default function ChatScreen() {
           setMessages((prev) =>
             prev.map((m) => (m.id === updated.id ? updated : m))
           );
-          // Sync pinned preview if the pinned message got edited
           setPinnedMessage((prev) =>
             prev && prev.id === updated.id ? updated : prev
           );
@@ -412,7 +411,7 @@ export default function ChatScreen() {
       }
 
       const now = Date.now();
-      if-for (now - lastTypingSentRef.current > CONSTANTS.TYPING_THROTTLE_MS) {
+      if (now - lastTypingSentRef.current > CONSTANTS.TYPING_THROTTLE_MS) {
         lastTypingSentRef.current = now;
         channel.send({
           type: 'broadcast',
@@ -428,24 +427,20 @@ export default function ChatScreen() {
   //  ACTION MENU HANDLERS
   // ============================================================
 
-  // ----- Long press → open action sheet -----
   const handleMessageLongPress = useCallback((msg: Message) => {
     if (msg.is_deleted) {
-      // Deleted messages: only delete-me action
       setDeleteConfirmMsg(msg);
       return;
     }
     setActionSheetMsg(msg);
   }, []);
 
-  // ----- Reply -----
   function handleReply(msg: Message) {
     setActionSheetMsg(null);
     setReplyingTo(msg);
     setTimeout(() => inputRef.current?.focus(), 150);
   }
 
-  // ----- Copy -----
   async function handleCopy(msg: Message) {
     setActionSheetMsg(null);
     const textToCopy =
@@ -462,18 +457,15 @@ export default function ChatScreen() {
     }
   }
 
-  // ----- Pin -----
   async function handlePin(msg: Message) {
     setActionSheetMsg(null);
     if (!myId || !convoId) return;
 
-    // If same message already pinned → unpin
     if (pinnedMessage?.id === msg.id) {
       await unpinMessage();
       return;
     }
 
-    // Remove any existing pin for this user+convo, then insert new
     try {
       await supabase
         .from('message_pins')
@@ -511,7 +503,6 @@ export default function ChatScreen() {
     }
   }
 
-  // ----- Delete -----
   function handleDeletePress(msg: Message) {
     setActionSheetMsg(null);
     setDeleteConfirmMsg(msg);
@@ -530,7 +521,6 @@ export default function ChatScreen() {
         next.add(msg.id);
         return next;
       });
-      // If the deleted message was pinned → unpin
       if (pinnedMessage?.id === msg.id) {
         setPinnedMessage(null);
         await supabase
@@ -561,7 +551,6 @@ export default function ChatScreen() {
       setMessages((prev) =>
         prev.map((m) => (m.id === msg.id ? { ...m, is_deleted: true } : m))
       );
-      // Clear pin if this was pinned
       if (pinnedMessage?.id === msg.id) {
         setPinnedMessage(null);
         await supabase
@@ -576,12 +565,10 @@ export default function ChatScreen() {
     }
   }
 
-  // ----- Jump to pinned message -----
   function jumpToPinned() {
     if (!pinnedMessage) return;
     const idx = visibleMessages.findIndex((m) => m.id === pinnedMessage.id);
     if (idx < 0) {
-      // Message hidden for me or out of range
       return;
     }
     try {
@@ -595,7 +582,7 @@ export default function ChatScreen() {
     }
   }
 
-  // ---------- Send text (with reply support) ----------
+  // ---------- Send text ----------
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
@@ -826,7 +813,6 @@ export default function ChatScreen() {
     return `Last seen ${Math.floor(hr / 24)}d ago`;
   }
 
-  // ---------- Helpers ----------
   function getMessagePreview(msg: Message | null | undefined): string {
     if (!msg) return '';
     if (msg.is_deleted) return 'This message was deleted';
@@ -847,6 +833,10 @@ export default function ChatScreen() {
     ({ item, index }: { item: Message; index: number }) => {
       const prev = visibleMessages[index - 1];
       const next = visibleMessages[index + 1];
+      // ✅ Reply lookup
+      const replyMsg = item.reply_to_id
+        ? messages.find((m) => m.id === item.reply_to_id) ?? null
+        : null;
       return (
         <MessageRow
           item={item}
@@ -855,10 +845,11 @@ export default function ChatScreen() {
           nextMessage={next}
           myId={myId!}
           onLongPress={handleMessageLongPress}
+          replyMessage={replyMsg}
         />
       );
     },
-    [visibleMessages, myId, handleMessageLongPress]
+    [visibleMessages, messages, myId, handleMessageLongPress]
   );
 
   const recordSeconds = Math.floor((recorderState.durationMillis ?? 0) / 1000);
@@ -979,7 +970,6 @@ export default function ChatScreen() {
           removeClippedSubviews={Platform.OS === 'android'}
           keyboardShouldPersistTaps="handled"
           onScrollToIndexFailed={(info) => {
-            // Fallback: scroll to end if index not found
             setTimeout(() => {
               flatListRef.current?.scrollToEnd({ animated: true });
             }, 200);
@@ -1111,9 +1101,7 @@ export default function ChatScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* ==================================================== */}
-      {/*            ACTION SHEET (long press menu)            */}
-      {/* ==================================================== */}
+      {/* ---------- Action Sheet ---------- */}
       <Modal
         visible={!!actionSheetMsg}
         transparent
@@ -1130,7 +1118,6 @@ export default function ChatScreen() {
           >
             <View style={styles.sheetHandle} />
 
-            {/* Action items */}
             <ActionRow
               icon="arrow-undo-outline"
               label="Reply"
@@ -1144,11 +1131,7 @@ export default function ChatScreen() {
               />
             )}
             <ActionRow
-              icon={
-                pinnedMessage?.id === actionSheetMsg?.id
-                  ? 'pin-outline'
-                  : 'pin-outline'
-              }
+              icon="pin-outline"
               label={
                 pinnedMessage?.id === actionSheetMsg?.id ? 'Unpin' : 'Pin'
               }
@@ -1166,9 +1149,7 @@ export default function ChatScreen() {
         </Pressable>
       </Modal>
 
-      {/* ==================================================== */}
-      {/*         DELETE CONFIRM (For me / For everyone)       */}
-      {/* ==================================================== */}
+      {/* ---------- Delete Confirm ---------- */}
       <Modal
         visible={!!deleteConfirmMsg}
         transparent
@@ -1225,7 +1206,7 @@ export default function ChatScreen() {
   );
 }
 
-// ---------- Action row (used inside sheet) ----------
+// ---------- Action row ----------
 function ActionRow({
   icon,
   label,
@@ -1303,7 +1284,6 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  // ---------- Pin banner ----------
   pinBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1343,7 +1323,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---------- List ----------
   listContent: {
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
@@ -1357,7 +1336,6 @@ const styles = StyleSheet.create({
   },
   emptyText: { color: COLORS.mist, fontSize: 16, fontFamily: FONTS.body },
 
-  // ---------- Reply preview ----------
   replyPreview: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1393,7 +1371,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---------- Composer ----------
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1502,7 +1479,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---------- Action sheet ----------
   sheetBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -1540,7 +1516,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // ---------- Delete confirm sheet ----------
   deleteTitle: {
     fontSize: 16,
     fontFamily: FONTS.displayBold,
