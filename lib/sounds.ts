@@ -26,8 +26,8 @@ export async function initSounds() {
       shouldPlayInBackground: false,
     });
 
-    sendPlayer = createAudioPlayer(require('../assets/sounds/send.mp3'));
-    receivePlayer = createAudioPlayer(require('../assets/sounds/receive.mp3'));
+    sendPlayer = createAudioPlayer(require('../assets/send.mp3'));
+    receivePlayer = createAudioPlayer(require('../assets/receive.mp3'));
 
     initialized = true;
   } catch (e) {
