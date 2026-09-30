@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice (optimized)
+// Chat screen — messages, realtime, send, typing, images, voice, actions (WhatsApp-like)
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -13,12 +13,15 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
 import {
   useAudioRecorder,
   useAudioRecorderState,
@@ -63,19 +66,21 @@ type OtherProfile = {
   last_seen: string | null;
 };
 
-// ---------- Memoized row (only re-renders when its own message changes) ----------
+// ---------- Memoized row ----------
 const MessageRow = memo(function MessageRow({
   item,
   isMine,
   prevMessage,
   nextMessage,
   myId,
+  onLongPress,
 }: {
   item: Message;
   isMine: boolean;
   prevMessage?: Message;
   nextMessage?: Message;
   myId: string;
+  onLongPress: (msg: Message) => void;
 }) {
   return (
     <MessageBubble
@@ -84,6 +89,7 @@ const MessageRow = memo(function MessageRow({
       prevMessage={prevMessage}
       nextMessage={nextMessage}
       myId={myId}
+      onLongPress={onLongPress}
     />
   );
 });
@@ -94,7 +100,7 @@ export default function ChatScreen() {
   const convoId = params.id;
 
   const [myId, setMyId] = useState<string | null>(null);
-  const [myName, setMyName] = useState<string>(''); // cached for push notifications
+  const [myName, setMyName] = useState<string>('');
   const [other, setOther] = useState<OtherProfile | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -104,6 +110,13 @@ export default function ChatScreen() {
   const [otherOnline, setOtherOnline] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // ---------- Action states ----------
+  const [pinnedMessage, setPinnedMessage] = useState<Message | null>(null);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [actionSheetMsg, setActionSheetMsg] = useState<Message | null>(null);
+  const [deleteConfirmMsg, setDeleteConfirmMsg] = useState<Message | null>(null);
+  const [hiddenForMeIds, setHiddenForMeIds] = useState<Set<string>>(new Set());
+
   const flatListRef = useRef<FlatList<Message>>(null);
   const channelRef = useRef<any>(null);
   const typingTimeoutRef = useRef<any>(null);
@@ -111,14 +124,16 @@ export default function ChatScreen() {
   const inputRef = useRef<TextInput>(null);
   const prevMsgCountRef = useRef(0);
   const isNearBottomRef = useRef(true);
-  // ✅ FIXED: ensures initial scroll happens exactly once per conversation
   const initialScrollDoneRef = useRef(false);
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 100);
   const [isRecording, setIsRecording] = useState(false);
 
-  // ---------- Bootstrap (parallel fetches) ----------
+  // ---------- Visible messages (filter out hidden-for-me) ----------
+  const visibleMessages = messages.filter((m) => !hiddenForMeIds.has(m.id));
+
+  // ---------- Bootstrap ----------
   useEffect(() => {
     let mounted = true;
 
@@ -128,8 +143,7 @@ export default function ChatScreen() {
       const uid = authData.user.id;
       setMyId(uid);
 
-      // Parallel: fetch my name + other participant + initial messages
-      const [profileRes, otherRes, msgRes] = await Promise.all([
+      const [profileRes, otherRes, msgRes, pinsRes, delRes] = await Promise.all([
         supabase.from('profiles').select('display_name').eq('id', uid).single(),
         supabase
           .from('conversation_participants')
@@ -145,6 +159,16 @@ export default function ChatScreen() {
           .eq('conversation_id', convoId)
           .order('created_at', { ascending: false })
           .limit(CONSTANTS.PAGE_SIZE),
+        supabase
+          .from('message_pins')
+          .select('message_id')
+          .eq('conversation_id', convoId)
+          .eq('user_id', uid)
+          .limit(1),
+        supabase
+          .from('message_deletions')
+          .select('message_id')
+          .eq('user_id', uid),
       ]);
 
       if (!mounted) return;
@@ -158,7 +182,20 @@ export default function ChatScreen() {
         setMessages(ordered);
         prevMsgCountRef.current = ordered.length;
 
-        // Mark all incoming unread as read
+        // Load pinned message preview (if any)
+        const pinnedId = pinsRes.data?.[0]?.message_id;
+        if (pinnedId) {
+          const found = ordered.find((m) => m.id === pinnedId);
+          if (found) setPinnedMessage(found);
+        }
+
+        // Hidden for me
+        const hiddenIds = new Set<string>(
+          (delRes.data ?? []).map((r: any) => r.message_id)
+        );
+        setHiddenForMeIds(hiddenIds);
+
+        // Mark unread as read
         const unreadIds = msgs
           .filter((m: any) => m.sender_id !== uid && !m.read_at)
           .map((m: any) => m.id);
@@ -179,7 +216,6 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
-  // ---------- Reset initial scroll flag if convo changes ----------
   useEffect(() => {
     initialScrollDoneRef.current = false;
   }, [convoId]);
@@ -238,6 +274,10 @@ export default function ChatScreen() {
           setMessages((prev) =>
             prev.map((m) => (m.id === updated.id ? updated : m))
           );
+          // Sync pinned preview if the pinned message got edited
+          setPinnedMessage((prev) =>
+            prev && prev.id === updated.id ? updated : prev
+          );
         }
       )
       .on('broadcast', { event: 'typing' }, ({ payload }: any) => {
@@ -288,29 +328,26 @@ export default function ChatScreen() {
     };
   }, [other?.id]);
 
-  // ---------- Smart scroll: only when a NEW message arrives ----------
+  // ---------- Smart scroll ----------
   useEffect(() => {
-    const count = messages.length;
+    const count = visibleMessages.length;
     const prevCount = prevMsgCountRef.current;
     if (count > prevCount && prevCount > 0) {
-      // Only auto-scroll if user was near the bottom
       if (isNearBottomRef.current) {
         requestAnimationFrame(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         });
       }
     }
-    // ✅ Initial scroll is now handled by onContentSizeChange (below)
     prevMsgCountRef.current = count;
-  }, [messages.length]);
+  }, [visibleMessages.length]);
 
-  // ✅ FIXED: initial scroll fires on first content render — reliable across devices
   const onContentSizeChange = useCallback(() => {
     if (initialScrollDoneRef.current) return;
-    if (messages.length === 0) return;
+    if (visibleMessages.length === 0) return;
     flatListRef.current?.scrollToEnd({ animated: false });
     initialScrollDoneRef.current = true;
-  }, [messages.length]);
+  }, [visibleMessages.length]);
 
   function onScroll(e: any) {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -375,7 +412,7 @@ export default function ChatScreen() {
       }
 
       const now = Date.now();
-      if (now - lastTypingSentRef.current > CONSTANTS.TYPING_THROTTLE_MS) {
+      if-for (now - lastTypingSentRef.current > CONSTANTS.TYPING_THROTTLE_MS) {
         lastTypingSentRef.current = now;
         channel.send({
           type: 'broadcast',
@@ -387,13 +424,187 @@ export default function ChatScreen() {
     [myId]
   );
 
-  // ---------- Send text ----------
+  // ============================================================
+  //  ACTION MENU HANDLERS
+  // ============================================================
+
+  // ----- Long press → open action sheet -----
+  const handleMessageLongPress = useCallback((msg: Message) => {
+    if (msg.is_deleted) {
+      // Deleted messages: only delete-me action
+      setDeleteConfirmMsg(msg);
+      return;
+    }
+    setActionSheetMsg(msg);
+  }, []);
+
+  // ----- Reply -----
+  function handleReply(msg: Message) {
+    setActionSheetMsg(null);
+    setReplyingTo(msg);
+    setTimeout(() => inputRef.current?.focus(), 150);
+  }
+
+  // ----- Copy -----
+  async function handleCopy(msg: Message) {
+    setActionSheetMsg(null);
+    const textToCopy =
+      msg.message_type === 'text' && msg.content ? msg.content : '';
+    if (!textToCopy) {
+      Alert.alert('Nothing to copy', 'This message has no text.');
+      return;
+    }
+    try {
+      await Clipboard.setStringAsync(textToCopy);
+      Alert.alert('Copied', 'Message copied to clipboard.');
+    } catch {
+      Alert.alert('Copy failed', 'Please try again.');
+    }
+  }
+
+  // ----- Pin -----
+  async function handlePin(msg: Message) {
+    setActionSheetMsg(null);
+    if (!myId || !convoId) return;
+
+    // If same message already pinned → unpin
+    if (pinnedMessage?.id === msg.id) {
+      await unpinMessage();
+      return;
+    }
+
+    // Remove any existing pin for this user+convo, then insert new
+    try {
+      await supabase
+        .from('message_pins')
+        .delete()
+        .eq('conversation_id', convoId)
+        .eq('user_id', myId);
+
+      const { error } = await supabase
+        .from('message_pins')
+        .insert({
+          message_id: msg.id,
+          conversation_id: convoId,
+          user_id: myId,
+        });
+
+      if (error) throw error;
+      setPinnedMessage(msg);
+    } catch (err) {
+      console.warn('Pin failed:', err);
+      Alert.alert('Pin failed', 'Please try again.');
+    }
+  }
+
+  async function unpinMessage() {
+    if (!myId || !convoId) return;
+    try {
+      await supabase
+        .from('message_pins')
+        .delete()
+        .eq('conversation_id', convoId)
+        .eq('user_id', myId);
+      setPinnedMessage(null);
+    } catch (err) {
+      console.warn('Unpin failed:', err);
+    }
+  }
+
+  // ----- Delete -----
+  function handleDeletePress(msg: Message) {
+    setActionSheetMsg(null);
+    setDeleteConfirmMsg(msg);
+  }
+
+  async function deleteForMe(msg: Message) {
+    if (!myId) return;
+    setDeleteConfirmMsg(null);
+    try {
+      await supabase.from('message_deletions').insert({
+        message_id: msg.id,
+        user_id: myId,
+      });
+      setHiddenForMeIds((prev) => {
+        const next = new Set(prev);
+        next.add(msg.id);
+        return next;
+      });
+      // If the deleted message was pinned → unpin
+      if (pinnedMessage?.id === msg.id) {
+        setPinnedMessage(null);
+        await supabase
+          .from('message_pins')
+          .delete()
+          .eq('conversation_id', convoId)
+          .eq('user_id', myId);
+      }
+    } catch (err) {
+      console.warn('Delete-for-me failed:', err);
+      Alert.alert('Failed', 'Please try again.');
+    }
+  }
+
+  async function deleteForEveryone(msg: Message) {
+    if (!myId) return;
+    if (msg.sender_id !== myId) {
+      Alert.alert('Cannot delete', 'You can only delete your own messages for everyone.');
+      setDeleteConfirmMsg(null);
+      return;
+    }
+    setDeleteConfirmMsg(null);
+    try {
+      await supabase
+        .from('messages')
+        .update({ is_deleted: true })
+        .eq('id', msg.id);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msg.id ? { ...m, is_deleted: true } : m))
+      );
+      // Clear pin if this was pinned
+      if (pinnedMessage?.id === msg.id) {
+        setPinnedMessage(null);
+        await supabase
+          .from('message_pins')
+          .delete()
+          .eq('conversation_id', convoId)
+          .eq('user_id', myId);
+      }
+    } catch (err) {
+      console.warn('Delete-for-everyone failed:', err);
+      Alert.alert('Failed', 'Please try again.');
+    }
+  }
+
+  // ----- Jump to pinned message -----
+  function jumpToPinned() {
+    if (!pinnedMessage) return;
+    const idx = visibleMessages.findIndex((m) => m.id === pinnedMessage.id);
+    if (idx < 0) {
+      // Message hidden for me or out of range
+      return;
+    }
+    try {
+      flatListRef.current?.scrollToIndex({
+        index: idx,
+        animated: true,
+        viewPosition: 0.5,
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  // ---------- Send text (with reply support) ----------
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
 
+    const replyTarget = replyingTo;
     setSending(true);
     setInput('');
+    setReplyingTo(null);
+
     channelRef.current?.send({
       type: 'broadcast',
       event: 'typing',
@@ -411,7 +622,7 @@ export default function ChatScreen() {
       message_type: 'text',
       media_url: null,
       media_duration: null,
-      reply_to_id: null,
+      reply_to_id: replyTarget?.id ?? null,
       is_deleted: false,
     };
     setMessages((prev) => [...prev, optimistic]);
@@ -423,6 +634,7 @@ export default function ChatScreen() {
         sender_id: myId,
         content,
         message_type: 'text',
+        reply_to_id: replyTarget?.id ?? null,
       })
       .select()
       .single();
@@ -430,6 +642,7 @@ export default function ChatScreen() {
     if (error || !inserted) {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setInput(content);
+      setReplyingTo(replyTarget);
       Alert.alert('Failed to send', 'Please try again.');
       setSending(false);
       return;
@@ -487,6 +700,7 @@ export default function ChatScreen() {
           content: '',
           message_type: 'image',
           media_url: urlData.publicUrl,
+          reply_to_id: replyingTo?.id ?? null,
         })
         .select()
         .single();
@@ -498,6 +712,7 @@ export default function ChatScreen() {
             ? prev
             : [...prev, inserted as Message]
         );
+        setReplyingTo(null);
         if (other?.id) triggerPushNotification(other.id, '', 'image');
       }
     } catch (err: any) {
@@ -563,6 +778,7 @@ export default function ChatScreen() {
           message_type: 'voice',
           media_url: urlData.publicUrl,
           media_duration: Math.round(durationMs / 1000),
+          reply_to_id: replyingTo?.id ?? null,
         })
         .select()
         .single();
@@ -574,6 +790,7 @@ export default function ChatScreen() {
             ? prev
             : [...prev, inserted as Message]
         );
+        setReplyingTo(null);
         if (other?.id) triggerPushNotification(other.id, '', 'voice');
       }
     } catch (err: any) {
@@ -609,13 +826,27 @@ export default function ChatScreen() {
     return `Last seen ${Math.floor(hr / 24)}d ago`;
   }
 
-  // ---------- Stable callbacks for FlatList ----------
+  // ---------- Helpers ----------
+  function getMessagePreview(msg: Message | null | undefined): string {
+    if (!msg) return '';
+    if (msg.is_deleted) return 'This message was deleted';
+    if (msg.message_type === 'image') return '📷 Photo';
+    if (msg.message_type === 'voice') return '🎤 Voice message';
+    return msg.content || '';
+  }
+
+  function getSenderName(msg: Message | null | undefined): string {
+    if (!msg) return '';
+    return msg.sender_id === myId ? 'You' : other?.display_name ?? 'Them';
+  }
+
+  // ---------- FlatList callbacks ----------
   const keyExtractor = useCallback((item: Message) => item.id, []);
 
   const renderItem = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
-      const prev = messages[index - 1];
-      const next = messages[index + 1];
+      const prev = visibleMessages[index - 1];
+      const next = visibleMessages[index + 1];
       return (
         <MessageRow
           item={item}
@@ -623,10 +854,11 @@ export default function ChatScreen() {
           prevMessage={prev}
           nextMessage={next}
           myId={myId!}
+          onLongPress={handleMessageLongPress}
         />
       );
     },
-    [messages, myId]
+    [visibleMessages, myId, handleMessageLongPress]
   );
 
   const recordSeconds = Math.floor((recorderState.durationMillis ?? 0) / 1000);
@@ -648,6 +880,7 @@ export default function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
+        {/* ---------- Header ---------- */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backBtn}
@@ -700,23 +933,57 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* ---------- Pin banner ---------- */}
+        {pinnedMessage && !hiddenForMeIds.has(pinnedMessage.id) && (
+          <TouchableOpacity
+            style={styles.pinBanner}
+            onPress={jumpToPinned}
+            activeOpacity={0.75}
+            onLongPress={unpinMessage}
+          >
+            <View style={styles.pinBannerIcon}>
+              <Ionicons name="pin" size={14} color={COLORS.violetLight} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.pinBannerLabel}>
+                Pinned message
+              </Text>
+              <Text style={styles.pinBannerText} numberOfLines={1}>
+                {getMessagePreview(pinnedMessage)}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={unpinMessage}
+              style={styles.pinBannerClose}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close" size={16} color={COLORS.mist} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+        )}
+
+        {/* ---------- Messages list ---------- */}
         <FlatList
           ref={flatListRef}
-          data={messages}
+          data={visibleMessages}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
           onScroll={onScroll}
           scrollEventThrottle={100}
           onContentSizeChange={onContentSizeChange}
-          // ---------- Performance ----------
           initialNumToRender={20}
           maxToRenderPerBatch={12}
           windowSize={11}
           updateCellsBatchingPeriod={50}
           removeClippedSubviews={Platform.OS === 'android'}
           keyboardShouldPersistTaps="handled"
-          // ---------------------------------
+          onScrollToIndexFailed={(info) => {
+            // Fallback: scroll to end if index not found
+            setTimeout(() => {
+              flatListRef.current?.scrollToEnd({ animated: true });
+            }, 200);
+          }}
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
               <Text style={styles.emptyText}>
@@ -726,6 +993,29 @@ export default function ChatScreen() {
           }
         />
 
+        {/* ---------- Reply preview ---------- */}
+        {replyingTo && (
+          <View style={styles.replyPreview}>
+            <View style={styles.replyBar} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.replyName} numberOfLines={1}>
+                Reply to {getSenderName(replyingTo)}
+              </Text>
+              <Text style={styles.replyText} numberOfLines={1}>
+                {getMessagePreview(replyingTo)}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => setReplyingTo(null)}
+              style={styles.replyClose}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close" size={18} color={COLORS.mist} />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ---------- Composer ---------- */}
         <View style={styles.inputBar}>
           {isRecording ? (
             <>
@@ -820,7 +1110,153 @@ export default function ChatScreen() {
           )}
         </View>
       </KeyboardAvoidingView>
+
+      {/* ==================================================== */}
+      {/*            ACTION SHEET (long press menu)            */}
+      {/* ==================================================== */}
+      <Modal
+        visible={!!actionSheetMsg}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActionSheetMsg(null)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setActionSheetMsg(null)}
+        >
+          <Pressable
+            style={styles.sheetCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.sheetHandle} />
+
+            {/* Action items */}
+            <ActionRow
+              icon="arrow-undo-outline"
+              label="Reply"
+              onPress={() => actionSheetMsg && handleReply(actionSheetMsg)}
+            />
+            {actionSheetMsg?.message_type === 'text' && (
+              <ActionRow
+                icon="copy-outline"
+                label="Copy"
+                onPress={() => actionSheetMsg && handleCopy(actionSheetMsg)}
+              />
+            )}
+            <ActionRow
+              icon={
+                pinnedMessage?.id === actionSheetMsg?.id
+                  ? 'pin-outline'
+                  : 'pin-outline'
+              }
+              label={
+                pinnedMessage?.id === actionSheetMsg?.id ? 'Unpin' : 'Pin'
+              }
+              onPress={() => actionSheetMsg && handlePin(actionSheetMsg)}
+            />
+            <ActionRow
+              icon="trash-outline"
+              label="Delete"
+              danger
+              onPress={() =>
+                actionSheetMsg && handleDeletePress(actionSheetMsg)
+              }
+            />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ==================================================== */}
+      {/*         DELETE CONFIRM (For me / For everyone)       */}
+      {/* ==================================================== */}
+      <Modal
+        visible={!!deleteConfirmMsg}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeleteConfirmMsg(null)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setDeleteConfirmMsg(null)}
+        >
+          <Pressable
+            style={[styles.sheetCard, { paddingHorizontal: 0 }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.sheetHandle} />
+            <Text style={styles.deleteTitle}>Delete message?</Text>
+
+            <TouchableOpacity
+              style={styles.deleteOption}
+              onPress={() => deleteConfirmMsg && deleteForMe(deleteConfirmMsg)}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="person-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.deleteOptionText}>Delete for me</Text>
+            </TouchableOpacity>
+
+            {deleteConfirmMsg?.sender_id === myId &&
+              !deleteConfirmMsg?.is_deleted && (
+                <TouchableOpacity
+                  style={styles.deleteOption}
+                  onPress={() =>
+                    deleteConfirmMsg && deleteForEveryone(deleteConfirmMsg)
+                  }
+                  activeOpacity={0.75}
+                >
+                  <Ionicons name="people-outline" size={20} color="#FFFFFF" />
+                  <Text style={styles.deleteOptionText}>
+                    Delete for everyone
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+            <TouchableOpacity
+              style={styles.deleteCancel}
+              onPress={() => setDeleteConfirmMsg(null)}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.deleteCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
+  );
+}
+
+// ---------- Action row (used inside sheet) ----------
+function ActionRow({
+  icon,
+  label,
+  onPress,
+  danger,
+}: {
+  icon: any;
+  label: string;
+  onPress: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      style={styles.actionRow}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <Ionicons
+        name={icon}
+        size={22}
+        color={danger ? COLORS.danger : '#FFFFFF'}
+      />
+      <Text
+        style={[
+          styles.actionLabel,
+          danger && { color: COLORS.danger },
+        ]}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -867,6 +1303,47 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
+  // ---------- Pin banner ----------
+  pinBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#171A24',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(124,92,255,0.25)',
+  },
+  pinBannerIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(124,92,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinBannerLabel: {
+    fontSize: 10.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.violetLight,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 1,
+  },
+  pinBannerText: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+  },
+  pinBannerClose: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // ---------- List ----------
   listContent: {
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
@@ -880,6 +1357,43 @@ const styles = StyleSheet.create({
   },
   emptyText: { color: COLORS.mist, fontSize: 16, fontFamily: FONTS.body },
 
+  // ---------- Reply preview ----------
+  replyPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#131722',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+  },
+  replyBar: {
+    width: 3,
+    height: 32,
+    borderRadius: 2,
+    backgroundColor: COLORS.violetLight,
+  },
+  replyName: {
+    fontSize: 12,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.violetLight,
+  },
+  replyText: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+    marginTop: 1,
+  },
+  replyClose: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // ---------- Composer ----------
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -890,7 +1404,6 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(255,255,255,0.06)',
     backgroundColor: '#0B0D14',
   },
-
   composerPill: {
     flex: 1,
     flexDirection: 'row',
@@ -987,5 +1500,78 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // ---------- Action sheet ----------
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  sheetCard: {
+    backgroundColor: '#1A1D27',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    paddingHorizontal: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  actionLabel: {
+    fontSize: 16,
+    fontFamily: FONTS.bodyMedium,
+    color: '#FFFFFF',
+  },
+
+  // ---------- Delete confirm sheet ----------
+  deleteTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 12,
+    paddingHorizontal: 20,
+  },
+  deleteOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 22,
+    paddingVertical: 16,
+  },
+  deleteOptionText: {
+    fontSize: 16,
+    fontFamily: FONTS.bodyMedium,
+    color: '#FFFFFF',
+  },
+  deleteCancel: {
+    marginTop: 8,
+    marginHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  deleteCancelText: {
+    fontSize: 15,
+    fontFamily: FONTS.bodySemiBold,
+    color: COLORS.mistLight,
   },
 });
