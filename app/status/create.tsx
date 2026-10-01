@@ -1,5 +1,5 @@
 // app/status/create.tsx
-// Create a new status — chooser + photo/video editor with text overlay + drawing + manual crop
+// Create a new status — chooser + photo/video editor + music picker
 
 import { useState, useRef, useMemo, useEffect } from 'react';
 import {
@@ -39,7 +39,9 @@ import {
   hapticSuccess,
   hapticError,
 } from '../../lib/haptics';
+import { MusicTrack } from '../../lib/music';
 import ManualCropModal from '../../components/ManualCropModal';
+import MusicPicker from '../../components/MusicPicker';
 
 const STATUS_COLORS = [
   '#7C5CFF',
@@ -101,7 +103,7 @@ function pointsToPath(points: { x: number; y: number }[]): string {
 }
 
 // ============================================================
-// ✅ Video preview (isolated component for hook rules)
+// Video preview
 // ============================================================
 function VideoPreview({ uri }: { uri: string }) {
   const player = useVideoPlayer(uri, (p) => {
@@ -153,6 +155,12 @@ export default function CreateStatusScreen() {
   const [uploading, setUploading] = useState(false);
   const [showManualCrop, setShowManualCrop] = useState(false);
 
+  // ✅ Music state
+  const [showMusicPicker, setShowMusicPicker] = useState(false);
+  const [musicTrack, setMusicTrack] = useState<MusicTrack | null>(null);
+  const [musicStart, setMusicStart] = useState(0);
+  const [musicDuration, setMusicDuration] = useState(15);
+
   const captionRef = useRef<TextInput>(null);
   const editorRef = useRef<View>(null);
   const originalAssetUri = useRef<string | null>(null);
@@ -188,7 +196,7 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
-  // PICK / CAMERA — supports image + video
+  // PICK / CAMERA
   // ============================================================
   async function pickPhoto(): Promise<boolean> {
     hapticLight();
@@ -200,8 +208,8 @@ export default function CreateStatusScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       quality: 0.85,
-      allowsEditing: true,          // ✅ Native trim for videos (iOS)
-      videoMaxDuration: 60,          // ✅ Max 60 sec
+      allowsEditing: true,
+      videoMaxDuration: 60,
     });
     if (result.canceled || !result.assets?.[0]) return false;
 
@@ -243,12 +251,25 @@ export default function CreateStatusScreen() {
     try {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error('Not logged in');
-      const { error } = await supabase.from('statuses').insert({
+
+      const payload: Record<string, any> = {
         user_id: authData.user.id,
         text_content: text.trim(),
         bg_color: color,
         media_type: 'text',
-      });
+      };
+
+      // ✅ Attach music if selected
+      if (musicTrack) {
+        payload.music_url = musicTrack.streamUrl;
+        payload.music_title = musicTrack.title;
+        payload.music_artist = musicTrack.artist;
+        payload.music_artwork = musicTrack.artwork;
+        payload.music_start_sec = musicStart;
+        payload.music_duration_sec = musicDuration;
+      }
+
+      const { error } = await supabase.from('statuses').insert(payload);
       if (error) throw error;
       hapticSuccess();
       goBackToStatus();
@@ -261,7 +282,7 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
-  // POST MEDIA STATUS (image with overlays, OR raw video)
+  // POST MEDIA STATUS
   // ============================================================
   async function postMediaStatus() {
     if (!asset) return;
@@ -275,13 +296,11 @@ export default function CreateStatusScreen() {
       let uploadMime: string;
 
       if (asset.type === 'video') {
-        // ✅ Video: upload raw, no composite capture
         uploadExt = (asset.uri.split('.').pop() ?? 'mp4')
           .toLowerCase()
           .slice(0, 5);
         uploadMime = asset.mimeType ?? 'video/mp4';
       } else {
-        // ✅ Image: capture composite if overlays/strokes/rotation exist
         uploadExt = (asset.uri.split('.').pop() ?? 'jpg')
           .toLowerCase()
           .slice(0, 5);
@@ -316,12 +335,24 @@ export default function CreateStatusScreen() {
         .from(CONSTANTS.STATUS_MEDIA_BUCKET)
         .getPublicUrl(path);
 
-      const { error } = await supabase.from('statuses').insert({
+      const payload: Record<string, any> = {
         user_id: authData.user.id,
         media_url: urlData.publicUrl,
-        media_type: asset.type,        // ✅ 'image' or 'video'
+        media_type: asset.type,
         text_content: caption.trim() || null,
-      });
+      };
+
+      // ✅ Attach music if selected
+      if (musicTrack) {
+        payload.music_url = musicTrack.streamUrl;
+        payload.music_title = musicTrack.title;
+        payload.music_artist = musicTrack.artist;
+        payload.music_artwork = musicTrack.artwork;
+        payload.music_start_sec = musicStart;
+        payload.music_duration_sec = musicDuration;
+      }
+
+      const { error } = await supabase.from('statuses').insert(payload);
       if (error) throw error;
 
       hapticSuccess();
@@ -344,6 +375,9 @@ export default function CreateStatusScreen() {
     setRotation(0);
     setDrawMode(false);
     setText('');
+    setMusicTrack(null);
+    setMusicStart(0);
+    setMusicDuration(15);
     setMode('chooser');
     if (router.canGoBack()) {
       router.back();
@@ -463,7 +497,7 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
-  // CROP — manual (image only)
+  // CROP
   // ============================================================
   async function applyManualCrop(crop: {
     originX: number;
@@ -514,9 +548,30 @@ export default function CreateStatusScreen() {
     setCaption((c) => (c + ' @').slice(0, 200));
     captionRef.current?.focus();
   }
-  function handleMusic() {
+
+  // ✅ Music handlers
+  function openMusicPicker() {
     hapticLight();
-    Alert.alert('Coming soon', 'Music in status will be available soon.');
+    setShowMusicPicker(true);
+  }
+
+  function handleMusicSelect(
+    track: MusicTrack,
+    startSec: number,
+    durationSec: number
+  ) {
+    setMusicTrack(track);
+    setMusicStart(startSec);
+    setMusicDuration(durationSec);
+    setShowMusicPicker(false);
+    hapticSuccess();
+  }
+
+  function clearMusic() {
+    hapticLight();
+    setMusicTrack(null);
+    setMusicStart(0);
+    setMusicDuration(15);
   }
 
   // ============================================================
@@ -564,7 +619,7 @@ export default function CreateStatusScreen() {
           <ChooserCircle
             icon="musical-notes"
             label="Music"
-            onPress={handleMusic}
+            onPress={openMusicPicker}
           />
           <ChooserCircle
             icon="camera"
@@ -572,6 +627,13 @@ export default function CreateStatusScreen() {
             onPress={pickPhoto}
           />
         </View>
+
+        {/* Music picker for chooser (rarely used, but available) */}
+        <MusicPicker
+          visible={showMusicPicker}
+          onClose={() => setShowMusicPicker(false)}
+          onSelect={handleMusicSelect}
+        />
       </SafeAreaView>
     );
   }
@@ -596,7 +658,17 @@ export default function CreateStatusScreen() {
               <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Text status</Text>
-            <View style={styles.headerBtn} />
+            <TouchableOpacity
+              onPress={openMusicPicker}
+              style={styles.headerBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="musical-notes"
+                size={22}
+                color={musicTrack ? COLORS.violetLight : '#FFFFFF'}
+              />
+            </TouchableOpacity>
           </View>
 
           <ScrollView
@@ -613,6 +685,35 @@ export default function CreateStatusScreen() {
               autoFocus
             />
           </ScrollView>
+
+          {/* ✅ Music chip (if selected) */}
+          {musicTrack && (
+            <View style={styles.musicChipWrap}>
+              <View style={styles.musicChip}>
+                <Image
+                  source={{ uri: musicTrack.artwork }}
+                  style={styles.musicChipArt}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                />
+                <View style={styles.musicChipText}>
+                  <Text style={styles.musicChipTitle} numberOfLines={1}>
+                    {musicTrack.title}
+                  </Text>
+                  <Text style={styles.musicChipArtist} numberOfLines={1}>
+                    {musicTrack.artist}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={clearMusic}
+                  style={styles.musicChipClose}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
           <View style={styles.footer}>
             <ScrollView
@@ -651,6 +752,12 @@ export default function CreateStatusScreen() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+
+        <MusicPicker
+          visible={showMusicPicker}
+          onClose={() => setShowMusicPicker(false)}
+          onSelect={handleMusicSelect}
+        />
       </SafeAreaView>
     );
   }
@@ -679,7 +786,6 @@ export default function CreateStatusScreen() {
           </TouchableOpacity>
 
           <View style={styles.editorTopRight}>
-            {/* ✅ Image-only tools — hidden for videos */}
             {!isVideo && (
               <>
                 <TouchableOpacity
@@ -725,10 +831,13 @@ export default function CreateStatusScreen() {
               </>
             )}
 
-            {/* Music always available */}
+            {/* ✅ Music — shows active state when track selected */}
             <TouchableOpacity
-              onPress={handleMusic}
-              style={styles.editorTopBtn}
+              onPress={openMusicPicker}
+              style={[
+                styles.editorTopBtn,
+                musicTrack && styles.editorTopBtnActive,
+              ]}
               activeOpacity={0.7}
             >
               <Ionicons name="musical-notes" size={20} color="#FFFFFF" />
@@ -736,7 +845,6 @@ export default function CreateStatusScreen() {
           </View>
         </View>
 
-        {/* Draw toolbar (image only) */}
         {drawMode && !isVideo && (
           <View style={styles.drawToolbar}>
             <ScrollView
@@ -800,10 +908,8 @@ export default function CreateStatusScreen() {
       <View ref={editorRef} style={styles.captureArea} collapsable={false}>
         <View style={styles.editorMediaWrap}>
           {asset?.type === 'video' ? (
-            // ✅ Video preview
             <VideoPreview uri={asset.uri} />
           ) : (
-            // ✅ Image preview
             <Image
               source={{ uri: asset?.uri }}
               style={[
@@ -816,7 +922,6 @@ export default function CreateStatusScreen() {
           )}
         </View>
 
-        {/* Overlays (image only) */}
         {!isVideo &&
           overlays.map((o) => (
             <DraggableOverlay
@@ -827,7 +932,6 @@ export default function CreateStatusScreen() {
             />
           ))}
 
-        {/* Drawing layer (image only) */}
         {!isVideo && (
           <View
             style={StyleSheet.absoluteFill}
@@ -857,6 +961,35 @@ export default function CreateStatusScreen() {
                 />
               )}
             </Svg>
+          </View>
+        )}
+
+        {/* ✅ Music chip overlay (top-left) */}
+        {musicTrack && (
+          <View style={styles.musicChipOverlay} pointerEvents="box-none">
+            <View style={styles.musicChip}>
+              <Image
+                source={{ uri: musicTrack.artwork }}
+                style={styles.musicChipArt}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+              />
+              <View style={styles.musicChipText}>
+                <Text style={styles.musicChipTitle} numberOfLines={1}>
+                  {musicTrack.title}
+                </Text>
+                <Text style={styles.musicChipArtist} numberOfLines={1}>
+                  {musicTrack.artist}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={clearMusic}
+                style={styles.musicChipClose}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
@@ -911,7 +1044,7 @@ export default function CreateStatusScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* Manual crop modal (image only) */}
+      {/* Manual crop modal */}
       {asset && !isVideo && (
         <ManualCropModal
           visible={showManualCrop}
@@ -921,7 +1054,7 @@ export default function CreateStatusScreen() {
         />
       )}
 
-      {/* Text modal (image only) */}
+      {/* Text modal */}
       <Modal
         visible={!!textModal && !isVideo}
         transparent
@@ -1007,6 +1140,13 @@ export default function CreateStatusScreen() {
           </Pressable>
         </BlurView>
       </Modal>
+
+      {/* ✅ Music picker */}
+      <MusicPicker
+        visible={showMusicPicker}
+        onClose={() => setShowMusicPicker(false)}
+        onSelect={handleMusicSelect}
+      />
     </View>
   );
 }
@@ -1101,7 +1241,7 @@ function DraggableOverlay({
 }
 
 // ============================================================
-// STYLES (same as before, unchanged)
+// STYLES
 // ============================================================
 const styles = StyleSheet.create({
   safe: { flex: 1 },
@@ -1250,7 +1390,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   editorTopBtnActive: {
-    backgroundColor: 'rgba(124,92,255,0.45)',
+    backgroundColor: 'rgba(124,92,255,0.55)',
   },
   editorTopRight: {
     flexDirection: 'row',
@@ -1380,6 +1520,60 @@ const styles = StyleSheet.create({
   sendBtn: {
     width: 40,
     height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // ✅ Music chip (text mode — below input)
+  musicChipWrap: {
+    paddingHorizontal: 20,
+    paddingBottom: 6,
+  },
+  // ✅ Music chip overlay (editor mode — top-left)
+  musicChipOverlay: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+  },
+  musicChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  musicChipArt: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+  },
+  musicChipText: {
+    minWidth: 0,
+    maxWidth: 200,
+  },
+  musicChipTitle: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontFamily: FONTS.bodySemiBold,
+  },
+  musicChipArtist: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
+    fontFamily: FONTS.body,
+    marginTop: 1,
+  },
+  musicChipClose: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
