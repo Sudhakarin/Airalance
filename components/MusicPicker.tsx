@@ -1,7 +1,7 @@
 // components/MusicPicker.tsx
-// Instagram-style music picker — search + preview + 15/30s trim
+// Instagram-style music picker — bottom sheet + blur backdrop + trim
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,23 +13,24 @@ import {
   ActivityIndicator,
   Pressable,
   PanResponder,
-  SafeAreaView,
-  KeyboardAvoidingView,
+  Animated,
+  Easing,
+  useWindowDimensions,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useAudioPlayer } from 'expo-audio';
-import {
-  COLORS,
-  FONTS,
-  RADII,
-  SPACING,
-  GRADIENTS,
-} from '../constants/theme';
+import { COLORS, FONTS, GRADIENTS } from '../constants/theme';
 import { hapticLight, hapticSuccess } from '../lib/haptics';
 import { searchMusic, MusicTrack } from '../lib/music';
+
+const SHEET_SEARCH_RATIO = 0.9;
+const SHEET_TRIM_RATIO = 0.58;
 
 type Props = {
   visible: boolean;
@@ -42,28 +43,122 @@ type Props = {
 };
 
 export default function MusicPicker({ visible, onClose, onSelect }: Props) {
+  const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
+
+  const [mounted, setMounted] = useState(visible);
   const [stage, setStage] = useState<'search' | 'trim'>('search');
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
 
+  const sheetY = useRef(new Animated.Value(screenHeight)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const sheetHeight = useRef(
+    new Animated.Value(screenHeight * SHEET_SEARCH_RATIO)
+  ).current;
+
+  // Open
   useEffect(() => {
     if (visible) {
+      setMounted(true);
       setStage('search');
       setSelectedTrack(null);
+      sheetY.setValue(screenHeight);
+      backdropOpacity.setValue(0);
+      sheetHeight.setValue(screenHeight * SHEET_SEARCH_RATIO);
+      requestAnimationFrame(() => {
+        Animated.parallel([
+          Animated.timing(sheetY, {
+            toValue: 0,
+            duration: 340,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(backdropOpacity, {
+            toValue: 1,
+            duration: 260,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
+
+  // Resize sheet when stage changes
+  useEffect(() => {
+    if (!mounted) return;
+    const targetH =
+      screenHeight * (stage === 'trim' ? SHEET_TRIM_RATIO : SHEET_SEARCH_RATIO);
+    Animated.timing(sheetHeight, {
+      toValue: targetH,
+      duration: 300,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [stage, mounted, screenHeight, sheetHeight]);
+
+  const handleClose = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(sheetY, {
+        toValue: screenHeight,
+        duration: 280,
+        easing: Easing.in(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 240,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setMounted(false);
+      onClose();
+    });
+  }, [screenHeight, onClose, sheetY, backdropOpacity]);
+
+  if (!mounted) return null;
 
   return (
     <Modal
-      visible={visible}
-      animationType="slide"
-      onRequestClose={onClose}
+      visible
+      transparent
+      animationType="none"
       statusBarTranslucent
-      presentationStyle="fullScreen"
+      onRequestClose={handleClose}
     >
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      {/* Blur backdrop */}
+      <Animated.View
+        style={[StyleSheet.absoluteFill, { opacity: backdropOpacity }]}
+        pointerEvents="none"
+      >
+        <BlurView
+          intensity={45}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.backdropTint} />
+      </Animated.View>
+
+      {/* Tap outside to close */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
+
+      {/* Bottom sheet */}
+      <Animated.View
+        style={[
+          styles.sheet,
+          {
+            height: sheetHeight,
+            transform: [{ translateY: sheetY }],
+          },
+        ]}
+      >
+        <View style={styles.handle} />
+
         {stage === 'search' ? (
           <SearchStage
-            onClose={onClose}
+            bottomPad={insets.bottom + 8}
+            onClose={handleClose}
             onPick={(t) => {
               setSelectedTrack(t);
               setStage('trim');
@@ -71,15 +166,17 @@ export default function MusicPicker({ visible, onClose, onSelect }: Props) {
           />
         ) : selectedTrack ? (
           <TrimStage
+            bottomPad={insets.bottom + 8}
             track={selectedTrack}
             onBack={() => setStage('search')}
-            onConfirm={(startSec, durationSec) => {
+            onConfirm={(start, dur) => {
               hapticSuccess();
-              onSelect(selectedTrack, startSec, durationSec);
+              onSelect(selectedTrack, start, dur);
+              handleClose();
             }}
           />
         ) : null}
-      </SafeAreaView>
+      </Animated.View>
     </Modal>
   );
 }
@@ -90,28 +187,27 @@ export default function MusicPicker({ visible, onClose, onSelect }: Props) {
 function SearchStage({
   onClose,
   onPick,
+  bottomPad,
 }: {
   onClose: () => void;
   onPick: (t: MusicTrack) => void;
+  bottomPad: number;
 }) {
   const [query, setQuery] = useState('');
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [loading, setLoading] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const preview = useAudioPlayer();
 
-  const previewPlayer = useAudioPlayer();
-
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       try {
-        previewPlayer.pause();
+        preview.pause();
       } catch {}
     };
-  }, [previewPlayer]);
+  }, [preview]);
 
-  // Debounced search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!query.trim()) {
@@ -134,24 +230,24 @@ function SearchStage({
     hapticLight();
     if (playingId === track.id) {
       try {
-        previewPlayer.pause();
+        preview.pause();
       } catch {}
       setPlayingId(null);
       return;
     }
     try {
-      previewPlayer.replace(track.streamUrl);
-      previewPlayer.seekTo(0);
-      previewPlayer.play();
+      preview.replace(track.streamUrl);
+      preview.seekTo(0);
+      preview.play();
       setPlayingId(track.id);
     } catch (err) {
-      console.warn('preview play failed:', err);
+      console.warn('preview err', err);
     }
   }
 
   function handlePick(track: MusicTrack) {
     try {
-      previewPlayer.pause();
+      preview.pause();
     } catch {}
     setPlayingId(null);
     onPick(track);
@@ -162,16 +258,10 @@ function SearchStage({
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Header */}
-      <View style={styles.header}>
+      <View style={styles.searchHeader}>
         <TouchableOpacity
-          onPress={() => {
-            try {
-              previewPlayer.pause();
-            } catch {}
-            onClose();
-          }}
-          style={styles.headerBtn}
+          onPress={onClose}
+          style={styles.iconBtn}
           activeOpacity={0.7}
         >
           <Ionicons name="close" size={22} color="#FFFFFF" />
@@ -204,7 +294,6 @@ function SearchStage({
         </View>
       </View>
 
-      {/* Body */}
       {loading && (
         <View style={styles.centerBox}>
           <ActivityIndicator color={COLORS.violet} />
@@ -215,18 +304,20 @@ function SearchStage({
         <View style={styles.centerBox}>
           <Ionicons
             name="musical-notes-outline"
-            size={40}
+            size={36}
             color={COLORS.mist}
           />
-          <Text style={styles.emptyText}>No results. Try another name.</Text>
+          <Text style={styles.emptyText}>
+            No results. Try another name.
+          </Text>
         </View>
       )}
 
       {!loading && query.length === 0 && (
         <View style={styles.centerBox}>
-          <Ionicons name="search" size={40} color={COLORS.mist} />
+          <Ionicons name="search" size={36} color={COLORS.mist} />
           <Text style={styles.emptyText}>
-            Search for a song to add to your status
+            Search for a song to add
           </Text>
         </View>
       )}
@@ -235,7 +326,10 @@ function SearchStage({
         <FlatList
           data={tracks}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: bottomPad + 8 },
+          ]}
           keyboardShouldPersistTaps="handled"
           initialNumToRender={10}
           maxToRenderPerBatch={8}
@@ -258,7 +352,7 @@ function SearchStage({
                   <View style={styles.artOverlay}>
                     <Ionicons
                       name={isPlaying ? 'pause' : 'play'}
-                      size={16}
+                      size={14}
                       color="#FFFFFF"
                     />
                   </View>
@@ -267,7 +361,7 @@ function SearchStage({
                 <TouchableOpacity
                   style={styles.infoWrap}
                   onPress={() => handlePick(item)}
-                  activeOpacity={0.75}
+                  activeOpacity={0.7}
                 >
                   <Text style={styles.trackTitle} numberOfLines={1}>
                     {item.title}
@@ -301,18 +395,18 @@ function SearchStage({
 }
 
 // ============================================================
-// Trim Stage (Instagram-style)
+// Trim Stage — Instagram-style
 // ============================================================
-const TRIM_BAR_HEIGHT = 56;
-
 function TrimStage({
   track,
   onBack,
   onConfirm,
+  bottomPad,
 }: {
   track: MusicTrack;
   onBack: () => void;
   onConfirm: (startSec: number, durationSec: number) => void;
+  bottomPad: number;
 }) {
   const [clipLen, setClipLen] = useState<15 | 30>(15);
   const [start, setStart] = useState(0);
@@ -320,12 +414,19 @@ function TrimStage({
   const [barWidth, setBarWidth] = useState(0);
   const [audioDuration, setAudioDuration] = useState(30);
 
-  const player = useAudioPlayer();
+  const player = useAudioPlayer(track.streamUrl);
 
   const startRef = useRef(start);
   const clipRef = useRef<number>(clipLen);
+  const isPlayingRef = useRef(isPlaying);
+  const barWidthRef = useRef(barWidth);
+  const audioDurRef = useRef(audioDuration);
+
   startRef.current = start;
   clipRef.current = clipLen;
+  isPlayingRef.current = isPlaying;
+  barWidthRef.current = barWidth;
+  audioDurRef.current = audioDuration;
 
   // Load track
   useEffect(() => {
@@ -340,7 +441,7 @@ function TrimStage({
     };
   }, [track.streamUrl, player]);
 
-  // Poll duration
+  // Duration poll
   useEffect(() => {
     const t = setInterval(() => {
       try {
@@ -357,7 +458,8 @@ function TrimStage({
     const t = setInterval(() => {
       try {
         const cur = player.currentTime ?? 0;
-        if (cur >= startRef.current + clipRef.current - 0.05) {
+        const end = startRef.current + clipRef.current;
+        if (cur >= end - 0.05) {
           player.seekTo(startRef.current);
         }
       } catch {}
@@ -382,21 +484,19 @@ function TrimStage({
   }
 
   const maxStart = Math.max(0, audioDuration - clipLen);
-  const windowPct =
-    audioDuration > 0 ? Math.min(100, (clipLen / audioDuration) * 100) : 0;
-  const leftPct =
-    audioDuration > 0 ? (start / audioDuration) * 100 : 0;
 
-  function seekToPx(px: number) {
-    if (barWidth <= 0 || audioDuration <= 0) return;
-    const ratio = Math.max(0, Math.min(1, px / barWidth));
-    // center the window on touch
-    const rawStart = ratio * audioDuration - clipLen / 2;
-    const newStart = Math.max(0, Math.min(maxStart, rawStart));
-    setStart(newStart);
-    if (isPlaying) {
+  // Seek from bar position
+  function seekToX(x: number) {
+    const w = barWidthRef.current;
+    const dur = audioDurRef.current;
+    if (w <= 0 || dur <= 0) return;
+    const ratio = Math.max(0, Math.min(1, x / w));
+    const rawStart = ratio * dur - clipRef.current / 2;
+    const ns = Math.max(0, Math.min(dur - clipRef.current, rawStart));
+    setStart(ns);
+    if (isPlayingRef.current) {
       try {
-        player.seekTo(newStart);
+        player.seekTo(ns);
       } catch {}
     }
   }
@@ -405,50 +505,35 @@ function TrimStage({
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) => seekToPxRef.current(e.nativeEvent.locationX),
-      onPanResponderMove: (e) => seekToPxRef.current(e.nativeEvent.locationX),
+      onPanResponderGrant: (e) => seekToXRef.current(e.nativeEvent.locationX),
+      onPanResponderMove: (e) => seekToXRef.current(e.nativeEvent.locationX),
     })
   ).current;
 
-  // Hold the latest seek fn in a ref so PanResponder stays stable
-  const seekToPxRef = useRef(seekToPx);
-  seekToPxRef.current = seekToPx;
+  const seekToXRef = useRef(seekToX);
+  seekToXRef.current = seekToX;
 
-  // When clipLen changes, clamp start
   useEffect(() => {
     setStart((s) => Math.min(s, Math.max(0, audioDuration - clipLen)));
-    if (isPlaying) {
-      try {
-        player.seekTo(Math.min(start, Math.max(0, audioDuration - clipLen)));
-      } catch {}
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clipLen, audioDuration]);
 
+  const windowPct =
+    audioDuration > 0 ? Math.min(100, (clipLen / audioDuration) * 100) : 0;
+  const leftPct =
+    audioDuration > 0 ? (start / audioDuration) * 100 : 0;
+
   return (
-    <View style={{ flex: 1 }}>
+    <View style={[styles.trimWrap, { paddingBottom: bottomPad }]}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={styles.trimHeader}>
         <TouchableOpacity
-          onPress={() => {
-            try {
-              player.pause();
-            } catch {}
-            onBack();
-          }}
-          style={styles.headerBtn}
+          onPress={onBack}
+          style={styles.iconBtn}
           activeOpacity={0.7}
         >
           <Ionicons name="chevron-back" size={22} color="#FFFFFF" />
         </TouchableOpacity>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {track.title}
-          </Text>
-          <Text style={styles.headerSub} numberOfLines={1}>
-            {track.artist}
-          </Text>
-        </View>
+        <Text style={styles.trimHeaderTitle}>New song</Text>
         <TouchableOpacity
           onPress={() => {
             try {
@@ -459,18 +544,11 @@ function TrimStage({
           style={styles.doneBtn}
           activeOpacity={0.85}
         >
-          <LinearGradient
-            colors={GRADIENTS.violet as any}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.doneBtnInner}
-          >
-            <Text style={styles.doneBtnText}>Done</Text>
-          </LinearGradient>
+          <Text style={styles.doneBtnText}>Done</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Body */}
+      {/* Album art */}
       <View style={styles.trimBody}>
         <Image
           source={{ uri: track.artwork }}
@@ -480,64 +558,48 @@ function TrimStage({
           transition={150}
         />
 
-        <TouchableOpacity
-          onPress={togglePlay}
-          style={styles.playBtn}
-          activeOpacity={0.85}
-        >
-          <Ionicons
-            name={isPlaying ? 'pause' : 'play'}
-            size={22}
-            color="#0A0C12"
-            style={{ marginLeft: isPlaying ? 0 : 3 }}
-          />
-        </TouchableOpacity>
+        <Text style={styles.trimTitle} numberOfLines={1}>
+          {track.title}
+        </Text>
+        <Text style={styles.trimArtist} numberOfLines={1}>
+          {track.artist}
+        </Text>
 
-        <View style={styles.trimSection}>
-          <Text style={styles.trimHint}>
-            Drag to pick your {clipLen}-second part
-          </Text>
+        {/* Timeline row */}
+        <View style={styles.timelineRow}>
+          <Text style={styles.timeLabel}>{formatSec(start)}</Text>
 
           <View
-            style={styles.trimTrack}
+            style={styles.timelineBar}
             onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
             {...panResponder.panHandlers}
           >
-            {/* Tick marks */}
-            <View style={styles.tickRow}>
-              {Array.from({ length: 40 }).map((_, i) => (
-                <View key={i} style={styles.tick} />
-              ))}
+            <View style={styles.timelineTrackLine} />
+            <View
+              style={[
+                styles.timelineWindow,
+                { left: `${leftPct}%`, width: `${windowPct}%` },
+              ]}
+            >
+              <View style={styles.timelineKnob} />
             </View>
-
-            {/* Selected window */}
-            {barWidth > 0 && (
-              <View
-                style={[
-                  styles.trimWindow,
-                  {
-                    left: `${leftPct}%`,
-                    width: `${windowPct}%`,
-                  },
-                ]}
-                pointerEvents="none"
-              >
-                <View style={styles.trimHandleLeft} />
-                <View style={styles.trimHandleRight} />
-              </View>
-            )}
           </View>
 
-          <View style={styles.trimMeta}>
-            <Text style={styles.trimMetaText}>
-              {formatSec(start)}
-            </Text>
-            <Text style={styles.trimMetaText}>
-              {formatSec(start + clipLen)}
-            </Text>
-          </View>
+          <TouchableOpacity
+            onPress={togglePlay}
+            style={styles.playCircle}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name={isPlaying ? 'pause' : 'play'}
+              size={16}
+              color="#FFFFFF"
+              style={{ marginLeft: isPlaying ? 0 : 2 }}
+            />
+          </TouchableOpacity>
         </View>
 
+        {/* 15s / 30s toggle */}
         <View style={styles.clipRow}>
           {[15, 30].map((len) => (
             <TouchableOpacity
@@ -579,18 +641,43 @@ function formatSec(s: number) {
 // STYLES
 // ============================================================
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#0A0C12' },
+  backdropTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
 
-  header: {
+  sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#0F1119',
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    overflow: 'hidden',
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 6,
+  },
+
+  // ---- Search ----
+  searchHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    paddingTop: 6,
+    paddingBottom: 12,
   },
-  headerBtn: {
+  iconBtn: {
     width: 38,
     height: 38,
     borderRadius: 19,
@@ -598,18 +685,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
-    fontSize: 14.5,
-    fontFamily: FONTS.bodySemiBold,
-    color: '#FFFFFF',
-  },
-  headerSub: {
-    fontSize: 12,
-    fontFamily: FONTS.body,
-    color: COLORS.mist,
-    marginTop: 1,
-  },
-
   searchBox: {
     flex: 1,
     flexDirection: 'row',
@@ -646,7 +721,7 @@ const styles = StyleSheet.create({
 
   listContent: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingTop: 4,
   },
   row: {
     flexDirection: 'row',
@@ -681,10 +756,7 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     marginTop: 2,
   },
-  useBtn: {
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
+  useBtn: { borderRadius: 999, overflow: 'hidden' },
   useBtnInner: {
     paddingHorizontal: 16,
     paddingVertical: 7,
@@ -696,13 +768,25 @@ const styles = StyleSheet.create({
   },
 
   // ---- Trim ----
-  doneBtn: {
-    borderRadius: 999,
-    overflow: 'hidden',
+  trimWrap: { flex: 1 },
+  trimHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingTop: 4,
+    paddingBottom: 12,
   },
-  doneBtnInner: {
+  trimHeaderTitle: {
+    fontSize: 15,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+  },
+  doneBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: COLORS.violet,
   },
   doneBtnText: {
     fontSize: 13,
@@ -713,106 +797,93 @@ const styles = StyleSheet.create({
   trimBody: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    gap: 28,
+    paddingHorizontal: 22,
   },
   trimArt: {
-    width: 180,
-    height: 180,
-    borderRadius: 20,
+    width: 100,
+    height: 100,
+    borderRadius: 14,
+    marginTop: 6,
   },
-  playBtn: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
+  trimTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    marginTop: 14,
+    textAlign: 'center',
   },
-
-  trimSection: {
-    width: '100%',
-  },
-  trimHint: {
+  trimArtist: {
     fontSize: 12.5,
     fontFamily: FONTS.body,
     color: COLORS.mist,
+    marginTop: 4,
     textAlign: 'center',
-    marginBottom: 10,
   },
-  trimTrack: {
+
+  timelineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     width: '100%',
-    height: TRIM_BAR_HEIGHT,
-    borderRadius: TRIM_BAR_HEIGHT / 2,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    overflow: 'hidden',
+    marginTop: 22,
+  },
+  timeLabel: {
+    width: 44,
+    fontSize: 12.5,
+    fontFamily: FONTS.bodyMedium,
+    color: COLORS.mist,
+    textAlign: 'center',
+  },
+  timelineBar: {
+    flex: 1,
+    height: 32,
     justifyContent: 'center',
     position: 'relative',
   },
-  tickRow: {
-    ...StyleSheet.absoluteFillObject,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 6,
-  },
-  tick: {
-    width: 1.5,
-    height: 14,
+  timelineTrackLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
     borderRadius: 1,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.15)',
   },
-  trimWindow: {
+  timelineWindow: {
     position: 'absolute',
-    top: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(124,92,255,0.35)',
-    borderLeftWidth: 3,
-    borderRightWidth: 3,
-    borderColor: '#9C82FF',
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#B8A6FF',
+    justifyContent: 'center',
   },
-  trimHandleLeft: {
+  timelineKnob: {
     position: 'absolute',
-    left: -2,
-    top: '50%',
-    marginTop: -10,
-    width: 6,
-    height: 20,
-    borderRadius: 3,
+    right: -6,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    borderColor: '#B8A6FF',
   },
-  trimHandleRight: {
-    position: 'absolute',
-    right: -2,
-    top: '50%',
-    marginTop: -10,
-    width: 6,
-    height: 20,
-    borderRadius: 3,
-    backgroundColor: '#FFFFFF',
-  },
-  trimMeta: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
-    paddingHorizontal: 4,
-  },
-  trimMetaText: {
-    fontSize: 11.5,
-    fontFamily: FONTS.bodyMedium,
-    color: COLORS.mist,
+  playCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   clipRow: {
     flexDirection: 'row',
     gap: 10,
+    marginTop: 22,
   },
   clipBtn: {
-    paddingHorizontal: 22,
-    paddingVertical: 9,
+    paddingHorizontal: 24,
+    paddingVertical: 8,
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
