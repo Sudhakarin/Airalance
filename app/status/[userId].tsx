@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — with connection-gated reply/heart + profile-style buttons + viewers list
+// Full-screen status viewer — with connection-gated reply/heart + profile-style buttons + cached viewers list + realtime updates
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -12,11 +12,13 @@ import {
   Pressable,
   Modal,
   FlatList,
+  Animated,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII, SPACING, GRADIENTS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
@@ -28,6 +30,7 @@ import {
 } from '../../lib/haptics';
 
 const STATUS_DURATION_MS = 15000;
+const VIEWERS_CACHE_KEY = '@airalance_status_viewers_v1';
 
 type Profile = {
   id: string;
@@ -61,6 +64,30 @@ type Viewer = {
   viewed_at: string;
   liked: boolean;
 };
+
+type ViewersCache = {
+  [statusId: string]: {
+    viewers: Viewer[];
+    count: number;
+    cachedAt: number;
+  };
+};
+
+async function readViewersCache(): Promise<ViewersCache> {
+  try {
+    const raw = await AsyncStorage.getItem(VIEWERS_CACHE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as ViewersCache;
+  } catch {
+    return {};
+  }
+}
+
+async function writeViewersCache(map: ViewersCache) {
+  try {
+    await AsyncStorage.setItem(VIEWERS_CACHE_KEY, JSON.stringify(map));
+  } catch {}
+}
 
 export default function StatusViewerScreen() {
   const router = useRouter();
@@ -243,7 +270,6 @@ export default function StatusViewerScreen() {
     }
   }
 
-  // Follow toggle
   async function toggleFollow() {
     if (!myId || followLoading || myId === userId) return;
     setFollowLoading(true);
@@ -285,7 +311,6 @@ export default function StatusViewerScreen() {
     }
   }
 
-  // Connect tap — open appropriate popup
   function handleConnectTap() {
     if (!myId || myId === userId) return;
     hapticLight();
@@ -294,7 +319,6 @@ export default function StatusViewerScreen() {
     else setConnectPopup('ask');
   }
 
-  // Send connection request
   async function sendConnectionRequest() {
     if (!myId || myId === userId || sendingRequest) return;
     setSendingRequest(true);
@@ -381,7 +405,7 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, loading, markViewed, checkLiked]);
 
-  // ✅ Fetch views count for current status (only for own status)
+  // ✅ Views count for current status — instant from cache, then silent verify
   useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -389,33 +413,151 @@ export default function StatusViewerScreen() {
 
     let cancelled = false;
     (async () => {
+      // 1. Instant from cache
+      const cache = await readViewersCache();
+      const cached = cache[current.id];
+      if (!cancelled && cached) {
+        setViewersCount(cached.count ?? cached.viewers?.length ?? 0);
+      }
+
+      // 2. Silent verify from server
       try {
         const { count } = await supabase
           .from('status_views')
           .select('*', { count: 'exact', head: true })
           .eq('status_id', current.id);
-        if (!cancelled) setViewersCount(count ?? 0);
+        if (!cancelled && typeof count === 'number') {
+          setViewersCount(count);
+        }
       } catch (err) {
         console.warn('Views count error:', err);
-        if (!cancelled) setViewersCount(0);
       }
     })();
+
     return () => {
       cancelled = true;
     };
   }, [index, statuses, myId]);
 
-  // ✅ Fetch full viewers list
-  async function openViewers() {
+  // ✅ Realtime — live updates for new views & likes on MY status
+  useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
     if (current.user_id !== myId) return;
 
-    hapticLight();
-    setShowViewers(true);
-    setViewersLoading(true);
+    const statusId = current.id;
+
+    const channel = supabase
+      .channel(`status-live-${statusId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'status_views',
+          filter: `status_id=eq.${statusId}`,
+        },
+        async (payload: any) => {
+          const newViewerId = payload?.new?.viewer_id;
+          if (!newViewerId) return;
+
+          setViewersCount((c) => c + 1);
+
+          // Only append if sheet is open and viewer not already present
+          setViewers((prev) => {
+            if (prev.some((v) => v.id === newViewerId)) return prev;
+
+            // Fetch profile in background
+            (async () => {
+              const { data: p } = await supabase
+                .from('profiles')
+                .select('id, username, display_name, avatar_url, avatar_color')
+                .eq('id', newViewerId)
+                .single();
+              if (!p) return;
+              setViewers((cur) => {
+                if (cur.some((v) => v.id === newViewerId)) return cur;
+                const newV: Viewer = {
+                  id: p.id,
+                  username: p.username,
+                  display_name: p.display_name,
+                  avatar_url: p.avatar_url,
+                  avatar_color: p.avatar_color,
+                  viewed_at:
+                    payload?.new?.viewed_at || new Date().toISOString(),
+                  liked: false,
+                };
+                return [newV, ...cur];
+              });
+            })();
+
+            return prev;
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'status_likes',
+          filter: `status_id=eq.${statusId}`,
+        },
+        (payload: any) => {
+          const uid = payload?.new?.user_id;
+          if (!uid) return;
+          setViewers((prev) =>
+            prev.map((v) => (v.id === uid ? { ...v, liked: true } : v))
+          );
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'status_likes',
+          filter: `status_id=eq.${statusId}`,
+        },
+        (payload: any) => {
+          const uid = payload?.old?.user_id;
+          if (!uid) return;
+          setViewers((prev) =>
+            prev.map((v) => (v.id === uid ? { ...v, liked: false } : v))
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+    };
+  }, [index, statuses, myId]);
+
+  // ✅ Persist viewers list to cache whenever it changes (while sheet open)
+  useEffect(() => {
+    const current = statuses[index];
+    if (!current || !myId) return;
+    if (current.user_id !== myId) return;
+    if (!showViewers) return;
+    if (viewersLoading) return;
+
+    (async () => {
+      const cache = await readViewersCache();
+      cache[current.id] = {
+        viewers,
+        count: viewers.length,
+        cachedAt: Date.now(),
+      };
+      await writeViewersCache(cache);
+    })();
+  }, [viewers, showViewers, viewersLoading, index, statuses, myId]);
+
+  // ✅ Silent background fetch (no skeleton)
+  async function fetchViewers(statusId: string, silent: boolean) {
     try {
-      const statusId = current.id;
       const [viewsRes, likesRes] = await Promise.all([
         supabase.from('status_views').select('*').eq('status_id', statusId),
         supabase.from('status_likes').select('*').eq('status_id', statusId),
@@ -428,7 +570,7 @@ export default function StatusViewerScreen() {
       const viewerIds = views.map((v) => v.viewer_id);
       if (viewerIds.length === 0) {
         setViewers([]);
-        setViewersLoading(false);
+        setViewersCount(0);
         return;
       }
 
@@ -464,11 +606,40 @@ export default function StatusViewerScreen() {
       );
 
       setViewers(merged);
+      setViewersCount(merged.length);
     } catch (err) {
       console.warn('Fetch viewers error:', err);
-      setViewers([]);
+      if (!silent) setViewers([]);
     } finally {
+      if (!silent) setViewersLoading(false);
+    }
+  }
+
+  // ✅ Open viewers — cached first, silent refresh, skeleton only if truly fresh
+  async function openViewers() {
+    const current = statuses[index];
+    if (!current || !myId) return;
+    if (current.user_id !== myId) return;
+
+    hapticLight();
+    setShowViewers(true);
+
+    // 1. Try cache
+    const cache = await readViewersCache();
+    const cached = cache[current.id];
+
+    if (cached && Array.isArray(cached.viewers) && cached.viewers.length >= 0) {
+      // Has cache → show instantly, no skeleton
+      setViewers(cached.viewers);
+      setViewersCount(cached.count ?? cached.viewers.length);
       setViewersLoading(false);
+      // Silent background refresh
+      fetchViewers(current.id, true);
+    } else {
+      // First ever open → skeleton
+      setViewers([]);
+      setViewersLoading(true);
+      fetchViewers(current.id, false);
     }
   }
 
@@ -510,7 +681,6 @@ export default function StatusViewerScreen() {
     return `${Math.floor(hr / 24)}d ago`;
   }
 
-  // ✅ WhatsApp-style time for viewers
   function formatViewerTime(iso: string) {
     const diffMs = Date.now() - new Date(iso).getTime();
     const min = Math.floor(diffMs / 60000);
@@ -641,17 +811,17 @@ export default function StatusViewerScreen() {
             source={{ uri: current.media_url! }}
             style={styles.mediaFull}
             resizeMode="cover"
-         connection />
+          />
         )}
 
         <Pressable
-          style={Statusstyles.tapLeft}
-          onPress={() === => advance(-1)}
+          style={styles.tapLeft}
+          onPress={() => advance(-1)}
           onLongPress={pause}
- '          onPressOut={resume}
+          onPressOut={resume}
         />
         <Pressable
-pending          style={styles.tapRight}
+          style={styles.tapRight}
           onPress={() => advance(1)}
           onLongPress={pause}
           onPressOut={resume}
@@ -727,7 +897,7 @@ pending          style={styles.tapRight}
                     style={{ marginRight: 6 }}
                   />
                   <Text style={styles.connectBtnText}>
-                    {'
+                    {connectionStatus === 'pending'
                       ? 'Sent'
                       : connectionStatus === 'declined'
                       ? 'Declined'
@@ -758,7 +928,7 @@ pending          style={styles.tapRight}
         </View>
       )}
 
-      {/* ✅ WhatsApp-style Views indicator (own status only) */}
+      {/* ✅ Views indicator (own status only) */}
       {isMine && (
         <TouchableOpacity
           style={[
@@ -814,9 +984,7 @@ pending          style={styles.tapRight}
             <View style={styles.viewersDivider} />
 
             {viewersLoading ? (
-              <View style={styles.viewersLoading}>
-                <ActivityIndicator color={COLORS.violet} />
-              </View>
+              <ViewerSkeleton />
             ) : viewers.length === 0 ? (
               <View style={styles.viewersEmpty}>
                 <Ionicons
@@ -962,6 +1130,46 @@ pending          style={styles.tapRight}
         </Modal>
       )}
     </View>
+  );
+}
+
+// ============================================================
+// ✅ Skeleton loader (first time only)
+// ============================================================
+function ViewerSkeleton() {
+  const opacity = useRef(new Animated.Value(0.35)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.9,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.35,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View style={{ opacity, paddingVertical: 6 }}>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <View key={i} style={styles.skeletonRow}>
+          <View style={styles.skeletonAvatar} />
+          <View style={{ flex: 1, gap: 8 }}>
+            <View style={styles.skeletonLineLg} />
+            <View style={styles.skeletonLineSm} />
+          </View>
+        </View>
+      ))}
+    </Animated.View>
   );
 }
 
@@ -1185,7 +1393,7 @@ const styles = StyleSheet.create({
     width: '30%',
   },
 
-  // ✅ Views indicator bar (bottom of own status)
+  // Views indicator bar
   viewsBar: {
     backgroundColor: '#0A0C12',
     flexDirection: 'row',
@@ -1202,7 +1410,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyMedium,
   },
 
-  // ✅ Viewers bottom sheet
+  // Viewers bottom sheet
   viewersBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.6)',
@@ -1250,10 +1458,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     marginVertical: 6,
   },
-  viewersLoading: {
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
   viewersEmpty: {
     paddingVertical: 40,
     alignItems: 'center',
@@ -1287,7 +1491,34 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Profile-style popup styles
+  // Skeleton
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  skeletonAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  skeletonLineLg: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    width: '55%',
+  },
+  skeletonLineSm: {
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    width: '32%',
+  },
+
+  // Profile-style popup
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
