@@ -16,8 +16,6 @@ import {
   Animated,
   Easing,
   useWindowDimensions,
-  Platform,
-  KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -123,7 +121,6 @@ export default function MusicPicker({ visible, onClose, onSelect }: Props) {
       visible
       transparent
       animationType="none"
-      statusBarTranslucent
       onRequestClose={handleClose}
     >
       {/* Blur backdrop */}
@@ -182,7 +179,7 @@ export default function MusicPicker({ visible, onClose, onSelect }: Props) {
 }
 
 // ============================================================
-// Search Stage
+// Search Stage — NO KeyboardAvoidingView
 // ============================================================
 function SearchStage({
   onClose,
@@ -248,16 +245,14 @@ function SearchStage({
   function handlePick(track: MusicTrack) {
     try {
       preview.pause();
+      preview.replace('');
     } catch {}
     setPlayingId(null);
     onPick(track);
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <View style={{ flex: 1 }}>
       <View style={styles.searchHeader}>
         <TouchableOpacity
           onPress={onClose}
@@ -275,9 +270,10 @@ function SearchStage({
             onChangeText={setQuery}
             placeholder="Search songs, artists…"
             placeholderTextColor="rgba(255,255,255,0.35)"
-            autoFocus
+            autoFocus={false}
             autoCorrect={false}
             returnKeyType="search"
+            blurOnSubmit={false}
           />
           {query.length > 0 && (
             <TouchableOpacity
@@ -390,7 +386,7 @@ function SearchStage({
           }}
         />
       )}
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -414,7 +410,8 @@ function TrimStage({
   const [barWidth, setBarWidth] = useState(0);
   const [audioDuration, setAudioDuration] = useState(30);
 
-  const player = useAudioPlayer(track.streamUrl);
+  // ✅ Empty init — replace() in effect below
+  const player = useAudioPlayer();
 
   const startRef = useRef(start);
   const clipRef = useRef<number>(clipLen);
@@ -428,13 +425,19 @@ function TrimStage({
   barWidthRef.current = barWidth;
   audioDurRef.current = audioDuration;
 
-  // Load track
+  // ✅ Load track in effect with proper guards
   useEffect(() => {
+    let cancelled = false;
     try {
       player.replace(track.streamUrl);
-      player.seekTo(0);
-    } catch {}
+      if (!cancelled) {
+        player.seekTo(0);
+      }
+    } catch (err) {
+      console.warn('load track err', err);
+    }
     return () => {
+      cancelled = true;
       try {
         player.pause();
       } catch {}
@@ -483,9 +486,6 @@ function TrimStage({
     }
   }
 
-  const maxStart = Math.max(0, audioDuration - clipLen);
-
-  // Seek from bar position
   function seekToX(x: number) {
     const w = barWidthRef.current;
     const dur = audioDurRef.current;
@@ -524,7 +524,6 @@ function TrimStage({
 
   return (
     <View style={[styles.trimWrap, { paddingBottom: bottomPad }]}>
-      {/* Header */}
       <View style={styles.trimHeader}>
         <TouchableOpacity
           onPress={onBack}
@@ -548,7 +547,6 @@ function TrimStage({
         </TouchableOpacity>
       </View>
 
-      {/* Album art */}
       <View style={styles.trimBody}>
         <Image
           source={{ uri: track.artwork }}
@@ -565,7 +563,6 @@ function TrimStage({
           {track.artist}
         </Text>
 
-        {/* Timeline row */}
         <View style={styles.timelineRow}>
           <Text style={styles.timeLabel}>{formatSec(start)}</Text>
 
@@ -599,7 +596,6 @@ function TrimStage({
           </TouchableOpacity>
         </View>
 
-        {/* 15s / 30s toggle */}
         <View style={styles.clipRow}>
           {[15, 30].map((len) => (
             <TouchableOpacity
@@ -668,7 +664,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 
-  // ---- Search ----
   searchHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -767,7 +762,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // ---- Trim ----
   trimWrap: { flex: 1 },
   trimHeader: {
     flexDirection: 'row',
