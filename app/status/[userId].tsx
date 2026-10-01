@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — Instagram-story style with progress bar, tap zones, caption section
+// Full-screen status viewer — photo + separate caption section below + actions
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -8,7 +8,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   Image,
-  Dimensions,
   ActivityIndicator,
   Pressable,
 } from 'react-native';
@@ -21,7 +20,6 @@ import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 
-const { width: SCREEN_W } = Dimensions.get('window');
 const STATUS_DURATION_MS = 15000;
 
 type Profile = {
@@ -48,15 +46,14 @@ type Status = {
 export default function StatusViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = use setLocalSearchParams<{ userId:Status string }es>();
+  const params = useLocalSearchParams<{ userId: string }>();
   const userId = params.userId;
 
- ] const [statuses, = useState<Status[]>([]);
+  const [statuses, setStatuses] = useState<Status[]>([]);
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [myId, setMyId] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
-  const [paused, setPaused] = useState(false);
   const [liked, setLiked] = useState(false);
   const [likeLoading, setLikeLoading] = useState(false);
 
@@ -166,7 +163,6 @@ export default function StatusViewerScreen() {
     elapsedRef.current = 0;
     frameStartRef.current = performance.now();
     setProgress(0);
-    setPaused(false);
     pausedRef.current = false;
 
     const tick = (now: number) => {
@@ -219,11 +215,9 @@ export default function StatusViewerScreen() {
   }
 
   function pause() {
-    setPaused(true);
     pausedRef.current = true;
   }
   function resume() {
-    setPaused(false);
     pausedRef.current = false;
   }
 
@@ -272,13 +266,12 @@ export default function StatusViewerScreen() {
 
   const profile = current.profile;
   const isMine = current.user_id === myId;
-  const hasCaption =
-    !!current.text_content && !!current.media_url && !current.media_type?.includes('text');
   const isTextOnly = !current.media_url;
+  const hasCaption = !isTextOnly && !!current.text_content;
 
   return (
     <View style={styles.container}>
-      {/* ---------- Header block ---------- */}
+      {/* ---------- Header ---------- */}
       <View style={[styles.headerBlock, { paddingTop: insets.top + 6 }]}>
         <View style={styles.progressRow}>
           {statuses.map((s, i) => (
@@ -334,7 +327,7 @@ export default function StatusViewerScreen() {
               }}
               activeOpacity={0.7}
             >
-              <Itronicons name="ash-outline" size={19} color="#FFFFFF" />
+              <Ionicons name="trash-outline" size={19} color="#FFFFFF" />
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -347,47 +340,24 @@ export default function StatusViewerScreen() {
         </View>
       </View>
 
-      {/* ---------- Content area: photo full-bleed, then caption section below ---------- */}
+      {/* ---------- PHOTO / TEXT content (flex:1) ---------- */}
       <View style={styles.contentArea}>
-        {/* Photo / Video — cover mode, full bleed */}
-        {current.media_url ? (
-          <Image
-            source={{ uri: current.media_url }}
-            style={styles.mediaFull}
-            resizeMode="cover"
-          />
-        ) : (
+        {isTextOnly ? (
           <LinearGradient
             colors={[current.bg_color ?? COLORS.violet, '#0A0C12']}
             style={styles.textBg}
           >
             <Text style={styles.textContent}>{current.text_content}</Text>
           </LinearGradient>
+        ) : (
+          <Image
+            source={{ uri: current.media_url! }}
+            style={styles.mediaFull}
+            resizeMode="cover"
+          />
         )}
 
-        {/* ✅ Caption in separate section (below photo) */}
-        {hasCaption && (
-          <View
-            style={[
-              styles.captionBar,
-              { paddingBottom: insets.bottom + 78 },
-            ]}
-            pointerEvents="none"
-          >
-            <Text style={styles.captionBarText} numberOfLines={4}>
-              {current.text_content}
-            </Text>
-          </View>
-        )}
-
-        {/* Bottom gradient for readability of actions */}
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.85)']}
-          style={styles.bottomGradient}
-          pointerEvents="none"
-        />
-
-        {/* Tap zones */}
+        {/* Tap zones for navigation */}
         <Pressable
           style={styles.tapLeft}
           onPress={() => advance(-1)}
@@ -400,15 +370,39 @@ export default function StatusViewerScreen() {
           onLongPress={pause}
           onPressOut={resume}
         />
+      </View>
 
-        {/* Bottom actions (only for others' statuses) */}
-        {!isMine && !isTextOnly && (
-          <View
-            style={[
-              styles.bottomArea,
-              { paddingBottom: insets.bottom + SPACING.sm },
-            ]}
-          >
+      {/* ---------- CAPTION SECTION (separate, below photo) ---------- */}
+      {hasCaption && (
+        <View style={styles.captionSection}>
+          <Text style={styles.captionText}>{current.text_content}</Text>
+        </View>
+      )}
+
+      {/* ---------- BOTTOM ACTIONS (separate section) ---------- */}
+      {!isMine && (
+        <View
+          style={[
+            styles.bottomSection,
+            { paddingBottom: insets.bottom + SPACING.sm },
+          ]}
+        >
+          {isTextOnly ? (
+            <View style={styles.textOnlyRow}>
+              <TouchableOpacity
+                style={[styles.heartBtn, liked && styles.heartBtnActive]}
+                onPress={toggleLike}
+                activeOpacity={0.7}
+                disabled={likeLoading}
+              >
+                <Ionicons
+                  name={liked ? 'heart' : 'heart-outline'}
+                  size={20}
+                  color={liked ? '#EF4444' : '#FFFFFF'}
+                />
+              </TouchableOpacity>
+            </View>
+          ) : (
             <View style={styles.bottomRow}>
               <TouchableOpacity
                 style={styles.replyBar}
@@ -431,32 +425,14 @@ export default function StatusViewerScreen() {
                 />
               </TouchableOpacity>
             </View>
-          </View>
-        )}
+          )}
+        </View>
+      )}
 
-        {/* For text-only: heart only (no reply) */}
-        {!isMine && isTextOnly && (
-          <View
-            style={[
-              styles.textOnlyHeartWrap,
-              { paddingBottom: insets.bottom + SPACING.sm },
-            ]}
-          >
-            <TouchableOpacity
-              style={[styles.heartBtn, liked && styles.heartBtnActive]}
-              onPress={toggleLike}
-              activeOpacity={0.7}
-              disabled={likeLoading}
-            >
-              <Ionicons
-                name={liked ? 'heart' : 'heart-outline'}
-                size={20}
-                color={liked ? '#EF4444' : '#FFFFFF'}
-              />
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
+      {/* For own statuses: no actions, just bottom padding */}
+      {isMine && (
+        <View style={{ paddingBottom: insets.bottom + 8 }} />
+      )}
     </View>
   );
 }
@@ -502,22 +478,20 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.sm,
   },
 
-  // ✅ Content area — full bleed, no bars
+  // ✅ Content area (photo) — takes remaining space
   contentArea: {
     flex: 1,
     backgroundColor: '#000',
     position: 'relative',
     overflow: 'hidden',
   },
-
-  // ✅ Full-bleed photo (cover mode)
   mediaFull: {
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },
 
-  // Text-only status
+  // Text-only status content
   textBg: {
     flex: 1,
     width: '100%',
@@ -533,35 +507,67 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
 
-  // ✅ Caption in separate section (below photo)
-  captionBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+  // ✅ Caption section — separate block below photo
+  captionSection: {
+    backgroundColor: '#0A0C12',
     paddingHorizontal: 20,
-    paddingTop: 12,
-    alignItems: 'center',
+    paddingTop: 14,
+    paddingBottom: 14,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
   },
-  captionBarText: {
+  captionText: {
     color: '#FFFFFF',
     fontSize: 14.5,
     fontFamily: FONTS.body,
     textAlign: 'center',
     lineHeight: 21,
-    textShadowColor: 'rgba(0,0,0,0.85)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 6,
   },
 
-  bottomGradient: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 200,
+  // ✅ Bottom actions section
+  bottomSection: {
+    backgroundColor: '#0A0C12',
+    paddingHorizontal: SPACING.sm,
+    paddingTop: 10,
+  },
+  bottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  textOnlyRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  replyBar: {
+    flex: 1,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.5)',
+    paddingVertical: 9,
+    paddingHorizontal: 18,
+  },
+  replyPlaceholder: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 13.5,
+    fontFamily: FONTS.body,
+  },
+  heartBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  heartBtnActive: {
+    borderColor: '#EF4444',
+    backgroundColor: 'rgba(239,68,68,0.15)',
   },
 
+  // Progress bar
   progressRow: {
     flexDirection: 'row',
     gap: 3,
@@ -580,6 +586,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -615,65 +622,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // Tap zones
   tapLeft: {
     position: 'absolute',
     top: 0,
-    bottom: 90,
+    bottom: 0,
     left: 0,
     width: '30%',
   },
   tapRight: {
     position: 'absolute',
     top: 0,
-    bottom: 90,
+    bottom: 0,
     right: 0,
     width: '30%',
-  },
-
-  bottomArea: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: SPACING.sm,
-  },
-  bottomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  replyBar: {
-    flex: 1,
-    borderRadius: 999,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.5)',
-    paddingVertical: 9,
-    paddingHorizontal: 18,
-  },
-  replyPlaceholder: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 13.5,
-    fontFamily: FONTS.body,
-  },
-  heartBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)',
-  },
-  heartBtnActive: {
-    borderColor: '#EF4444',
-    backgroundColor: 'rgba(239,68,68,0.15)',
-  },
-
-  textOnlyHeartWrap: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    padding: SPACING.sm,
   },
 });
