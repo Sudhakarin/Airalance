@@ -1,7 +1,7 @@
 // app/status/create.tsx
-// Create a new status — chooser + photo editor with text overlay + drawing
+// Create a new status — chooser + photo editor with text overlay + drawing + crop
 
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -23,10 +23,11 @@ import {
   SafeAreaView,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import Svg, { Path } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
 import { BlurView } from 'expo-blur';
@@ -100,6 +101,7 @@ function pointsToPath(points: { x: number; y: number }[]): string {
 export default function CreateStatusScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ mode?: string }>();
 
   const [mode, setMode] = useState<Mode>('chooser');
 
@@ -123,9 +125,24 @@ export default function CreateStatusScreen() {
   const [currentStroke, setCurrentStroke] = useState<Stroke | null>(null);
 
   const [uploading, setUploading] = useState(false);
+  const [showCropSheet, setShowCropSheet] = useState(false);
 
   const captionRef = useRef<TextInput>(null);
   const editorRef = useRef<View>(null);
+  const originalAssetUri = useRef<string | null>(null);
+
+  // ============================================================
+  // ✅ Handle mode from param (from status tab popup)
+  // ============================================================
+  useEffect(() => {
+    const m = params.mode;
+    if (m === 'text') {
+      setMode('text');
+    } else if (m === 'camera') {
+      setTimeout(() => pickPhoto(), 300);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ============================================================
   // PICK / CAMERA
@@ -159,6 +176,7 @@ export default function CreateStatusScreen() {
   }
 
   function resetEditor(a: PickedAsset) {
+    originalAssetUri.current = a.uri;
     setAsset(a);
     setRotation(0);
     setCaption('');
@@ -383,6 +401,76 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
+  // ✅ CROP
+  // ============================================================
+  async function applyCrop(ratio: 'original' | '1:1' | '4:5' | '16:9') {
+    if (!asset) return;
+    setShowCropSheet(false);
+    hapticLight();
+
+    if (ratio === 'original') {
+      if (originalAssetUri.current) {
+        setAsset((prev) =>
+          prev ? { ...prev, uri: originalAssetUri.current! } : null
+        );
+      }
+      return;
+    }
+
+    try {
+      const sourceUri = originalAssetUri.current ?? asset.uri;
+
+      const [w, h] = await new Promise<[number, number]>((resolve, reject) => {
+        RNImage.getSize(
+          sourceUri,
+          (width, height) => resolve([width, height]),
+          reject
+        );
+      });
+
+      const [rw, rh] = ratio.split(':').map(Number);
+      const targetRatio = rw / rh;
+      const currentRatio = w / h;
+
+      let cropW = w;
+      let cropH = h;
+      if (currentRatio > targetRatio) {
+        cropW = h * targetRatio;
+      } else {
+        cropH = w / targetRatio;
+      }
+
+      const originX = Math.max(0, (w - cropW) / 2);
+      const originY = Math.max(0, (h - cropH) / 2);
+
+      const result = await ImageManipulator.manipulateAsync(
+        sourceUri,
+        [
+          {
+            crop: {
+              originX,
+              originY,
+              width: cropW,
+              height: cropH,
+            },
+          },
+        ],
+        {
+          format: ImageManipulator.SaveFormat.JPEG,
+          compress: 0.9,
+        }
+      );
+
+      setAsset((prev) => (prev ? { ...prev, uri: result.uri } : null));
+      hapticSuccess();
+    } catch (err) {
+      console.warn('Crop error:', err);
+      hapticError();
+      Alert.alert('Crop failed', 'Please try again.');
+    }
+  }
+
+  // ============================================================
   // MISC
   // ============================================================
   function handleRotate() {
@@ -558,6 +646,17 @@ export default function CreateStatusScreen() {
             >
               <Ionicons name="text" size={20} color="#FFFFFF" />
             </TouchableOpacity>
+            {/* ✅ Crop button */}
+            <TouchableOpacity
+              onPress={() => {
+                hapticLight();
+                setShowCropSheet(true);
+              }}
+              style={styles.editorTopBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="crop-outline" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={handleRotate}
               style={styles.editorTopBtn}
@@ -648,7 +747,7 @@ export default function CreateStatusScreen() {
         )}
       </SafeAreaView>
 
-      {/* Capture area — photo + overlays + strokes (full bleed, cover mode) */}
+      {/* Capture area — photo + overlays + strokes */}
       <View ref={editorRef} style={styles.captureArea} collapsable={false}>
         <View style={styles.editorMediaWrap}>
           {asset?.type === 'video' ? (
@@ -673,7 +772,6 @@ export default function CreateStatusScreen() {
           )}
         </View>
 
-        {/* Text overlays */}
         {overlays.map((o) => (
           <DraggableOverlay
             key={o.id}
@@ -683,7 +781,6 @@ export default function CreateStatusScreen() {
           />
         ))}
 
-        {/* Drawing layer */}
         <View
           style={StyleSheet.absoluteFill}
           pointerEvents={drawMode ? 'auto' : 'none'}
@@ -764,6 +861,52 @@ export default function CreateStatusScreen() {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* ✅ Crop bottom sheet */}
+      <Modal
+        visible={showCropSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCropSheet(false)}
+        statusBarTranslucent
+      >
+        <Pressable
+          style={styles.cropBackdrop}
+          onPress={() => setShowCropSheet(false)}
+        >
+          <Pressable
+            style={styles.cropSheet}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.cropHandle} />
+            <Text style={styles.cropTitle}>Crop</Text>
+            <View style={styles.cropRow}>
+              {[
+                { key: 'original', icon: 'scan-outline', label: 'Original' },
+                { key: '1:1', icon: 'square-outline', label: '1:1' },
+                { key: '4:5', icon: 'tablet-portrait-outline', label: '4:5' },
+                { key: '16:9', icon: 'tablet-landscape-outline', label: '16:9' },
+              ].map((opt) => (
+                <TouchableOpacity
+                  key={opt.key}
+                  onPress={() => applyCrop(opt.key as any)}
+                  style={styles.cropOption}
+                  activeOpacity={0.75}
+                >
+                  <View style={styles.cropOptionIcon}>
+                    <Ionicons
+                      name={opt.icon as any}
+                      size={22}
+                      color="#FFFFFF"
+                    />
+                  </View>
+                  <Text style={styles.cropOptionLabel}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Text modal */}
       <Modal
@@ -1098,7 +1241,7 @@ const styles = StyleSheet.create({
   editorTopRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
 
   drawToolbar: {
@@ -1136,7 +1279,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ✅ Photo area — full bleed, no padding, no bars
   captureArea: {
     flex: 1,
     backgroundColor: '#000',
@@ -1182,7 +1324,6 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 12,
   },
-  // ✅ Thinner caption — matches send button height
   captionBox: {
     flex: 1,
     flexDirection: 'row',
@@ -1211,7 +1352,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // ✅ Smaller send button — matches caption box height
   sendBtnWrap: {
     width: 40,
     height: 40,
@@ -1228,6 +1368,62 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // ---- Crop sheet ----
+  cropBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  cropSheet: {
+    backgroundColor: 'rgba(20,22,30,0.98)',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 10,
+    paddingBottom: 32,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  cropHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  cropTitle: {
+    fontSize: 15,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    marginBottom: 14,
+  },
+  cropRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: 8,
+  },
+  cropOption: {
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  cropOptionIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(124,92,255,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,92,255,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cropOptionLabel: {
+    fontSize: 11.5,
+    fontFamily: FONTS.bodyMedium,
+    color: 'rgba(255,255,255,0.85)',
   },
 
   // ---- Text modal ----
