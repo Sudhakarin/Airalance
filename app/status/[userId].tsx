@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — with connection-gated reply/heart + profile-style buttons + cached viewers list + realtime updates
+// Full-screen status viewer — cached statuses + cached viewers + realtime + blur backdrop
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -18,6 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII, SPACING, GRADIENTS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
@@ -31,6 +32,7 @@ import {
 
 const STATUS_DURATION_MS = 15000;
 const VIEWERS_CACHE_KEY = '@airalance_status_viewers_v1';
+const STATUSES_CACHE_KEY = '@airalance_status_content_v1';
 
 type Profile = {
   id: string;
@@ -73,6 +75,14 @@ type ViewersCache = {
   };
 };
 
+type StatusContentCache = {
+  statuses: Status[];
+  cachedAt: number;
+};
+
+// ============================================================
+// Viewers cache helpers
+// ============================================================
 async function readViewersCache(): Promise<ViewersCache> {
   try {
     const raw = await AsyncStorage.getItem(VIEWERS_CACHE_KEY);
@@ -86,6 +96,36 @@ async function readViewersCache(): Promise<ViewersCache> {
 async function writeViewersCache(map: ViewersCache) {
   try {
     await AsyncStorage.setItem(VIEWERS_CACHE_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+// ============================================================
+// ✅ Status content cache helpers (per userId)
+// ============================================================
+function statusContentKey(userId: string) {
+  return `${STATUSES_CACHE_KEY}:${userId}`;
+}
+
+async function readStatusesCache(
+  userId: string
+): Promise<StatusContentCache | null> {
+  try {
+    const raw = await AsyncStorage.getItem(statusContentKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StatusContentCache;
+    if (!parsed?.statuses) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStatusesCache(userId: string, statuses: Status[]) {
+  try {
+    await AsyncStorage.setItem(
+      statusContentKey(userId),
+      JSON.stringify({ statuses, cachedAt: Date.now() })
+    );
   } catch {}
 }
 
@@ -109,7 +149,7 @@ export default function StatusViewerScreen() {
   const [connectPopup, setConnectPopup] = useState<'ask' | 'pending' | 'declined' | null>(null);
   const [sendingRequest, setSendingRequest] = useState(false);
 
-  // ✅ Viewers state
+  // Viewers state
   const [viewersCount, setViewersCount] = useState(0);
   const [showViewers, setShowViewers] = useState(false);
   const [viewers, setViewers] = useState<Viewer[]>([]);
@@ -120,6 +160,9 @@ export default function StatusViewerScreen() {
   const frameStartRef = useRef(0);
   const rafRef = useRef<number | null>(null);
 
+  // ============================================================
+  // ✅ Load statuses — CACHE FIRST, then silent refresh
+  // ============================================================
   useEffect(() => {
     let mounted = true;
     async function load() {
@@ -136,6 +179,19 @@ export default function StatusViewerScreen() {
         }
       }
 
+      // 1. Show cache instantly
+      const cache = await readStatusesCache(userId);
+      if (cache?.statuses?.length && mounted) {
+        // Filter out expired just in case
+        const now = new Date().toISOString();
+        const fresh = cache.statuses.filter((s) => s.expires_at > now);
+        if (fresh.length > 0) {
+          setStatuses(fresh);
+          setLoading(false);
+        }
+      }
+
+      // 2. Fetch from server (silent if cache already shown)
       const { data, error } = await supabase
         .from('statuses')
         .select('*, profile:profiles(*)')
@@ -146,9 +202,11 @@ export default function StatusViewerScreen() {
       if (!mounted) return;
       if (error) {
         console.warn('Load status error:', error);
-        setStatuses([]);
+        if (!cache?.statuses?.length) setStatuses([]);
       } else {
-        setStatuses((data ?? []) as Status[]);
+        const list = (data ?? []) as Status[];
+        setStatuses(list);
+        await writeStatusesCache(userId, list);
       }
       setLoading(false);
     }
@@ -367,6 +425,7 @@ export default function StatusViewerScreen() {
     }
   }
 
+  // Progress timer
   useEffect(() => {
     if (loading || statuses.length === 0) return;
     const current = statuses[index];
@@ -405,7 +464,7 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, loading, markViewed, checkLiked]);
 
-  // ✅ Views count for current status — instant from cache, then silent verify
+  // Views count (cache-first)
   useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -413,14 +472,12 @@ export default function StatusViewerScreen() {
 
     let cancelled = false;
     (async () => {
-      // 1. Instant from cache
       const cache = await readViewersCache();
       const cached = cache[current.id];
       if (!cancelled && cached) {
         setViewersCount(cached.count ?? cached.viewers?.length ?? 0);
       }
 
-      // 2. Silent verify from server
       try {
         const { count } = await supabase
           .from('status_views')
@@ -439,7 +496,7 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, myId]);
 
-  // ✅ Realtime — live updates for new views & likes on MY status
+  // Realtime updates
   useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -463,11 +520,9 @@ export default function StatusViewerScreen() {
 
           setViewersCount((c) => c + 1);
 
-          // Only append if sheet is open and viewer not already present
           setViewers((prev) => {
             if (prev.some((v) => v.id === newViewerId)) return prev;
 
-            // Fetch profile in background
             (async () => {
               const { data: p } = await supabase
                 .from('profiles')
@@ -536,7 +591,7 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, myId]);
 
-  // ✅ Persist viewers list to cache whenever it changes (while sheet open)
+  // Persist viewers to cache
   useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -555,7 +610,6 @@ export default function StatusViewerScreen() {
     })();
   }, [viewers, showViewers, viewersLoading, index, statuses, myId]);
 
-  // ✅ Silent background fetch (no skeleton)
   async function fetchViewers(statusId: string, silent: boolean) {
     try {
       const [viewsRes, likesRes] = await Promise.all([
@@ -615,7 +669,6 @@ export default function StatusViewerScreen() {
     }
   }
 
-  // ✅ Open viewers — cached first, silent refresh, skeleton only if truly fresh
   async function openViewers() {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -624,19 +677,15 @@ export default function StatusViewerScreen() {
     hapticLight();
     setShowViewers(true);
 
-    // 1. Try cache
     const cache = await readViewersCache();
     const cached = cache[current.id];
 
-    if (cached && Array.isArray(cached.viewers) && cached.viewers.length >= 0) {
-      // Has cache → show instantly, no skeleton
+    if (cached && Array.isArray(cached.viewers)) {
       setViewers(cached.viewers);
       setViewersCount(cached.count ?? cached.viewers.length);
       setViewersLoading(false);
-      // Silent background refresh
       fetchViewers(current.id, true);
     } else {
-      // First ever open → skeleton
       setViewers([]);
       setViewersLoading(true);
       fetchViewers(current.id, false);
@@ -928,7 +977,7 @@ export default function StatusViewerScreen() {
         </View>
       )}
 
-      {/* ✅ Views indicator (own status only) */}
+      {/* Views indicator (own status) */}
       {isMine && (
         <TouchableOpacity
           style={[
@@ -949,7 +998,7 @@ export default function StatusViewerScreen() {
         </TouchableOpacity>
       )}
 
-      {/* ✅ Viewers bottom sheet */}
+      {/* ✅ Viewers bottom sheet — WITH BLUR BACKDROP */}
       <Modal
         visible={showViewers}
         transparent
@@ -957,83 +1006,90 @@ export default function StatusViewerScreen() {
         onRequestClose={() => setShowViewers(false)}
         statusBarTranslucent
       >
-        <Pressable
-          style={styles.viewersBackdrop}
-          onPress={() => setShowViewers(false)}
+        <BlurView
+          intensity={40}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.viewersBlurBackdrop}
         >
           <Pressable
-            style={[styles.viewersSheet, { paddingBottom: insets.bottom + 12 }]}
-            onPress={(e) => e.stopPropagation()}
+            style={styles.viewersBackdropPress}
+            onPress={() => setShowViewers(false)}
           >
-            <View style={styles.viewersHandle} />
-            <View style={styles.viewersHeader}>
-              <Ionicons name="eye-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.viewersTitle}>
-                {viewersCount} {viewersCount === 1 ? 'view' : 'views'}
-              </Text>
-              <View style={{ flex: 1 }} />
-              <TouchableOpacity
-                onPress={() => setShowViewers(false)}
-                style={styles.viewersCloseBtn}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close" size={20} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.viewersDivider} />
-
-            {viewersLoading ? (
-              <ViewerSkeleton />
-            ) : viewers.length === 0 ? (
-              <View style={styles.viewersEmpty}>
-                <Ionicons
-                  name="eye-off-outline"
-                  size={36}
-                  color={COLORS.mist}
-                />
-                <Text style={styles.viewersEmptyText}>No views yet</Text>
+            <Pressable
+              style={[styles.viewersSheet, { paddingBottom: insets.bottom + 12 }]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.viewersHandle} />
+              <View style={styles.viewersHeader}>
+                <Ionicons name="eye-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.viewersTitle}>
+                  {viewersCount} {viewersCount === 1 ? 'view' : 'views'}
+                </Text>
+                <View style={{ flex: 1 }} />
+                <TouchableOpacity
+                  onPress={() => setShowViewers(false)}
+                  style={styles.viewersCloseBtn}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
               </View>
-            ) : (
-              <FlatList
-                data={viewers}
-                keyExtractor={(item) => item.id}
-                style={{ maxHeight: 420 }}
-                contentContainerStyle={{ paddingVertical: 6 }}
-                showsVerticalScrollIndicator={false}
-                renderItem={({ item }) => (
-                  <View style={styles.viewerRow}>
-                    <Avatar
-                      name={item.display_name}
-                      color={item.avatar_color ?? COLORS.violet}
-                      avatarUrl={item.avatar_url}
-                      size={42}
-                    />
-                    <View style={styles.viewerInfo}>
-                      <Text style={styles.viewerName} numberOfLines={1}>
-                        {item.display_name}
-                      </Text>
-                      <Text style={styles.viewerTime}>
-                        {formatViewerTime(item.viewed_at)}
-                      </Text>
-                    </View>
-                    {item.liked && (
-                      <Ionicons
-                        name="heart"
-                        size={18}
-                        color="#EF4444"
-                        style={{ marginLeft: 8 }}
+
+              <View style={styles.viewersDivider} />
+
+              {viewersLoading ? (
+                <ViewerSkeleton />
+              ) : viewers.length === 0 ? (
+                <View style={styles.viewersEmpty}>
+                  <Ionicons
+                    name="eye-off-outline"
+                    size={36}
+                    color={COLORS.mist}
+                  />
+                  <Text style={styles.viewersEmptyText}>No views yet</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={viewers}
+                  keyExtractor={(item) => item.id}
+                  style={{ maxHeight: 420 }}
+                  contentContainerStyle={{ paddingVertical: 6 }}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item }) => (
+                    <View style={styles.viewerRow}>
+                      <Avatar
+                        name={item.display_name}
+                        color={item.avatar_color ?? COLORS.violet}
+                        avatarUrl={item.avatar_url}
+                        size={42}
                       />
-                    )}
-                  </View>
-                )}
-              />
-            )}
+                      <View style={styles.viewerInfo}>
+                        <Text style={styles.viewerName} numberOfLines={1}>
+                          {item.display_name}
+                        </Text>
+                        <Text style={styles.viewerTime}>
+                          {formatViewerTime(item.viewed_at)}
+                        </Text>
+                      </View>
+                      {item.liked && (
+                        <Ionicons
+                          name="heart"
+                          size={18}
+                          color="#EF4444"
+                          style={{ marginLeft: 8 }}
+                        />
+                      )}
+                    </View>
+                  )}
+                />
+              )}
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </BlurView>
       </Modal>
 
-      {/* ✅ Profile-style Connect Popup */}
+      {/* Connect Popup */}
       {connectPopup && (
         <Modal
           visible
@@ -1134,7 +1190,7 @@ export default function StatusViewerScreen() {
 }
 
 // ============================================================
-// ✅ Skeleton loader (first time only)
+// Skeleton loader
 // ============================================================
 function ViewerSkeleton() {
   const opacity = useRef(new Animated.Value(0.35)).current;
@@ -1393,7 +1449,6 @@ const styles = StyleSheet.create({
     width: '30%',
   },
 
-  // Views indicator bar
   viewsBar: {
     backgroundColor: '#0A0C12',
     flexDirection: 'row',
@@ -1410,10 +1465,13 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyMedium,
   },
 
-  // Viewers bottom sheet
-  viewersBackdrop: {
+  // ✅ Viewers bottom sheet with BLUR backdrop
+  viewersBlurBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.15)',
+  },
+  viewersBackdropPress: {
+    flex: 1,
     justifyContent: 'flex-end',
   },
   viewersSheet: {
@@ -1491,7 +1549,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // Skeleton
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1518,7 +1575,6 @@ const styles = StyleSheet.create({
     width: '32%',
   },
 
-  // Profile-style popup
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
