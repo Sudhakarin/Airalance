@@ -1,5 +1,5 @@
 // app/status/create.tsx
-// Create a new status — chooser + photo editor with text overlay + drawing + crop (preset + manual)
+// Create a new status — chooser + photo editor with text overlay + drawing + manual crop
 
 import { useState, useRef, useMemo, useEffect } from 'react';
 import {
@@ -126,7 +126,6 @@ export default function CreateStatusScreen() {
   const [currentStroke, setCurrentStroke] = useState<Stroke | null>(null);
 
   const [uploading, setUploading] = useState(false);
-  const [showCropSheet, setShowCropSheet] = useState(false);
   const [showManualCrop, setShowManualCrop] = useState(false);
 
   const captionRef = useRef<TextInput>(null);
@@ -403,77 +402,7 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
-  // ✅ CROP — presets
-  // ============================================================
-  async function applyCrop(ratio: 'original' | '1:1' | '4:5' | '16:9') {
-    if (!asset) return;
-    setShowCropSheet(false);
-    hapticLight();
-
-    if (ratio === 'original') {
-      if (originalAssetUri.current) {
-        setAsset((prev) =>
-          prev ? { ...prev, uri: originalAssetUri.current! } : null
-        );
-      }
-      return;
-    }
-
-    try {
-      const sourceUri = originalAssetUri.current ?? asset.uri;
-
-      const [w, h] = await new Promise<[number, number]>((resolve, reject) => {
-        RNImage.getSize(
-          sourceUri,
-          (width, height) => resolve([width, height]),
-          reject
-        );
-      });
-
-      const [rw, rh] = ratio.split(':').map(Number);
-      const targetRatio = rw / rh;
-      const currentRatio = w / h;
-
-      let cropW = w;
-      let cropH = h;
-      if (currentRatio > targetRatio) {
-        cropW = h * targetRatio;
-      } else {
-        cropH = w / targetRatio;
-      }
-
-      const originX = Math.max(0, (w - cropW) / 2);
-      const originY = Math.max(0, (h - cropH) / 2);
-
-      const result = await ImageManipulator.manipulateAsync(
-        sourceUri,
-        [
-          {
-            crop: {
-              originX,
-              originY,
-              width: cropW,
-              height: cropH,
-            },
-          },
-        ],
-        {
-          format: ImageManipulator.SaveFormat.JPEG,
-          compress: 0.9,
-        }
-      );
-
-      setAsset((prev) => (prev ? { ...prev, uri: result.uri } : null));
-      hapticSuccess();
-    } catch (err) {
-      console.warn('Crop error:', err);
-      hapticError();
-      Alert.alert('Crop failed', 'Please try again.');
-    }
-  }
-
-  // ============================================================
-  // ✅ CROP — manual (user-defined rect)
+  // ✅ CROP — manual only (user-defined rect)
   // ============================================================
   async function applyManualCrop(crop: {
     originX: number;
@@ -688,16 +617,19 @@ export default function CreateStatusScreen() {
             >
               <Ionicons name="text" size={20} color="#FFFFFF" />
             </TouchableOpacity>
+
+            {/* ✅ Crop — now opens ManualCrop directly */}
             <TouchableOpacity
               onPress={() => {
                 hapticLight();
-                setShowCropSheet(true);
+                setShowManualCrop(true);
               }}
               style={styles.editorTopBtn}
               activeOpacity={0.7}
             >
               <Ionicons name="crop-outline" size={20} color="#FFFFFF" />
             </TouchableOpacity>
+
             <TouchableOpacity
               onPress={handleRotate}
               style={styles.editorTopBtn}
@@ -903,73 +835,7 @@ export default function CreateStatusScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* ✅ Crop bottom sheet */}
-      <Modal
-        visible={showCropSheet}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowCropSheet(false)}
-        statusBarTranslucent
-      >
-        <Pressable
-          style={styles.cropBackdrop}
-          onPress={() => setShowCropSheet(false)}
-        >
-          <Pressable
-            style={styles.cropSheet}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={styles.cropHandle} />
-            <Text style={styles.cropTitle}>Crop</Text>
-            <View style={styles.cropRow}>
-              {[
-                { key: 'original', icon: 'scan-outline', label: 'Original' },
-                { key: '1:1', icon: 'square-outline', label: '1:1' },
-                { key: '4:5', icon: 'tablet-portrait-outline', label: '4:5' },
-                { key: '16:9', icon: 'tablet-landscape-outline', label: '16:9' },
-              ].map((opt) => (
-                <TouchableOpacity
-                  key={opt.key}
-                  onPress={() => applyCrop(opt.key as any)}
-                  style={styles.cropOption}
-                  activeOpacity={0.75}
-                >
-                  <View style={styles.cropOptionIcon}>
-                    <Ionicons
-                      name={opt.icon as any}
-                      size={22}
-                      color="#FFFFFF"
-                    />
-                  </View>
-                  <Text style={styles.cropOptionLabel}>{opt.label}</Text>
-                </TouchableOpacity>
-              ))}
-              {/* ✅ Manual crop */}
-              <TouchableOpacity
-                onPress={() => {
-                  hapticLight();
-                  setShowCropSheet(false);
-                  setTimeout(() => setShowManualCrop(true), 250);
-                }}
-                style={styles.cropOption}
-                activeOpacity={0.75}
-              >
-                <View
-                  style={[
-                    styles.cropOptionIcon,
-                    { backgroundColor: 'rgba(124,92,255,0.35)' },
-                  ]}
-                >
-                  <Ionicons name="crop" size={22} color="#FFFFFF" />
-                </View>
-                <Text style={styles.cropOptionLabel}>Manual</Text>
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* ✅ Manual crop modal */}
+      {/* ✅ Manual crop modal (only crop mode now) */}
       {asset && (
         <ManualCropModal
           visible={showManualCrop}
@@ -1439,62 +1305,6 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-
-  // ---- Crop sheet ----
-  cropBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  cropSheet: {
-    backgroundColor: 'rgba(20,22,30,0.98)',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 10,
-    paddingBottom: 32,
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  cropHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  cropTitle: {
-    fontSize: 15,
-    fontFamily: FONTS.displayBold,
-    color: '#FFFFFF',
-    marginBottom: 14,
-  },
-  cropRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 6,
-  },
-  cropOption: {
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
-  },
-  cropOptionIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(124,92,255,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(124,92,255,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cropOptionLabel: {
-    fontSize: 10.5,
-    fontFamily: FONTS.bodyMedium,
-    color: 'rgba(255,255,255,0.85)',
   },
 
   // ---- Text modal ----
