@@ -15,12 +15,15 @@ import {
   ScrollView,
   Image as RNImage,
   PanResponder,
-  Dimensions,
   Modal,
   Pressable,
+  Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -28,11 +31,10 @@ import * as ImagePicker from 'expo-image-picker';
 import Svg, { Path } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
 import { BlurView } from 'expo-blur';
-import { COLORS, FONTS, RADII, SPACING, CONSTANTS } from '../../constants/theme';
+import { COLORS, FONTS, RADII, SPACING, CONSTANTS, GRADIENTS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import {
   hapticLight,
-  hapticMedium,
   hapticSuccess,
   hapticError,
 } from '../../lib/haptics';
@@ -47,8 +49,22 @@ const STATUS_COLORS = [
   '#111827',
 ];
 
-const DRAW_COLORS = ['#FFFFFF', '#000000', '#EF4444', '#F59E0B', '#22D3B8', '#7C5CFF'];
-const TEXT_COLORS = ['#FFFFFF', '#000000', '#F59E0B', '#EF4444', '#22D3B8', '#7C5CFF'];
+const DRAW_COLORS = [
+  '#FFFFFF',
+  '#000000',
+  '#EF4444',
+  '#F59E0B',
+  '#22D3B8',
+  '#7C5CFF',
+];
+const TEXT_COLORS = [
+  '#FFFFFF',
+  '#000000',
+  '#F59E0B',
+  '#EF4444',
+  '#22D3B8',
+  '#7C5CFF',
+];
 
 type Mode = 'chooser' | 'text' | 'editor';
 
@@ -63,7 +79,7 @@ type TextOverlay = {
   id: string;
   text: string;
   color: string;
-  x: number; // offset from center (px)
+  x: number;
   y: number;
 };
 
@@ -72,8 +88,6 @@ type Stroke = {
   color: string;
   points: { x: number; y: number }[];
 };
-
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 function pointsToPath(points: { x: number; y: number }[]): string {
   if (points.length === 0) return '';
@@ -86,6 +100,7 @@ function pointsToPath(points: { x: number; y: number }[]): string {
 
 export default function CreateStatusScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const [mode, setMode] = useState<Mode>('chooser');
 
@@ -96,7 +111,6 @@ export default function CreateStatusScreen() {
   const [caption, setCaption] = useState('');
   const [rotation, setRotation] = useState(0);
 
-  // Text overlays
   const [overlays, setOverlays] = useState<TextOverlay[]>([]);
   const [textModal, setTextModal] = useState<{
     id: string | null;
@@ -104,7 +118,6 @@ export default function CreateStatusScreen() {
     color: string;
   } | null>(null);
 
-  // Drawing
   const [drawMode, setDrawMode] = useState(false);
   const [drawColor, setDrawColor] = useState(DRAW_COLORS[0]);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
@@ -114,16 +127,6 @@ export default function CreateStatusScreen() {
 
   const captionRef = useRef<TextInput>(null);
   const editorRef = useRef<View>(null);
-  const autoPickedRef = useRef(false);
-
-  // Auto-open picker on mount
-  useEffect(() => {
-    if (autoPickedRef.current) return;
-    autoPickedRef.current = true;
-    const t = setTimeout(() => pickPhoto(), 350);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // ============================================================
   // PICK / CAMERA
@@ -207,7 +210,7 @@ export default function CreateStatusScreen() {
       });
       if (error) throw error;
       hapticSuccess();
-      router.replace('/(tabs)/status');
+      goBackToStatus();
     } catch (err: any) {
       hapticError();
       Alert.alert('Failed', err?.message ?? 'Please try again.');
@@ -226,19 +229,26 @@ export default function CreateStatusScreen() {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error('Not logged in');
 
-      // Capture composite if overlays/drawings exist
       let uploadUri = asset.uri;
-      let uploadExt = (asset.uri.split('.').pop() ?? 'jpg').toLowerCase().slice(0, 5);
+      let uploadExt = (asset.uri.split('.').pop() ?? 'jpg')
+        .toLowerCase()
+        .slice(0, 5);
       let uploadMime = asset.mimeType ?? 'image/jpeg';
 
+      // Capture composite if overlays/drawings/rotation exist
       if (overlays.length > 0 || strokes.length > 0 || rotation !== 0) {
-        const captured = await captureRef(editorRef, {
-          format: 'jpg',
-          quality: 0.9,
-        });
-        uploadUri = captured;
-        uploadExt = 'jpg';
-        uploadMime = 'image/jpeg';
+        try {
+          const captured = await captureRef(editorRef, {
+            format: 'jpg',
+            quality: 0.85,
+            result: 'tmpfile',
+          });
+          uploadUri = captured;
+          uploadExt = 'jpg';
+          uploadMime = 'image/jpeg';
+        } catch (captureErr) {
+          console.warn('Capture failed, using original:', captureErr);
+        }
       }
 
       const response = await fetch(uploadUri);
@@ -263,7 +273,7 @@ export default function CreateStatusScreen() {
       if (error) throw error;
 
       hapticSuccess();
-      router.replace('/(tabs)/status');
+      goBackToStatus();
     } catch (err: any) {
       console.warn('Post media error:', err);
       hapticError();
@@ -271,6 +281,24 @@ export default function CreateStatusScreen() {
     } finally {
       setUploading(false);
     }
+  }
+
+  // ============================================================
+  // SAFE NAVIGATION — reset state and go back to status tab
+  // ============================================================
+  function goBackToStatus() {
+    // Reset editor state so nothing lingers
+    setAsset(null);
+    setOverlays([]);
+    setStrokes([]);
+    setCurrentStroke(null);
+    setCaption('');
+    setRotation(0);
+    setDrawMode(false);
+    setText('');
+    setMode('chooser');
+    // Replace current screen with status tab
+    router.replace('/(tabs)/status');
   }
 
   // ============================================================
@@ -299,7 +327,9 @@ export default function CreateStatusScreen() {
     if (textModal.id) {
       setOverlays((prev) =>
         prev.map((o) =>
-          o.id === textModal.id ? { ...o, text: t, color: textModal.color } : o
+          o.id === textModal.id
+            ? { ...o, text: t, color: textModal.color }
+            : o
         )
       );
     } else {
@@ -348,7 +378,13 @@ export default function CreateStatusScreen() {
           const { locationX, locationY } = e.nativeEvent;
           setCurrentStroke((prev) =>
             prev
-              ? { ...prev, points: [...prev.points, { x: locationX, y: locationY }] }
+              ? {
+                  ...prev,
+                  points: [
+                    ...prev.points,
+                    { x: locationX, y: locationY },
+                  ],
+                }
               : null
           );
         },
@@ -361,9 +397,7 @@ export default function CreateStatusScreen() {
             return null;
           });
         },
-        onPanResponderTerminate: () => {
-          setCurrentStroke(null);
-        },
+        onPanResponderTerminate: () => setCurrentStroke(null),
       }),
     [drawMode, drawColor]
   );
@@ -372,7 +406,6 @@ export default function CreateStatusScreen() {
     hapticLight();
     setStrokes((prev) => prev.slice(0, -1));
   }
-
   function clearStrokes() {
     hapticLight();
     setStrokes([]);
@@ -403,7 +436,7 @@ export default function CreateStatusScreen() {
   if (mode === 'chooser') {
     return (
       <SafeAreaView style={styles.safeDark} edges={['top', 'bottom']}>
-        <View style={styles.header}>
+        <View style={styles.chooserHeader}>
           <TouchableOpacity
             onPress={() => router.back()}
             style={styles.headerBtn}
@@ -411,42 +444,34 @@ export default function CreateStatusScreen() {
           >
             <Ionicons name="close" size={24} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>New status</Text>
-          <View style={styles.headerBtn} />
         </View>
 
-        <View style={styles.chooserWrap}>
+        <View style={styles.chooserBody}>
           <Text style={styles.chooserHeading}>Share a moment</Text>
           <Text style={styles.chooserSub}>
             Choose how you want to post your status
           </Text>
+        </View>
 
-          <View style={styles.chooserOptions}>
-            <ChooserOption
-              icon="text"
-              label="Text"
-              sub="Write a message"
-              gradient={['#7C5CFF', '#9C82FF']}
-              onPress={() => {
-                hapticLight();
-                setMode('text');
-              }}
-            />
-            <ChooserOption
-              icon="musical-notes"
-              label="Music"
-              sub="Add a soundtrack"
-              gradient={['#EC4899', '#F472B6']}
-              onPress={handleMusic}
-            />
-            <ChooserOption
-              icon="camera"
-              label="Camera"
-              sub="Take or pick a photo"
-              gradient={['#22D3B8', '#14B8A6']}
-              onPress={pickPhoto}
-            />
-          </View>
+        <View style={styles.chooserBottom}>
+          <ChooserCircle
+            icon="text"
+            label="Text"
+            onPress={() => {
+              hapticLight();
+              setMode('text');
+            }}
+          />
+          <ChooserCircle
+            icon="musical-notes"
+            label="Music"
+            onPress={handleMusic}
+          />
+          <ChooserCircle
+            icon="camera"
+            label="Camera"
+            onPress={pickPhoto}
+          />
         </View>
       </SafeAreaView>
     );
@@ -534,7 +559,129 @@ export default function CreateStatusScreen() {
   // ---- EDITOR MODE ----
   return (
     <View style={styles.editorSafe}>
-      {/* CAPTURABLE AREA: photo + overlays + strokes */}
+      {/* Top bar — outside capture area */}
+      <SafeAreaView style={styles.editorTopSafe} edges={['top']}>
+        <View style={styles.editorTopBar}>
+          <TouchableOpacity
+            onPress={() => {
+              hapticLight();
+              setMode('chooser');
+              setAsset(null);
+              setOverlays([]);
+              setStrokes([]);
+              setCaption('');
+              setRotation(0);
+              setDrawMode(false);
+            }}
+            style={styles.editorTopBtn}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          <View style={styles.editorTopRight}>
+            <TouchableOpacity
+              onPress={openNewTextOverlay}
+              style={styles.editorTopBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="text" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleRotate}
+              style={styles.editorTopBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="refresh" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleMusic}
+              style={styles.editorTopBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="musical-notes" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
+                hapticLight();
+                setDrawMode((d) => !d);
+              }}
+              style={[
+                styles.editorTopBtn,
+                drawMode && styles.editorTopBtnActive,
+              ]}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="pencil"
+                size={20}
+                color={drawMode ? '#FFFFFF' : '#FFFFFF'}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Draw toolbar */}
+        {drawMode && (
+          <View style={styles.drawToolbar}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.drawColorRow}
+            >
+              {DRAW_COLORS.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => {
+                    hapticLight();
+                    setDrawColor(c);
+                  }}
+                  style={[
+                    styles.drawColorDot,
+                    { backgroundColor: c },
+                    drawColor === c && styles.drawColorDotActive,
+                  ]}
+                  activeOpacity={0.8}
+                />
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              onPress={undoStroke}
+              style={styles.drawToolBtn}
+              activeOpacity={0.7}
+              disabled={strokes.length === 0}
+            >
+              <Ionicons
+                name="arrow-undo"
+                size={18}
+                color={
+                  strokes.length === 0
+                    ? 'rgba(255,255,255,0.3)'
+                    : '#FFFFFF'
+                }
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={clearStrokes}
+              style={styles.drawToolBtn}
+              activeOpacity={0.7}
+              disabled={strokes.length === 0}
+            >
+              <Ionicons
+                name="trash-outline"
+                size={18}
+                color={
+                  strokes.length === 0
+                    ? 'rgba(255,255,255,0.3)'
+                    : '#FFFFFF'
+                }
+              />
+            </TouchableOpacity>
+          </View>
+        )}
+      </SafeAreaView>
+
+      {/* Capture area — photo + overlays + strokes */}
       <View ref={editorRef} style={styles.captureArea} collapsable={false}>
         <View style={styles.editorMediaWrap}>
           {asset?.type === 'video' ? (
@@ -601,121 +748,8 @@ export default function CreateStatusScreen() {
         </View>
       </View>
 
-      {/* TOP BAR — outside capture, so it doesn't appear in final image */}
-      <SafeAreaView style={styles.editorTopSafe} edges={['top']} pointerEvents="box-none">
-        <View style={styles.editorTopBar}>
-          <TouchableOpacity
-            onPress={() => {
-              hapticLight();
-              setMode('chooser');
-              setAsset(null);
-            }}
-            style={styles.editorTopBtn}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="close" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
-
-          <View style={styles.editorTopRight}>
-            <TouchableOpacity
-              onPress={openNewTextOverlay}
-              style={styles.editorTopBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="text" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleRotate}
-              style={styles.editorTopBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="refresh" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleMusic}
-              style={styles.editorTopBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="musical-notes" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => {
-                hapticLight();
-                setDrawMode((d) => !d);
-              }}
-              style={[
-                styles.editorTopBtn,
-                drawMode && styles.editorTopBtnActive,
-              ]}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="pencil"
-                size={20}
-                color={drawMode ? COLORS.violetLight : '#FFFFFF'}
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Draw toolbar when draw mode is on */}
-        {drawMode && (
-          <View style={styles.drawToolbar}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.drawColorRow}
-            >
-              {DRAW_COLORS.map((c) => (
-                <TouchableOpacity
-                  key={c}
-                  onPress={() => {
-                    hapticLight();
-                    setDrawColor(c);
-                  }}
-                  style={[
-                    styles.drawColorDot,
-                    { backgroundColor: c },
-                    drawColor === c && styles.drawColorDotActive,
-                  ]}
-                  activeOpacity={0.8}
-                />
-              ))}
-            </ScrollView>
-            <TouchableOpacity
-              onPress={undoStroke}
-              style={styles.drawToolBtn}
-              activeOpacity={0.7}
-              disabled={strokes.length === 0}
-            >
-              <Ionicons
-                name="arrow-undo"
-                size={18}
-                color={strokes.length === 0 ? 'rgba(255,255,255,0.3)' : '#FFFFFF'}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={clearStrokes}
-              style={styles.drawToolBtn}
-              activeOpacity={0.7}
-              disabled={strokes.length === 0}
-            >
-              <Ionicons
-                name="trash-outline"
-                size={18}
-                color={strokes.length === 0 ? 'rgba(255,255,255,0.3)' : '#FFFFFF'}
-              />
-            </TouchableOpacity>
-          </View>
-        )}
-      </SafeAreaView>
-
-      {/* BOTTOM BAR — outside capture */}
-      <SafeAreaView
-        style={styles.editorBottomSafe}
-        edges={['bottom']}
-        pointerEvents="box-none"
-      >
+      {/* Bottom bar — outside capture area */}
+      <SafeAreaView style={styles.editorBottomSafe} edges={['bottom']}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
@@ -727,7 +761,7 @@ export default function CreateStatusScreen() {
                 value={caption}
                 onChangeText={(t) => setCaption(t.slice(0, 200))}
                 placeholder="Add a caption…"
-                placeholderTextColor="rgba(255,255,255,0.6)"
+                placeholderTextColor="rgba(255,255,255,0.55)"
                 multiline
                 maxLength={200}
               />
@@ -737,7 +771,7 @@ export default function CreateStatusScreen() {
                 activeOpacity={0.7}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Ionicons name="at" size={20} color="#FFFFFF" />
+                <Ionicons name="at" size={18} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
 
@@ -745,19 +779,26 @@ export default function CreateStatusScreen() {
               onPress={postMediaStatus}
               disabled={uploading}
               activeOpacity={0.85}
-              style={styles.sendBtn}
+              style={styles.sendBtnWrap}
             >
-              {uploading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Ionicons name="send" size={20} color="#FFFFFF" />
-              )}
+              <LinearGradient
+                colors={GRADIENTS.violet as any}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.sendBtn}
+              >
+                {uploading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="send" size={18} color="#FFFFFF" />
+                )}
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* TEXT INPUT MODAL */}
+      {/* Text modal */}
       <Modal
         visible={!!textModal}
         transparent
@@ -771,7 +812,10 @@ export default function CreateStatusScreen() {
           experimentalBlurMethod="dimezisBlurView"
           style={styles.textModalBackdrop}
         >
-          <Pressable style={styles.textModalPress} onPress={() => setTextModal(null)}>
+          <Pressable
+            style={styles.textModalPress}
+            onPress={() => setTextModal(null)}
+          >
             <Pressable
               style={styles.textModalCard}
               onPress={(e) => e.stopPropagation()}
@@ -786,7 +830,9 @@ export default function CreateStatusScreen() {
                 ]}
                 value={textModal?.text ?? ''}
                 onChangeText={(t) =>
-                  setTextModal((prev) => (prev ? { ...prev, text: t } : null))
+                  setTextModal((prev) =>
+                    prev ? { ...prev, text: t } : null
+                  )
                 }
                 placeholder="Type something…"
                 placeholderTextColor="rgba(255,255,255,0.4)"
@@ -819,7 +865,11 @@ export default function CreateStatusScreen() {
                     style={styles.textModalBtnDanger}
                     activeOpacity={0.75}
                   >
-                    <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
+                    <Ionicons
+                      name="trash-outline"
+                      size={18}
+                      color="#FFFFFF"
+                    />
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
@@ -835,6 +885,32 @@ export default function CreateStatusScreen() {
         </BlurView>
       </Modal>
     </View>
+  );
+}
+
+// ============================================================
+// Chooser circle button (WhatsApp style)
+// ============================================================
+function ChooserCircle({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: any;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      style={styles.chooserBtnWrap}
+    >
+      <View style={styles.chooserBtnCircle}>
+        <Ionicons name={icon} size={26} color="#FFFFFF" />
+      </View>
+      <Text style={styles.chooserBtnLabel}>{label}</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -890,60 +966,14 @@ function DraggableOverlay({
     <View
       style={[
         styles.overlayWrap,
-        {
-          transform: [{ translateX: pos.x }, { translateY: pos.y }],
-        },
+        { transform: [{ translateX: pos.x }, { translateY: pos.y }] },
       ]}
       {...panResponder.panHandlers}
     >
-      <Text
-        style={[
-          styles.overlayText,
-          { color: overlay.color },
-        ]}
-      >
+      <Text style={[styles.overlayText, { color: overlay.color }]}>
         {overlay.text}
       </Text>
     </View>
-  );
-}
-
-// ============================================================
-// Chooser option card
-// ============================================================
-function ChooserOption({
-  icon,
-  label,
-  sub,
-  gradient,
-  onPress,
-}: {
-  icon: any;
-  label: string;
-  sub: string;
-  gradient: [string, string];
-  onPress: () => void;
-}) {
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.85}
-      style={styles.chooserCard}
-    >
-      <LinearGradient
-        colors={gradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.chooserIconWrap}
-      >
-        <Ionicons name={icon} size={22} color="#FFFFFF" />
-      </LinearGradient>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.chooserLabel}>{label}</Text>
-        <Text style={styles.chooserLabelSub}>{sub}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.4)" />
-    </TouchableOpacity>
   );
 }
 
@@ -974,9 +1004,18 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  chooserWrap: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
+  // ---- Chooser (WhatsApp style) ----
+  chooserHeader: {
+    paddingHorizontal: SPACING.sm,
+    paddingTop: SPACING.sm,
+  },
+  chooserBody: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 30,
+  },
   chooserHeading: {
-    fontSize: 26,
+    fontSize: 28,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
     letterSpacing: -0.5,
@@ -985,39 +1024,38 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    marginTop: 6,
-    marginBottom: 28,
+    marginTop: 8,
+    lineHeight: 20,
   },
-  chooserOptions: { gap: 12 },
-  chooserCard: {
+  chooserBottom: {
     flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 14,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: '#121212',
-    borderWidth: 1,
-    borderColor: '#1F1F23',
+    gap: 36,
+    paddingBottom: 50,
+    paddingTop: 20,
   },
-  chooserIconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
+  chooserBtnWrap: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  chooserBtnCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#1A1C23',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chooserLabel: {
-    fontSize: 16,
+  chooserBtnLabel: {
+    fontSize: 12.5,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
   },
-  chooserLabelSub: {
-    fontSize: 12.5,
-    fontFamily: FONTS.body,
-    color: COLORS.mist,
-    marginTop: 2,
-  },
 
+  // ---- Text mode ----
   body: {
     flexGrow: 1,
     alignItems: 'center',
@@ -1068,11 +1106,84 @@ const styles = StyleSheet.create({
 
   // ---- Editor ----
   editorSafe: { flex: 1, backgroundColor: '#000000' },
-  captureArea: { flex: 1, position: 'relative' },
+
+  editorTopSafe: {
+    backgroundColor: '#000000',
+  },
+  editorTopBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  editorTopBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(20,20,20,0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // ✅ Only bg change — no border growth
+  editorTopBtnActive: {
+    backgroundColor: 'rgba(124,92,255,0.45)',
+  },
+  editorTopRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+
+  drawToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    marginTop: 4,
+    marginHorizontal: 14,
+    borderRadius: 26,
+  },
+  // ✅ Bigger padding so active scale doesn't clip
+  drawColorRow: {
+    gap: 10,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+  },
+  drawColorDot: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  drawColorDotActive: {
+    borderColor: '#FFFFFF',
+    transform: [{ scale: 1.1 }],
+  },
+  drawToolBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Photo area (between top and bottom bars)
+  captureArea: {
+    flex: 1,
+    backgroundColor: '#000',
+    position: 'relative',
+    overflow: 'hidden',
+  },
   editorMediaWrap: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
   },
   editorMedia: {
     width: '100%',
@@ -1097,113 +1208,61 @@ const styles = StyleSheet.create({
     textShadowRadius: 6,
   },
 
-  editorTopSafe: { position: 'absolute', top: 0, left: 0, right: 0 },
-  editorTopBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+  editorBottomSafe: {
+    backgroundColor: '#000000',
   },
-  editorTopBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(20,20,20,0.65)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  editorTopBtnActive: {
-    backgroundColor: 'rgba(124,92,255,0.35)',
-    borderWidth: 1,
-    borderColor: COLORS.violetLight,
-  },
-  editorTopRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-
-  drawToolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    marginTop: 4,
-    marginHorizontal: 14,
-    borderRadius: 24,
-  },
-  drawColorRow: { gap: 8, paddingHorizontal: 2 },
-  drawColorDot: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.15)',
-  },
-  drawColorDotActive: {
-    borderColor: '#FFFFFF',
-    transform: [{ scale: 1.15 }],
-  },
-  drawToolBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  editorBottomSafe: { position: 'absolute', bottom: 0, left: 0, right: 0 },
   editorBottomBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: 10,
     paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 14,
+    paddingTop: 8,
+    paddingBottom: 12,
   },
   captionBox: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(20,20,20,0.75)',
-    borderRadius: 28,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
-    paddingLeft: 16,
-    paddingRight: 6,
-    minHeight: 48,
-    maxHeight: 110,
+    paddingLeft: 14,
+    paddingRight: 4,
+    minHeight: 42, // ✅ thinner
+    maxHeight: 90,
   },
   captionInput: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14.5,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
-    paddingVertical: 12,
+    paddingVertical: 10,
     includeFontPadding: false,
   } as any,
   mentionBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sendBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: COLORS.teal,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: COLORS.teal,
+  sendBtnWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    overflow: 'hidden',
+    shadowColor: '#7C5CFF',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
     elevation: 8,
+  },
+  sendBtn: {
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   // ---- Text modal ----
