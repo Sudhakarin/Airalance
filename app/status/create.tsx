@@ -1,5 +1,5 @@
 // app/status/create.tsx
-// Create a new status — chooser + photo editor with text overlay + drawing + crop
+// Create a new status — chooser + photo editor with text overlay + drawing + crop (preset + manual)
 
 import { useState, useRef, useMemo, useEffect } from 'react';
 import {
@@ -38,6 +38,7 @@ import {
   hapticSuccess,
   hapticError,
 } from '../../lib/haptics';
+import ManualCropModal from '../../components/ManualCropModal';
 
 const STATUS_COLORS = [
   '#7C5CFF',
@@ -126,6 +127,7 @@ export default function CreateStatusScreen() {
 
   const [uploading, setUploading] = useState(false);
   const [showCropSheet, setShowCropSheet] = useState(false);
+  const [showManualCrop, setShowManualCrop] = useState(false);
 
   const captionRef = useRef<TextInput>(null);
   const editorRef = useRef<View>(null);
@@ -401,7 +403,7 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
-  // ✅ CROP
+  // ✅ CROP — presets
   // ============================================================
   async function applyCrop(ratio: 'original' | '1:1' | '4:5' | '16:9') {
     if (!asset) return;
@@ -465,6 +467,46 @@ export default function CreateStatusScreen() {
       hapticSuccess();
     } catch (err) {
       console.warn('Crop error:', err);
+      hapticError();
+      Alert.alert('Crop failed', 'Please try again.');
+    }
+  }
+
+  // ============================================================
+  // ✅ CROP — manual (user-defined rect)
+  // ============================================================
+  async function applyManualCrop(crop: {
+    originX: number;
+    originY: number;
+    width: number;
+    height: number;
+  }) {
+    if (!asset) return;
+    setShowManualCrop(false);
+    hapticLight();
+    try {
+      const sourceUri = originalAssetUri.current ?? asset.uri;
+      const result = await ImageManipulator.manipulateAsync(
+        sourceUri,
+        [
+          {
+            crop: {
+              originX: crop.originX,
+              originY: crop.originY,
+              width: crop.width,
+              height: crop.height,
+            },
+          },
+        ],
+        {
+          format: ImageManipulator.SaveFormat.JPEG,
+          compress: 0.9,
+        }
+      );
+      setAsset((prev) => (prev ? { ...prev, uri: result.uri } : null));
+      hapticSuccess();
+    } catch (err) {
+      console.warn('Manual crop error:', err);
       hapticError();
       Alert.alert('Crop failed', 'Please try again.');
     }
@@ -646,7 +688,6 @@ export default function CreateStatusScreen() {
             >
               <Ionicons name="text" size={20} color="#FFFFFF" />
             </TouchableOpacity>
-            {/* ✅ Crop button */}
             <TouchableOpacity
               onPress={() => {
                 hapticLight();
@@ -903,10 +944,40 @@ export default function CreateStatusScreen() {
                   <Text style={styles.cropOptionLabel}>{opt.label}</Text>
                 </TouchableOpacity>
               ))}
+              {/* ✅ Manual crop */}
+              <TouchableOpacity
+                onPress={() => {
+                  hapticLight();
+                  setShowCropSheet(false);
+                  setTimeout(() => setShowManualCrop(true), 250);
+                }}
+                style={styles.cropOption}
+                activeOpacity={0.75}
+              >
+                <View
+                  style={[
+                    styles.cropOptionIcon,
+                    { backgroundColor: 'rgba(124,92,255,0.35)' },
+                  ]}
+                >
+                  <Ionicons name="crop" size={22} color="#FFFFFF" />
+                </View>
+                <Text style={styles.cropOptionLabel}>Manual</Text>
+              </TouchableOpacity>
             </View>
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* ✅ Manual crop modal */}
+      {asset && (
+        <ManualCropModal
+          visible={showManualCrop}
+          imageUri={originalAssetUri.current ?? asset.uri}
+          onCancel={() => setShowManualCrop(false)}
+          onApply={applyManualCrop}
+        />
+      )}
 
       {/* Text modal */}
       <Modal
@@ -1402,8 +1473,8 @@ const styles = StyleSheet.create({
   },
   cropRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    gap: 8,
+    justifyContent: 'space-between',
+    gap: 6,
   },
   cropOption: {
     alignItems: 'center',
@@ -1411,9 +1482,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cropOptionIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(124,92,255,0.15)',
     borderWidth: 1,
     borderColor: 'rgba(124,92,255,0.35)',
@@ -1421,7 +1492,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cropOptionLabel: {
-    fontSize: 11.5,
+    fontSize: 10.5,
     fontFamily: FONTS.bodyMedium,
     color: 'rgba(255,255,255,0.85)',
   },
