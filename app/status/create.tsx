@@ -1,7 +1,7 @@
 // app/status/create.tsx
-// Create a new status — chooser (text/music/camera) + photo editor
+// Create a new status — chooser + photo editor with text overlay + drawing
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,10 @@ import {
   Platform,
   ScrollView,
   Image as RNImage,
+  PanResponder,
+  Dimensions,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,6 +25,9 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import Svg, { Path } from 'react-native-svg';
+import { captureRef } from 'react-native-view-shot';
+import { BlurView } from 'expo-blur';
 import { COLORS, FONTS, RADII, SPACING, CONSTANTS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import {
@@ -40,6 +47,9 @@ const STATUS_COLORS = [
   '#111827',
 ];
 
+const DRAW_COLORS = ['#FFFFFF', '#000000', '#EF4444', '#F59E0B', '#22D3B8', '#7C5CFF'];
+const TEXT_COLORS = ['#FFFFFF', '#000000', '#F59E0B', '#EF4444', '#22D3B8', '#7C5CFF'];
+
 type Mode = 'chooser' | 'text' | 'editor';
 
 type PickedAsset = {
@@ -49,40 +59,74 @@ type PickedAsset = {
   fileSize?: number;
 };
 
+type TextOverlay = {
+  id: string;
+  text: string;
+  color: string;
+  x: number; // offset from center (px)
+  y: number;
+};
+
+type Stroke = {
+  id: string;
+  color: string;
+  points: { x: number; y: number }[];
+};
+
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+
+function pointsToPath(points: { x: number; y: number }[]): string {
+  if (points.length === 0) return '';
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length; i++) {
+    d += ` L ${points[i].x} ${points[i].y}`;
+  }
+  return d;
+}
+
 export default function CreateStatusScreen() {
   const router = useRouter();
 
-  // ---- Mode ----
   const [mode, setMode] = useState<Mode>('chooser');
 
-  // ---- Text mode ----
   const [text, setText] = useState('');
   const [color, setColor] = useState(STATUS_COLORS[0]);
 
-  // ---- Editor mode ----
   const [asset, setAsset] = useState<PickedAsset | null>(null);
   const [caption, setCaption] = useState('');
-  const [rotation, setRotation] = useState(0); // 0, 90, 180, 270
+  const [rotation, setRotation] = useState(0);
 
-  // ---- Shared ----
+  // Text overlays
+  const [overlays, setOverlays] = useState<TextOverlay[]>([]);
+  const [textModal, setTextModal] = useState<{
+    id: string | null;
+    text: string;
+    color: string;
+  } | null>(null);
+
+  // Drawing
+  const [drawMode, setDrawMode] = useState(false);
+  const [drawColor, setDrawColor] = useState(DRAW_COLORS[0]);
+  const [strokes, setStrokes] = useState<Stroke[]>([]);
+  const [currentStroke, setCurrentStroke] = useState<Stroke | null>(null);
+
   const [uploading, setUploading] = useState(false);
+
   const captionRef = useRef<TextInput>(null);
+  const editorRef = useRef<View>(null);
   const autoPickedRef = useRef(false);
 
-  // ---- Auto-open photo picker on mount (WhatsApp-style) ----
+  // Auto-open picker on mount
   useEffect(() => {
     if (autoPickedRef.current) return;
     autoPickedRef.current = true;
-
-    const t = setTimeout(() => {
-      pickPhoto();
-    }, 350);
+    const t = setTimeout(() => pickPhoto(), 350);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ============================================================
-  // PICK PHOTO
+  // PICK / CAMERA
   // ============================================================
   async function pickPhoto() {
     hapticLight();
@@ -91,46 +135,27 @@ export default function CreateStatusScreen() {
       Alert.alert('Permission needed', 'Please allow photos access.');
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       quality: 0.85,
-      allowsEditing: false,
     });
-
-    if (result.canceled || !result.assets?.[0]) {
-      // User cancelled — stay on chooser
-      return;
-    }
+    if (result.canceled || !result.assets?.[0]) return;
 
     const a = result.assets[0];
     const isVideo = a.type === 'video';
-
-    if (
-      !isVideo &&
-      a.fileSize &&
-      a.fileSize > CONSTANTS.MAX_IMAGE_BYTES
-    ) {
+    if (!isVideo && a.fileSize && a.fileSize > CONSTANTS.MAX_IMAGE_BYTES) {
       hapticError();
       Alert.alert('Image too large', 'Maximum 8 MB.');
       return;
     }
-
-    setAsset({
+    resetEditor({
       uri: a.uri,
       type: isVideo ? 'video' : 'image',
       mimeType: a.mimeType,
       fileSize: a.fileSize,
     });
-    setRotation(0);
-    setCaption('');
-    hapticSuccess();
-    setMode('editor');
   }
 
-  // ============================================================
-  // OPEN CAMERA
-  // ============================================================
   async function openCamera() {
     hapticLight();
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -138,25 +163,29 @@ export default function CreateStatusScreen() {
       Alert.alert('Permission needed', 'Please allow camera access.');
       return;
     }
-
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       quality: 0.85,
     });
-
     if (result.canceled || !result.assets?.[0]) return;
-
     const a = result.assets[0];
     const isVideo = a.type === 'video';
-
-    setAsset({
+    resetEditor({
       uri: a.uri,
       type: isVideo ? 'video' : 'image',
       mimeType: a.mimeType,
       fileSize: a.fileSize,
     });
+  }
+
+  function resetEditor(a: PickedAsset) {
+    setAsset(a);
     setRotation(0);
     setCaption('');
+    setOverlays([]);
+    setStrokes([]);
+    setDrawMode(false);
+    setCurrentStroke(null);
     hapticSuccess();
     setMode('editor');
   }
@@ -170,14 +199,12 @@ export default function CreateStatusScreen() {
     try {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error('Not logged in');
-
       const { error } = await supabase.from('statuses').insert({
         user_id: authData.user.id,
         text_content: text.trim(),
         bg_color: color,
         media_type: 'text',
       });
-
       if (error) throw error;
       hapticSuccess();
       router.replace('/(tabs)/status');
@@ -190,7 +217,7 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
-  // POST MEDIA STATUS (from editor)
+  // POST MEDIA STATUS (capture composite)
   // ============================================================
   async function postMediaStatus() {
     if (!asset) return;
@@ -199,21 +226,28 @@ export default function CreateStatusScreen() {
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error('Not logged in');
 
-      const response = await fetch(asset.uri);
+      // Capture composite if overlays/drawings exist
+      let uploadUri = asset.uri;
+      let uploadExt = (asset.uri.split('.').pop() ?? 'jpg').toLowerCase().slice(0, 5);
+      let uploadMime = asset.mimeType ?? 'image/jpeg';
+
+      if (overlays.length > 0 || strokes.length > 0 || rotation !== 0) {
+        const captured = await captureRef(editorRef, {
+          format: 'jpg',
+          quality: 0.9,
+        });
+        uploadUri = captured;
+        uploadExt = 'jpg';
+        uploadMime = 'image/jpeg';
+      }
+
+      const response = await fetch(uploadUri);
       const arrayBuffer = await response.arrayBuffer();
-      const ext = (asset.uri.split('.').pop() ?? 'jpg')
-        .toLowerCase()
-        .slice(0, 5);
-      const path = `${authData.user.id}/${Date.now()}.${ext}`;
+      const path = `${authData.user.id}/${Date.now()}.${uploadExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from(CONSTANTS.STATUS_MEDIA_BUCKET)
-        .upload(path, arrayBuffer, {
-          contentType:
-            asset.mimeType ??
-            (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
-        });
-
+        .upload(path, arrayBuffer, { contentType: uploadMime });
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage
@@ -223,14 +257,15 @@ export default function CreateStatusScreen() {
       const { error } = await supabase.from('statuses').insert({
         user_id: authData.user.id,
         media_url: urlData.publicUrl,
-        media_type: asset.type,
+        media_type: 'image',
         text_content: caption.trim() || null,
       });
-
       if (error) throw error;
+
       hapticSuccess();
       router.replace('/(tabs)/status');
     } catch (err: any) {
+      console.warn('Post media error:', err);
       hapticError();
       Alert.alert('Upload failed', err?.message ?? 'Please try again.');
     } finally {
@@ -239,51 +274,132 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
-  // ROTATE — cycles 0 → 90 → 180 → 270 → 0
+  // TEXT OVERLAY
+  // ============================================================
+  function openNewTextOverlay() {
+    hapticLight();
+    setTextModal({ id: null, text: '', color: '#FFFFFF' });
+  }
+
+  function openEditTextOverlay(o: TextOverlay) {
+    hapticLight();
+    setTextModal({ id: o.id, text: o.text, color: o.color });
+  }
+
+  function saveTextOverlay() {
+    if (!textModal) return;
+    const t = textModal.text.trim();
+    if (!t) {
+      if (textModal.id) {
+        setOverlays((prev) => prev.filter((o) => o.id !== textModal.id));
+      }
+      setTextModal(null);
+      return;
+    }
+    if (textModal.id) {
+      setOverlays((prev) =>
+        prev.map((o) =>
+          o.id === textModal.id ? { ...o, text: t, color: textModal.color } : o
+        )
+      );
+    } else {
+      const id = `o-${Date.now()}`;
+      setOverlays((prev) => [
+        ...prev,
+        { id, text: t, color: textModal.color, x: 0, y: 0 },
+      ]);
+    }
+    hapticSuccess();
+    setTextModal(null);
+  }
+
+  function deleteTextOverlay() {
+    if (!textModal?.id) return;
+    setOverlays((prev) => prev.filter((o) => o.id !== textModal.id));
+    hapticLight();
+    setTextModal(null);
+  }
+
+  function updateOverlayPosition(id: string, x: number, y: number) {
+    setOverlays((prev) =>
+      prev.map((o) => (o.id === id ? { ...o, x, y } : o))
+    );
+  }
+
+  // ============================================================
+  // DRAWING
+  // ============================================================
+  const drawPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => drawMode,
+        onMoveShouldSetPanResponder: () => drawMode,
+        onPanResponderGrant: (e) => {
+          if (!drawMode) return;
+          const { locationX, locationY } = e.nativeEvent;
+          setCurrentStroke({
+            id: `s-${Date.now()}`,
+            color: drawColor,
+            points: [{ x: locationX, y: locationY }],
+          });
+        },
+        onPanResponderMove: (e) => {
+          if (!drawMode) return;
+          const { locationX, locationY } = e.nativeEvent;
+          setCurrentStroke((prev) =>
+            prev
+              ? { ...prev, points: [...prev.points, { x: locationX, y: locationY }] }
+              : null
+          );
+        },
+        onPanResponderRelease: () => {
+          if (!drawMode) return;
+          setCurrentStroke((prev) => {
+            if (prev && prev.points.length > 1) {
+              setStrokes((s) => [...s, prev]);
+            }
+            return null;
+          });
+        },
+        onPanResponderTerminate: () => {
+          setCurrentStroke(null);
+        },
+      }),
+    [drawMode, drawColor]
+  );
+
+  function undoStroke() {
+    hapticLight();
+    setStrokes((prev) => prev.slice(0, -1));
+  }
+
+  function clearStrokes() {
+    hapticLight();
+    setStrokes([]);
+  }
+
+  // ============================================================
+  // MISC
   // ============================================================
   function handleRotate() {
     hapticLight();
     setRotation((r) => (r + 90) % 360);
   }
-
-  // ============================================================
-  // MENTION — append @ to caption
-  // ============================================================
   function handleMention() {
     hapticLight();
     setCaption((c) => (c + ' @').slice(0, 200));
     captionRef.current?.focus();
   }
-
-  // ============================================================
-  // MUSIC — placeholder
-  // ============================================================
   function handleMusic() {
     hapticLight();
     Alert.alert('Coming soon', 'Music in status will be available soon.');
   }
 
   // ============================================================
-  // DRAW — placeholder
-  // ============================================================
-  function handleDraw() {
-    hapticLight();
-    Alert.alert('Coming soon', 'Drawing tool will be available soon.');
-  }
-
-  // ============================================================
-  // TEXT OVERLAY — placeholder
-  // ============================================================
-  function handleTextOverlay() {
-    hapticLight();
-    Alert.alert('Coming soon', 'Text overlay on photo will be available soon.');
-  }
-
-  // ============================================================
   // RENDER
   // ============================================================
 
-  // ---------- CHOOSER ----------
+  // ---- CHOOSER ----
   if (mode === 'chooser') {
     return (
       <SafeAreaView style={styles.safeDark} edges={['top', 'bottom']}>
@@ -336,7 +452,7 @@ export default function CreateStatusScreen() {
     );
   }
 
-  // ---------- TEXT ----------
+  // ---- TEXT MODE ----
   if (mode === 'text') {
     return (
       <SafeAreaView
@@ -415,35 +531,78 @@ export default function CreateStatusScreen() {
     );
   }
 
-  // ---------- EDITOR (photo picked) ----------
+  // ---- EDITOR MODE ----
   return (
     <View style={styles.editorSafe}>
-      {/* Fullscreen photo (with rotation) */}
-      <View style={styles.editorMediaWrap}>
-        {asset?.type === 'video' ? (
-          <RNImage
-            source={{ uri: asset.uri }}
-            style={[
-              styles.editorMedia,
-              { transform: [{ rotate: `${rotation}deg` }] },
-            ]}
-            resizeMode="contain"
+      {/* CAPTURABLE AREA: photo + overlays + strokes */}
+      <View ref={editorRef} style={styles.captureArea} collapsable={false}>
+        <View style={styles.editorMediaWrap}>
+          {asset?.type === 'video' ? (
+            <RNImage
+              source={{ uri: asset.uri }}
+              style={[
+                styles.editorMedia,
+                { transform: [{ rotate: `${rotation}deg` }] },
+              ]}
+              resizeMode="contain"
+            />
+          ) : (
+            <Image
+              source={{ uri: asset?.uri }}
+              style={[
+                styles.editorMedia,
+                { transform: [{ rotate: `${rotation}deg` }] },
+              ]}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+            />
+          )}
+        </View>
+
+        {/* Text overlays */}
+        {overlays.map((o) => (
+          <DraggableOverlay
+            key={o.id}
+            overlay={o}
+            onUpdate={updateOverlayPosition}
+            onTap={() => openEditTextOverlay(o)}
           />
-        ) : (
-          <Image
-            source={{ uri: asset?.uri }}
-            style={[
-              styles.editorMedia,
-              { transform: [{ rotate: `${rotation}deg` }] },
-            ]}
-            contentFit="contain"
-            cachePolicy="memory-disk"
-          />
-        )}
+        ))}
+
+        {/* Drawing layer */}
+        <View
+          style={StyleSheet.absoluteFill}
+          pointerEvents={drawMode ? 'auto' : 'none'}
+          {...drawPanResponder.panHandlers}
+        >
+          <Svg style={StyleSheet.absoluteFill}>
+            {strokes.map((s) => (
+              <Path
+                key={s.id}
+                d={pointsToPath(s.points)}
+                stroke={s.color}
+                strokeWidth={5}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+            {currentStroke && (
+              <Path
+                d={pointsToPath(currentStroke.points)}
+                stroke={currentStroke.color}
+                strokeWidth={5}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
+          </Svg>
+        </View>
       </View>
 
-      {/* Top bar overlay */}
-      <SafeAreaView style={styles.editorTopSafe} edges={['top']}>
+      {/* TOP BAR — outside capture, so it doesn't appear in final image */}
+      <SafeAreaView style={styles.editorTopSafe} edges={['top']} pointerEvents="box-none">
         <View style={styles.editorTopBar}>
           <TouchableOpacity
             onPress={() => {
@@ -459,7 +618,7 @@ export default function CreateStatusScreen() {
 
           <View style={styles.editorTopRight}>
             <TouchableOpacity
-              onPress={handleTextOverlay}
+              onPress={openNewTextOverlay}
               style={styles.editorTopBtn}
               activeOpacity={0.7}
             >
@@ -480,18 +639,83 @@ export default function CreateStatusScreen() {
               <Ionicons name="musical-notes" size={20} color="#FFFFFF" />
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={handleDraw}
-              style={styles.editorTopBtn}
+              onPress={() => {
+                hapticLight();
+                setDrawMode((d) => !d);
+              }}
+              style={[
+                styles.editorTopBtn,
+                drawMode && styles.editorTopBtnActive,
+              ]}
               activeOpacity={0.7}
             >
-              <Ionicons name="pencil" size={20} color="#FFFFFF" />
+              <Ionicons
+                name="pencil"
+                size={20}
+                color={drawMode ? COLORS.violetLight : '#FFFFFF'}
+              />
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Draw toolbar when draw mode is on */}
+        {drawMode && (
+          <View style={styles.drawToolbar}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.drawColorRow}
+            >
+              {DRAW_COLORS.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => {
+                    hapticLight();
+                    setDrawColor(c);
+                  }}
+                  style={[
+                    styles.drawColorDot,
+                    { backgroundColor: c },
+                    drawColor === c && styles.drawColorDotActive,
+                  ]}
+                  activeOpacity={0.8}
+                />
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              onPress={undoStroke}
+              style={styles.drawToolBtn}
+              activeOpacity={0.7}
+              disabled={strokes.length === 0}
+            >
+              <Ionicons
+                name="arrow-undo"
+                size={18}
+                color={strokes.length === 0 ? 'rgba(255,255,255,0.3)' : '#FFFFFF'}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={clearStrokes}
+              style={styles.drawToolBtn}
+              activeOpacity={0.7}
+              disabled={strokes.length === 0}
+            >
+              <Ionicons
+                name="trash-outline"
+                size={18}
+                color={strokes.length === 0 ? 'rgba(255,255,255,0.3)' : '#FFFFFF'}
+              />
+            </TouchableOpacity>
+          </View>
+        )}
       </SafeAreaView>
 
-      {/* Bottom bar */}
-      <SafeAreaView style={styles.editorBottomSafe} edges={['bottom']}>
+      {/* BOTTOM BAR — outside capture */}
+      <SafeAreaView
+        style={styles.editorBottomSafe}
+        edges={['bottom']}
+        pointerEvents="box-none"
+      >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
@@ -532,6 +756,154 @@ export default function CreateStatusScreen() {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* TEXT INPUT MODAL */}
+      <Modal
+        visible={!!textModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTextModal(null)}
+        statusBarTranslucent
+      >
+        <BlurView
+          intensity={50}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.textModalBackdrop}
+        >
+          <Pressable style={styles.textModalPress} onPress={() => setTextModal(null)}>
+            <Pressable
+              style={styles.textModalCard}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <Text style={styles.textModalTitle}>
+                {textModal?.id ? 'Edit text' : 'Add text'}
+              </Text>
+              <TextInput
+                style={[
+                  styles.textModalInput,
+                  { color: textModal?.color ?? '#FFFFFF' },
+                ]}
+                value={textModal?.text ?? ''}
+                onChangeText={(t) =>
+                  setTextModal((prev) => (prev ? { ...prev, text: t } : null))
+                }
+                placeholder="Type something…"
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                multiline
+                maxLength={100}
+                autoFocus
+              />
+              <View style={styles.textColorRow}>
+                {TEXT_COLORS.map((c) => (
+                  <TouchableOpacity
+                    key={c}
+                    onPress={() =>
+                      setTextModal((prev) =>
+                        prev ? { ...prev, color: c } : null
+                      )
+                    }
+                    style={[
+                      styles.textColorDot,
+                      { backgroundColor: c },
+                      textModal?.color === c && styles.textColorDotActive,
+                    ]}
+                    activeOpacity={0.8}
+                  />
+                ))}
+              </View>
+              <View style={styles.textModalBtns}>
+                {textModal?.id && (
+                  <TouchableOpacity
+                    onPress={deleteTextOverlay}
+                    style={styles.textModalBtnDanger}
+                    activeOpacity={0.75}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  onPress={saveTextOverlay}
+                  style={styles.textModalBtnPrimary}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.textModalBtnPrimaryText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </BlurView>
+      </Modal>
+    </View>
+  );
+}
+
+// ============================================================
+// Draggable text overlay
+// ============================================================
+function DraggableOverlay({
+  overlay,
+  onUpdate,
+  onTap,
+}: {
+  overlay: TextOverlay;
+  onUpdate: (id: string, x: number, y: number) => void;
+  onTap: () => void;
+}) {
+  const [pos, setPos] = useState({ x: overlay.x, y: overlay.y });
+  const posRef = useRef(pos);
+  posRef.current = pos;
+
+  const startRef = useRef({ x: 0, y: 0 });
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: (_, g) =>
+          Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3,
+        onPanResponderGrant: () => {
+          startRef.current = { ...posRef.current };
+        },
+        onPanResponderMove: (_, g) => {
+          setPos({
+            x: startRef.current.x + g.dx,
+            y: startRef.current.y + g.dy,
+          });
+        },
+        onPanResponderRelease: (_, g) => {
+          if (Math.abs(g.dx) < 5 && Math.abs(g.dy) < 5) {
+            onTap();
+          } else {
+            onUpdate(
+              overlay.id,
+              startRef.current.x + g.dx,
+              startRef.current.y + g.dy
+            );
+          }
+        },
+      }),
+    [overlay.id, onUpdate, onTap]
+  );
+
+  return (
+    <View
+      style={[
+        styles.overlayWrap,
+        {
+          transform: [{ translateX: pos.x }, { translateY: pos.y }],
+        },
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <Text
+        style={[
+          styles.overlayText,
+          { color: overlay.color },
+        ]}
+      >
+        {overlay.text}
+      </Text>
     </View>
   );
 }
@@ -575,8 +947,10 @@ function ChooserOption({
   );
 }
 
+// ============================================================
+// STYLES
+// ============================================================
 const styles = StyleSheet.create({
-  // ---- Common ----
   safe: { flex: 1 },
   safeDark: { flex: 1, backgroundColor: '#0A0C12' },
 
@@ -600,12 +974,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // ---- Chooser ----
-  chooserWrap: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
+  chooserWrap: { flex: 1, paddingHorizontal: 20, paddingTop: 20 },
   chooserHeading: {
     fontSize: 26,
     fontFamily: FONTS.displayBold,
@@ -619,9 +988,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 28,
   },
-  chooserOptions: {
-    gap: 12,
-  },
+  chooserOptions: { gap: 12 },
   chooserCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -651,7 +1018,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // ---- Text mode ----
   body: {
     flexGrow: 1,
     alignItems: 'center',
@@ -672,11 +1038,7 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.lg,
     gap: SPACING.sm,
   },
-  colorRow: {
-    gap: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 6,
-  },
+  colorRow: { gap: 8, paddingHorizontal: 4, paddingVertical: 6 },
   colorDot: {
     width: 30,
     height: 30,
@@ -704,13 +1066,11 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // ---- Editor mode ----
-  editorSafe: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
+  // ---- Editor ----
+  editorSafe: { flex: 1, backgroundColor: '#000000' },
+  captureArea: { flex: 1, position: 'relative' },
   editorMediaWrap: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -719,12 +1079,25 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
-  editorTopSafe: {
+  overlayWrap: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+    left: '50%',
+    top: '50%',
+    marginLeft: -120,
+    marginTop: -20,
+    width: 240,
+    alignItems: 'center',
   },
+  overlayText: {
+    fontSize: 28,
+    fontFamily: FONTS.displayBold,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
+  },
+
+  editorTopSafe: { position: 'absolute', top: 0, left: 0, right: 0 },
   editorTopBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -740,18 +1113,49 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  editorTopBtnActive: {
+    backgroundColor: 'rgba(124,92,255,0.35)',
+    borderWidth: 1,
+    borderColor: COLORS.violetLight,
+  },
   editorTopRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
 
-  editorBottomSafe: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+  drawToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    marginTop: 4,
+    marginHorizontal: 14,
+    borderRadius: 24,
   },
+  drawColorRow: { gap: 8, paddingHorizontal: 2 },
+  drawColorDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  drawColorDotActive: {
+    borderColor: '#FFFFFF',
+    transform: [{ scale: 1.15 }],
+  },
+  drawToolBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  editorBottomSafe: { position: 'absolute', bottom: 0, left: 0, right: 0 },
   editorBottomBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -800,5 +1204,85 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 12,
     elevation: 8,
+  },
+
+  // ---- Text modal ----
+  textModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  textModalPress: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  textModalCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: 'rgba(20,22,30,0.96)',
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+  },
+  textModalTitle: {
+    fontSize: 15,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  textModalInput: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    padding: 12,
+    fontSize: 18,
+    fontFamily: FONTS.bodySemiBold,
+    minHeight: 60,
+    textAlignVertical: 'top',
+  } as any,
+  textColorRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+    justifyContent: 'center',
+  },
+  textColorDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  textColorDotActive: {
+    borderColor: '#FFFFFF',
+    transform: [{ scale: 1.15 }],
+  },
+  textModalBtns: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  textModalBtnPrimary: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: COLORS.violet,
+    alignItems: 'center',
+  },
+  textModalBtnPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+  },
+  textModalBtnDanger: {
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: COLORS.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
