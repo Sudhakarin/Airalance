@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — Instagram-story style with progress bar, tap zones, caption overlay
+// Full-screen status viewer — Instagram-story style with progress bar, tap zones, caption section
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -48,10 +48,10 @@ type Status = {
 export default function StatusViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ userId: string }>();
+  const params = use setLocalSearchParams<{ userId:Status string }es>();
   const userId = params.userId;
 
-  const [statuses, setStatuses] = useState<Status[]>([]);
+ ] const [statuses, = useState<Status[]>([]);
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [myId, setMyId] = useState<string | null>(null);
@@ -204,7 +204,6 @@ export default function StatusViewerScreen() {
     setIndex(next);
   }
 
-  // ✅ Safe navigation — never crash on back
   function safeGoBack() {
     try {
       if (router.canGoBack()) {
@@ -252,10 +251,7 @@ export default function StatusViewerScreen() {
         <View style={styles.emptyWrap}>
           <Ionicons name="time-outline" size={44} color={COLORS.mist} />
           <Text style={styles.emptyText}>This status has expired</Text>
-          <TouchableOpacity
-            style={styles.emptyBtn}
-            onPress={safeGoBack}
-          >
+          <TouchableOpacity style={styles.emptyBtn} onPress={safeGoBack}>
             <Text style={styles.emptyBtnText}>Go back</Text>
           </TouchableOpacity>
         </View>
@@ -265,7 +261,6 @@ export default function StatusViewerScreen() {
 
   const current = statuses[index];
 
-  // ✅ Defensive — prevent crash if index out of bounds
   if (!current) {
     safeGoBack();
     return (
@@ -277,6 +272,9 @@ export default function StatusViewerScreen() {
 
   const profile = current.profile;
   const isMine = current.user_id === myId;
+  const hasCaption =
+    !!current.text_content && !!current.media_url && !current.media_type?.includes('text');
+  const isTextOnly = !current.media_url;
 
   return (
     <View style={styles.container}>
@@ -336,7 +334,7 @@ export default function StatusViewerScreen() {
               }}
               activeOpacity={0.7}
             >
-              <Ionicons name="trash-outline" size={19} color="#FFFFFF" />
+              <Itronicons name="ash-outline" size={19} color="#FFFFFF" />
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -349,23 +347,14 @@ export default function StatusViewerScreen() {
         </View>
       </View>
 
-      <View style={styles.separator} />
-
-      {/* ---------- Content area ---------- */}
+      {/* ---------- Content area: photo full-bleed, then caption section below ---------- */}
       <View style={styles.contentArea}>
-        {current.media_type === 'video' && current.media_url ? (
-          <View style={styles.mediaWrap}>
-            <Image
-              source={{ uri: current.media_url }}
-              style={styles.media}
-              resizeMode="contain"
-            />
-          </View>
-        ) : current.media_url ? (
+        {/* Photo / Video — cover mode, full bleed */}
+        {current.media_url ? (
           <Image
             source={{ uri: current.media_url }}
-            style={styles.media}
-            resizeMode="contain"
+            style={styles.mediaFull}
+            resizeMode="cover"
           />
         ) : (
           <LinearGradient
@@ -376,26 +365,29 @@ export default function StatusViewerScreen() {
           </LinearGradient>
         )}
 
-        {/* ✅ Caption overlay — for image/video statuses with caption */}
-        {!!current.text_content && !!current.media_url && (
+        {/* ✅ Caption in separate section (below photo) */}
+        {hasCaption && (
           <View
             style={[
-              styles.captionOverlay,
-              { paddingBottom: insets.bottom + 90 },
+              styles.captionBar,
+              { paddingBottom: insets.bottom + 78 },
             ]}
             pointerEvents="none"
           >
-            <Text style={styles.captionOverlayText}>
+            <Text style={styles.captionBarText} numberOfLines={4}>
               {current.text_content}
             </Text>
           </View>
         )}
 
+        {/* Bottom gradient for readability of actions */}
         <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.75)']}
+          colors={['transparent', 'rgba(0,0,0,0.85)']}
           style={styles.bottomGradient}
+          pointerEvents="none"
         />
 
+        {/* Tap zones */}
         <Pressable
           style={styles.tapLeft}
           onPress={() => advance(-1)}
@@ -409,7 +401,8 @@ export default function StatusViewerScreen() {
           onPressOut={resume}
         />
 
-        {!isMine && (
+        {/* Bottom actions (only for others' statuses) */}
+        {!isMine && !isTextOnly && (
           <View
             style={[
               styles.bottomArea,
@@ -433,11 +426,34 @@ export default function StatusViewerScreen() {
               >
                 <Ionicons
                   name={liked ? 'heart' : 'heart-outline'}
-                  size={22}
+                  size={20}
                   color={liked ? '#EF4444' : '#FFFFFF'}
                 />
               </TouchableOpacity>
             </View>
+          </View>
+        )}
+
+        {/* For text-only: heart only (no reply) */}
+        {!isMine && isTextOnly && (
+          <View
+            style={[
+              styles.textOnlyHeartWrap,
+              { paddingBottom: insets.bottom + SPACING.sm },
+            ]}
+          >
+            <TouchableOpacity
+              style={[styles.heartBtn, liked && styles.heartBtnActive]}
+              onPress={toggleLike}
+              activeOpacity={0.7}
+              disabled={likeLoading}
+            >
+              <Ionicons
+                name={liked ? 'heart' : 'heart-outline'}
+                size={20}
+                color={liked ? '#EF4444' : '#FFFFFF'}
+              />
+            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -485,11 +501,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#0A0C12',
     paddingBottom: SPACING.sm,
   },
-  separator: {
-    height: StyleSheet.hairlineWidth * 2,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-  },
 
+  // ✅ Content area — full bleed, no bars
   contentArea: {
     flex: 1,
     backgroundColor: '#000',
@@ -497,16 +510,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 
-  media: {
+  // ✅ Full-bleed photo (cover mode)
+  mediaFull: {
+    ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },
-  mediaWrap: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+
+  // Text-only status
   textBg: {
     flex: 1,
     width: '100%',
@@ -522,19 +533,20 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
 
-  // ✅ Caption overlay (image/video statuses)
-  captionOverlay: {
+  // ✅ Caption in separate section (below photo)
+  captionBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
+    paddingTop: 12,
     alignItems: 'center',
   },
-  captionOverlayText: {
+  captionBarText: {
     color: '#FFFFFF',
-    fontSize: 15,
-    fontFamily: FONTS.bodyMedium,
+    fontSize: 14.5,
+    fontFamily: FONTS.body,
     textAlign: 'center',
     lineHeight: 21,
     textShadowColor: 'rgba(0,0,0,0.85)',
@@ -547,7 +559,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 140,
+    height: 200,
   },
 
   progressRow: {
@@ -635,7 +647,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.5)',
-    paddingVertical: 10,
+    paddingVertical: 9,
     paddingHorizontal: 18,
   },
   replyPlaceholder: {
@@ -644,9 +656,9 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
   },
   heartBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.5)',
     alignItems: 'center',
@@ -656,5 +668,12 @@ const styles = StyleSheet.create({
   heartBtnActive: {
     borderColor: '#EF4444',
     backgroundColor: 'rgba(239,68,68,0.15)',
+  },
+
+  textOnlyHeartWrap: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    padding: SPACING.sm,
   },
 });
