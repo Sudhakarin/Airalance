@@ -1,5 +1,5 @@
 // app/(tabs)/status.tsx
-// Status tab — shows status list grouped by user with story rings + proper spacing
+// Status tab — shows status list grouped by user with story rings + new status popup
 
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -10,7 +10,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  Pressable,
+  Alert,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -117,6 +121,7 @@ export default function StatusScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [myId, setMyId] = useState<string | null>(null);
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
+  const [showAddMenu, setShowAddMenu] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -185,7 +190,7 @@ export default function StatusScreen() {
     loadStatuses();
   }, [loadStatuses]);
 
-  // Safe realtime — only INSERT events, debounced, crash-safe
+  // Safe realtime
   useEffect(() => {
     if (!myId) return;
 
@@ -251,8 +256,19 @@ export default function StatusScreen() {
     router.push(`/status/${userId}`);
   }
 
-  function openCreateStatus() {
-    router.push('/status/create');
+  // ✅ New status popup menu
+  function openAddMenu() {
+    setShowAddMenu(true);
+  }
+
+  function navigateToCreate(mode: 'text' | 'camera') {
+    setShowAddMenu(false);
+    router.push(`/status/create?mode=${mode}`);
+  }
+
+  function handleMusicFromMenu() {
+    setShowAddMenu(false);
+    Alert.alert('Coming soon', 'Music in status will be available soon.');
   }
 
   const recent = otherGroups
@@ -286,7 +302,7 @@ export default function StatusScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Status</Text>
         <TouchableOpacity
-          onPress={openCreateStatus}
+          onPress={openAddMenu}
           style={styles.headerBtn}
           activeOpacity={0.7}
         >
@@ -310,7 +326,7 @@ export default function StatusScreen() {
           onPress={() =>
             myStatuses.length > 0
               ? openStatusViewer(myId!)
-              : openCreateStatus()
+              : openAddMenu()
           }
           activeOpacity={0.7}
         >
@@ -331,7 +347,7 @@ export default function StatusScreen() {
             {myStatuses.length === 0 && (
               <TouchableOpacity
                 style={styles.addBadge}
-                onPress={openCreateStatus}
+                onPress={openAddMenu}
                 activeOpacity={0.85}
               >
                 <Ionicons name="add" size={13} color="#FFFFFF" />
@@ -353,7 +369,7 @@ export default function StatusScreen() {
           <View style={styles.myStatusIcons}>
             <TouchableOpacity
               style={styles.iconBtn}
-              onPress={openCreateStatus}
+              onPress={openAddMenu}
               activeOpacity={0.7}
             >
               <Ionicons
@@ -473,7 +489,7 @@ export default function StatusScreen() {
               </Text>
               <TouchableOpacity
                 style={styles.emptyBtn}
-                onPress={openCreateStatus}
+                onPress={openAddMenu}
                 activeOpacity={0.85}
               >
                 <Text style={styles.emptyBtnText}>Add your status</Text>
@@ -481,6 +497,83 @@ export default function StatusScreen() {
             </View>
           )}
       </ScrollView>
+
+      {/* ✅ New status popup */}
+      <Modal
+        visible={showAddMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAddMenu(false)}
+        statusBarTranslucent
+      >
+        <BlurView
+          intensity={60}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.addMenuBackdrop}
+        >
+          <Pressable
+            style={styles.addMenuPress}
+            onPress={() => setShowAddMenu(false)}
+          >
+            <Pressable
+              style={styles.addMenuCard}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <Text style={styles.addMenuTitle}>New status</Text>
+
+              <TouchableOpacity
+                onPress={() => navigateToCreate('text')}
+                style={styles.addMenuRow}
+                activeOpacity={0.7}
+              >
+                <View style={styles.addMenuIcon}>
+                  <Ionicons name="text" size={20} color={COLORS.violetLight} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.addMenuLabel}>Text</Text>
+                  <Text style={styles.addMenuSub}>Write a message</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.mist} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleMusicFromMenu}
+                style={styles.addMenuRow}
+                activeOpacity={0.7}
+              >
+                <View style={styles.addMenuIcon}>
+                  <Ionicons
+                    name="musical-notes"
+                    size={20}
+                    color={COLORS.violetLight}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.addMenuLabel}>Music</Text>
+                  <Text style={styles.addMenuSub}>Add a soundtrack</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.mist} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => navigateToCreate('camera')}
+                style={styles.addMenuRow}
+                activeOpacity={0.7}
+              >
+                <View style={styles.addMenuIcon}>
+                  <Ionicons name="camera" size={20} color={COLORS.violetLight} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.addMenuLabel}>Camera</Text>
+                  <Text style={styles.addMenuSub}>Take or pick a photo</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.mist} />
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </BlurView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -662,5 +755,66 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
     paddingHorizontal: 18,
     paddingVertical: 10,
+  },
+
+  // ✅ New status popup styles
+  addMenuBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  addMenuPress: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  addMenuCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: 'rgba(20,22,30,0.96)',
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  addMenuTitle: {
+    fontSize: 15,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  addMenuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  addMenuIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(124,92,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addMenuLabel: {
+    fontSize: 15,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+  },
+  addMenuSub: {
+    fontSize: 12,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+    marginTop: 1,
   },
 });
