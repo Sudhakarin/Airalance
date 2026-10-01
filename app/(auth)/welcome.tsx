@@ -392,10 +392,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: '#7C5CFF',
     shadowColor: '#7C5CFF',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    elevation: 6,
   },
   // ✅ Inner wrap for pill clip
   ctaPrimaryWrap: {
@@ -403,7 +403,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   ctaPrimary: {
-    paddingVertical: 15,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -414,7 +414,7 @@ const styles = StyleSheet.create({
   },
   ctaSecondary: {
     flex: 1,
-    paddingVertical: 15,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 999,
