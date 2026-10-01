@@ -180,6 +180,9 @@ export default function CreateStatusScreen() {
           safeGoBack();
         }
       })();
+    } else if (params.mode === 'music') {
+      // ✅ Auto-open music picker, stay on chooser
+      setShowMusicPicker(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -259,7 +262,6 @@ export default function CreateStatusScreen() {
         media_type: 'text',
       };
 
-      // ✅ Attach music if selected
       if (musicTrack) {
         payload.music_url = musicTrack.streamUrl;
         payload.music_title = musicTrack.title;
@@ -342,7 +344,6 @@ export default function CreateStatusScreen() {
         text_content: caption.trim() || null,
       };
 
-      // ✅ Attach music if selected
       if (musicTrack) {
         payload.music_url = musicTrack.streamUrl;
         payload.music_title = musicTrack.title;
@@ -549,7 +550,6 @@ export default function CreateStatusScreen() {
     captionRef.current?.focus();
   }
 
-  // ✅ Music handlers
   function openMusicPicker() {
     hapticLight();
     setShowMusicPicker(true);
@@ -605,6 +605,35 @@ export default function CreateStatusScreen() {
           <Text style={styles.chooserSub}>
             Choose how you want to post your status
           </Text>
+
+          {/* ✅ Music chip on chooser (if selected) */}
+          {musicTrack && (
+            <View style={styles.chooserMusicChip}>
+              <View style={styles.musicChip}>
+                <Image
+                  source={{ uri: musicTrack.artwork }}
+                  style={styles.musicChipArt}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                />
+                <View style={styles.musicChipText}>
+                  <Text style={styles.musicChipTitle} numberOfLines={1}>
+                    {musicTrack.title}
+                  </Text>
+                  <Text style={styles.musicChipArtist} numberOfLines={1}>
+                    {musicTrack.artist}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={clearMusic}
+                  style={styles.musicChipClose}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
 
         <View style={styles.chooserBottom}>
@@ -620,6 +649,7 @@ export default function CreateStatusScreen() {
             icon="musical-notes"
             label="Music"
             onPress={openMusicPicker}
+            active={!!musicTrack}
           />
           <ChooserCircle
             icon="camera"
@@ -628,7 +658,6 @@ export default function CreateStatusScreen() {
           />
         </View>
 
-        {/* Music picker for chooser (rarely used, but available) */}
         <MusicPicker
           visible={showMusicPicker}
           onClose={() => setShowMusicPicker(false)}
@@ -686,7 +715,6 @@ export default function CreateStatusScreen() {
             />
           </ScrollView>
 
-          {/* ✅ Music chip (if selected) */}
           {musicTrack && (
             <View style={styles.musicChipWrap}>
               <View style={styles.musicChip}>
@@ -765,7 +793,6 @@ export default function CreateStatusScreen() {
   // ---- EDITOR MODE ----
   return (
     <View style={styles.editorSafe}>
-      {/* Top bar */}
       <SafeAreaView style={styles.editorTopSafe} edges={['top']}>
         <View style={styles.editorTopBar}>
           <TouchableOpacity
@@ -831,7 +858,6 @@ export default function CreateStatusScreen() {
               </>
             )}
 
-            {/* ✅ Music — shows active state when track selected */}
             <TouchableOpacity
               onPress={openMusicPicker}
               style={[
@@ -904,7 +930,6 @@ export default function CreateStatusScreen() {
         )}
       </SafeAreaView>
 
-      {/* Capture area */}
       <View ref={editorRef} style={styles.captureArea} collapsable={false}>
         <View style={styles.editorMediaWrap}>
           {asset?.type === 'video' ? (
@@ -964,7 +989,6 @@ export default function CreateStatusScreen() {
           </View>
         )}
 
-        {/* ✅ Music chip overlay (top-left) */}
         {musicTrack && (
           <View style={styles.musicChipOverlay} pointerEvents="box-none">
             <View style={styles.musicChip}>
@@ -994,7 +1018,6 @@ export default function CreateStatusScreen() {
         )}
       </View>
 
-      {/* Bottom bar */}
       <SafeAreaView style={styles.editorBottomSafe} edges={['bottom']}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -1044,7 +1067,6 @@ export default function CreateStatusScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* Manual crop modal */}
       {asset && !isVideo && (
         <ManualCropModal
           visible={showManualCrop}
@@ -1054,7 +1076,6 @@ export default function CreateStatusScreen() {
         />
       )}
 
-      {/* Text modal */}
       <Modal
         visible={!!textModal && !isVideo}
         transparent
@@ -1141,7 +1162,6 @@ export default function CreateStatusScreen() {
         </BlurView>
       </Modal>
 
-      {/* ✅ Music picker */}
       <MusicPicker
         visible={showMusicPicker}
         onClose={() => setShowMusicPicker(false)}
@@ -1152,16 +1172,18 @@ export default function CreateStatusScreen() {
 }
 
 // ============================================================
-// Chooser circle button
+// Chooser circle button — supports active state
 // ============================================================
 function ChooserCircle({
   icon,
   label,
   onPress,
+  active,
 }: {
   icon: any;
   label: string;
   onPress: () => void;
+  active?: boolean;
 }) {
   return (
     <TouchableOpacity
@@ -1169,7 +1191,12 @@ function ChooserCircle({
       activeOpacity={0.8}
       style={styles.chooserBtnWrap}
     >
-      <View style={styles.chooserBtnCircle}>
+      <View
+        style={[
+          styles.chooserBtnCircle,
+          active && styles.chooserBtnCircleActive,
+        ]}
+      >
         <Ionicons name={icon} size={26} color="#FFFFFF" />
       </View>
       <Text style={styles.chooserBtnLabel}>{label}</Text>
@@ -1296,6 +1323,10 @@ const styles = StyleSheet.create({
     marginTop: 8,
     lineHeight: 20,
   },
+  chooserMusicChip: {
+    marginTop: 20,
+    alignItems: 'flex-start',
+  },
   chooserBottom: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1317,6 +1348,10 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  chooserBtnCircleActive: {
+    backgroundColor: 'rgba(124,92,255,0.35)',
+    borderColor: 'rgba(124,92,255,0.6)',
   },
   chooserBtnLabel: {
     fontSize: 12.5,
@@ -1524,12 +1559,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ✅ Music chip (text mode — below input)
   musicChipWrap: {
     paddingHorizontal: 20,
     paddingBottom: 6,
   },
-  // ✅ Music chip overlay (editor mode — top-left)
   musicChipOverlay: {
     position: 'absolute',
     top: 12,
