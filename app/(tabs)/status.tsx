@@ -12,7 +12,6 @@ import {
   RefreshControl,
   Modal,
   Pressable,
-  Alert,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -261,14 +260,9 @@ export default function StatusScreen() {
     setShowAddMenu(true);
   }
 
-  function navigateToCreate(mode: 'text' | 'camera') {
+  function navigateToCreate(mode: 'text' | 'camera' | 'music') {
     setShowAddMenu(false);
     router.push(`/status/create?mode=${mode}`);
-  }
-
-  function handleMusicFromMenu() {
-    setShowAddMenu(false);
-    Alert.alert('Coming soon', 'Music in status will be available soon.');
   }
 
   const recent = otherGroups
@@ -538,7 +532,7 @@ export default function StatusScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={handleMusicFromMenu}
+                onPress={() => navigateToCreate('music')}
                 style={styles.addMenuRow}
                 activeOpacity={0.7}
               >
