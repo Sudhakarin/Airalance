@@ -27,6 +27,7 @@ import {
   SHADOWS,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { requestNotificationPermission } from '../../lib/push-permissions'; // <-- ADDED IMPORT
 import Field from '../../components/Field';
 import OtpBoxes from '../../components/OtpBoxes';
 
@@ -82,6 +83,7 @@ export default function LoginScreen() {
       setError('Incorrect email or password.');
       setLoading(false);
     } else {
+      await requestNotificationPermission(); // <-- ADDED
       router.replace('/(tabs)/home');
     }
   }
@@ -119,6 +121,7 @@ export default function LoginScreen() {
       setError('Invalid or expired code. Please try again.');
       setLoading(false);
     } else {
+      await requestNotificationPermission(); // <-- ADDED
       router.replace('/(tabs)/home');
     }
   }
@@ -179,6 +182,7 @@ export default function LoginScreen() {
       setError(err.message);
       setLoading(false);
     } else {
+      await requestNotificationPermission(); // <-- ADDED
       router.replace('/(tabs)/home');
     }
   }
