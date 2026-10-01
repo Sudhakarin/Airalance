@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — cached statuses + cached viewers + realtime + blur backdrop
+// Full-screen status viewer — cached statuses + cached viewers + realtime + blur backdrop + video playback
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -19,6 +19,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII, SPACING, GRADIENTS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
@@ -100,7 +101,7 @@ async function writeViewersCache(map: ViewersCache) {
 }
 
 // ============================================================
-// ✅ Status content cache helpers (per userId)
+// Status content cache helpers (per userId)
 // ============================================================
 function statusContentKey(userId: string) {
   return `${STATUSES_CACHE_KEY}:${userId}`;
@@ -129,6 +130,72 @@ async function writeStatusesCache(userId: string, statuses: Status[]) {
   } catch {}
 }
 
+// ============================================================
+// ✅ Video player (isolated so hooks don't break conditional rendering)
+// ============================================================
+function StatusVideoPlayer({
+  uri,
+  paused,
+  onProgress,
+  onComplete,
+}: {
+  uri: string;
+  paused: boolean;
+  onProgress: (pct: number) => void;
+  onComplete: () => void;
+}) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = false;
+    p.muted = false;
+    p.play();
+  });
+
+  const completedRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
+  const onProgressRef = useRef(onProgress);
+  onCompleteRef.current = onComplete;
+  onProgressRef.current = onProgress;
+
+  // Smooth progress polling (only when not paused)
+  useEffect(() => {
+    if (paused) return;
+    const interval = setInterval(() => {
+      try {
+        const ct = player.currentTime ?? 0;
+        const dur = player.duration ?? 0;
+        if (dur > 0) {
+          const pct = Math.min(100, (ct / dur) * 100);
+          onProgressRef.current(pct);
+          if (!completedRef.current && ct >= dur - 0.15) {
+            completedRef.current = true;
+            onCompleteRef.current();
+          }
+        }
+      } catch {}
+    }, 60);
+    return () => clearInterval(interval);
+  }, [player, paused]);
+
+  // Sync pause/resume with parent
+  useEffect(() => {
+    try {
+      if (paused) player.pause();
+      else player.play();
+    } catch {}
+  }, [paused, player]);
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.mediaFull}
+      contentFit="cover"
+      nativeControls={false}
+      allowsFullscreen={false}
+      allowsPictureInPicture={false}
+    />
+  );
+}
+
 export default function StatusViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -149,6 +216,9 @@ export default function StatusViewerScreen() {
   const [connectPopup, setConnectPopup] = useState<'ask' | 'pending' | 'declined' | null>(null);
   const [sendingRequest, setSendingRequest] = useState(false);
 
+  // ✅ Pause state (also mirrored in ref for image timer)
+  const [paused, setPaused] = useState(false);
+
   // Viewers state
   const [viewersCount, setViewersCount] = useState(0);
   const [showViewers, setShowViewers] = useState(false);
@@ -161,7 +231,7 @@ export default function StatusViewerScreen() {
   const rafRef = useRef<number | null>(null);
 
   // ============================================================
-  // ✅ Load statuses — CACHE FIRST, then silent refresh
+  // Load statuses — CACHE FIRST, then silent refresh
   // ============================================================
   useEffect(() => {
     let mounted = true;
@@ -179,10 +249,8 @@ export default function StatusViewerScreen() {
         }
       }
 
-      // 1. Show cache instantly
       const cache = await readStatusesCache(userId);
       if (cache?.statuses?.length && mounted) {
-        // Filter out expired just in case
         const now = new Date().toISOString();
         const fresh = cache.statuses.filter((s) => s.expires_at > now);
         if (fresh.length > 0) {
@@ -191,7 +259,6 @@ export default function StatusViewerScreen() {
         }
       }
 
-      // 2. Fetch from server (silent if cache already shown)
       const { data, error } = await supabase
         .from('statuses')
         .select('*, profile:profiles(*)')
@@ -425,19 +492,33 @@ export default function StatusViewerScreen() {
     }
   }
 
-  // Progress timer
+  // ============================================================
+  // ✅ Mark viewed + check liked on index change (for all media types)
+  // ============================================================
   useEffect(() => {
     if (loading || statuses.length === 0) return;
     const current = statuses[index];
     if (!current) return;
-
     markViewed(current.id);
     checkLiked(current.id);
+  }, [index, statuses, loading, markViewed, checkLiked]);
+
+  // ============================================================
+  // ✅ Progress timer — ONLY for image/text (video drives its own)
+  // ============================================================
+  useEffect(() => {
+    if (loading || statuses.length === 0) return;
+    const current = statuses[index];
+    if (!current) return;
+    if (current.media_type === 'video') return; // video handles progress
+
+    // Reset pause state on new status
+    pausedRef.current = false;
+    setPaused(false);
 
     elapsedRef.current = 0;
     frameStartRef.current = performance.now();
     setProgress(0);
-    pausedRef.current = false;
 
     const tick = (now: number) => {
       if (pausedRef.current) {
@@ -462,7 +543,7 @@ export default function StatusViewerScreen() {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [index, statuses, loading, markViewed, checkLiked]);
+  }, [index, statuses, loading]);
 
   // Views count (cache-first)
   useEffect(() => {
@@ -715,9 +796,11 @@ export default function StatusViewerScreen() {
 
   function pause() {
     pausedRef.current = true;
+    setPaused(true);
   }
   function resume() {
     pausedRef.current = false;
+    setPaused(false);
   }
 
   function formatTime(iso: string) {
@@ -777,6 +860,7 @@ export default function StatusViewerScreen() {
   const profile = current.profile;
   const isMine = current.user_id === myId;
   const isTextOnly = !current.media_url;
+  const isVideo = current.media_type === 'video';
   const hasCaption = !isTextOnly && !!current.text_content;
 
   return (
@@ -855,6 +939,15 @@ export default function StatusViewerScreen() {
           >
             <Text style={styles.textContent}>{current.text_content}</Text>
           </LinearGradient>
+        ) : isVideo ? (
+          /* ✅ Video playback */
+          <StatusVideoPlayer
+            key={current.id}
+            uri={current.media_url!}
+            paused={paused}
+            onProgress={setProgress}
+            onComplete={() => advance(1)}
+          />
         ) : (
           <Image
             source={{ uri: current.media_url! }}
@@ -998,7 +1091,7 @@ export default function StatusViewerScreen() {
         </TouchableOpacity>
       )}
 
-      {/* ✅ Viewers bottom sheet — WITH BLUR BACKDROP */}
+      {/* Viewers bottom sheet */}
       <Modal
         visible={showViewers}
         transparent
@@ -1465,7 +1558,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyMedium,
   },
 
-  // ✅ Viewers bottom sheet with BLUR backdrop
   viewersBlurBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.15)',
