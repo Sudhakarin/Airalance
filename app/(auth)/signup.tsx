@@ -27,6 +27,7 @@ import {
   SHADOWS,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { requestNotificationPermission } from '../../lib/push-permissions'; // <-- ADDED IMPORT
 import Field from '../../components/Field';
 
 export default function SignupScreen() {
@@ -88,6 +89,7 @@ export default function SignupScreen() {
     }
 
     if (data.session) {
+      await requestNotificationPermission(); // <-- ADDED
       router.replace('/(tabs)/home');
     } else {
       setDone(true);
