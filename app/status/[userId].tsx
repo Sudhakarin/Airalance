@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — with connection-gated reply/heart + profile-style buttons
+// Full-screen status viewer — with connection-gated reply/heart + profile-style buttons + viewers list
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Pressable,
   Modal,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -51,6 +52,16 @@ type Status = {
 
 type ConnectionStatus = 'loading' | 'none' | 'pending' | 'connected' | 'declined';
 
+type Viewer = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_url: string | null;
+  avatar_color: string;
+  viewed_at: string;
+  liked: boolean;
+};
+
 export default function StatusViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -70,6 +81,12 @@ export default function StatusViewerScreen() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('loading');
   const [connectPopup, setConnectPopup] = useState<'ask' | 'pending' | 'declined' | null>(null);
   const [sendingRequest, setSendingRequest] = useState(false);
+
+  // ✅ Viewers state
+  const [viewersCount, setViewersCount] = useState(0);
+  const [showViewers, setShowViewers] = useState(false);
+  const [viewers, setViewers] = useState<Viewer[]>([]);
+  const [viewersLoading, setViewersLoading] = useState(false);
 
   const pausedRef = useRef(false);
   const elapsedRef = useRef(0);
@@ -364,6 +381,97 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, loading, markViewed, checkLiked]);
 
+  // ✅ Fetch views count for current status (only for own status)
+  useEffect(() => {
+    const current = statuses[index];
+    if (!current || !myId) return;
+    if (current.user_id !== myId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { count } = await supabase
+          .from('status_views')
+          .select('*', { count: 'exact', head: true })
+          .eq('status_id', current.id);
+        if (!cancelled) setViewersCount(count ?? 0);
+      } catch (err) {
+        console.warn('Views count error:', err);
+        if (!cancelled) setViewersCount(0);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [index, statuses, myId]);
+
+  // ✅ Fetch full viewers list
+  async function openViewers() {
+    const current = statuses[index];
+    if (!current || !myId) return;
+    if (current.user_id !== myId) return;
+
+    hapticLight();
+    setShowViewers(true);
+    setViewersLoading(true);
+    try {
+      const statusId = current.id;
+      const [viewsRes, likesRes] = await Promise.all([
+        supabase.from('status_views').select('*').eq('status_id', statusId),
+        supabase.from('status_likes').select('*').eq('status_id', statusId),
+      ]);
+
+      const views = (viewsRes.data ?? []) as any[];
+      const likes = (likesRes.data ?? []) as any[];
+      const likedIds = new Set(likes.map((l) => l.user_id));
+
+      const viewerIds = views.map((v) => v.viewer_id);
+      if (viewerIds.length === 0) {
+        setViewers([]);
+        setViewersLoading(false);
+        return;
+      }
+
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, username, display_name, avatar_url, avatar_color')
+        .in('id', viewerIds);
+
+      const profileMap = new Map(
+        (profiles ?? []).map((p: any) => [p.id, p])
+      );
+
+      const merged: Viewer[] = views
+        .map((v) => {
+          const p: any = profileMap.get(v.viewer_id);
+          if (!p) return null;
+          return {
+            id: v.viewer_id,
+            username: p.username,
+            display_name: p.display_name,
+            avatar_url: p.avatar_url,
+            avatar_color: p.avatar_color,
+            viewed_at:
+              v.viewed_at || v.created_at || new Date().toISOString(),
+            liked: likedIds.has(v.viewer_id),
+          } as Viewer;
+        })
+        .filter(Boolean) as Viewer[];
+
+      merged.sort(
+        (a, b) =>
+          new Date(b.viewed_at).getTime() - new Date(a.viewed_at).getTime()
+      );
+
+      setViewers(merged);
+    } catch (err) {
+      console.warn('Fetch viewers error:', err);
+      setViewers([]);
+    } finally {
+      setViewersLoading(false);
+    }
+  }
+
   function advance(dir: 1 | -1) {
     const next = index + dir;
     if (next < 0) return;
@@ -400,6 +508,19 @@ export default function StatusViewerScreen() {
     const hr = Math.floor(min / 60);
     if (hr < 24) return `${hr}h ago`;
     return `${Math.floor(hr / 24)}d ago`;
+  }
+
+  // ✅ WhatsApp-style time for viewers
+  function formatViewerTime(iso: string) {
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const min = Math.floor(diffMs / 60000);
+    if (min < 1) return 'Just now';
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const day = Math.floor(hr / 24);
+    if (day === 1) return 'Yesterday';
+    return `${day}d ago`;
   }
 
   if (loading) {
@@ -520,17 +641,17 @@ export default function StatusViewerScreen() {
             source={{ uri: current.media_url! }}
             style={styles.mediaFull}
             resizeMode="cover"
-          />
+         connection />
         )}
 
         <Pressable
-          style={styles.tapLeft}
-          onPress={() => advance(-1)}
+          style={Statusstyles.tapLeft}
+          onPress={() === => advance(-1)}
           onLongPress={pause}
-          onPressOut={resume}
+ '          onPressOut={resume}
         />
         <Pressable
-          style={styles.tapRight}
+pending          style={styles.tapRight}
           onPress={() => advance(1)}
           onLongPress={pause}
           onPressOut={resume}
@@ -553,7 +674,6 @@ export default function StatusViewerScreen() {
           ]}
         >
           {connectionStatus === 'connected' ? (
-            // ✅ Connection accepted → Reply + Heart
             <View style={styles.bottomRow}>
               <TouchableOpacity
                 style={styles.replyBar}
@@ -577,7 +697,6 @@ export default function StatusViewerScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            // ✅ Not connected → Connect + Follow
             <View style={styles.connectRow}>
               <TouchableOpacity
                 style={[
@@ -608,7 +727,7 @@ export default function StatusViewerScreen() {
                     style={{ marginRight: 6 }}
                   />
                   <Text style={styles.connectBtnText}>
-                    {connectionStatus === 'pending'
+                    {'
                       ? 'Sent'
                       : connectionStatus === 'declined'
                       ? 'Declined'
@@ -639,7 +758,112 @@ export default function StatusViewerScreen() {
         </View>
       )}
 
-      {isMine && <View style={{ paddingBottom: insets.bottom + 8 }} />}
+      {/* ✅ WhatsApp-style Views indicator (own status only) */}
+      {isMine && (
+        <TouchableOpacity
+          style={[
+            styles.viewsBar,
+            { paddingBottom: insets.bottom + 10 },
+          ]}
+          onPress={openViewers}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name="chevron-up"
+            size={18}
+            color="rgba(255,255,255,0.85)"
+          />
+          <Text style={styles.viewsText}>
+            {viewersCount} {viewersCount === 1 ? 'view' : 'views'}
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* ✅ Viewers bottom sheet */}
+      <Modal
+        visible={showViewers}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowViewers(false)}
+        statusBarTranslucent
+      >
+        <Pressable
+          style={styles.viewersBackdrop}
+          onPress={() => setShowViewers(false)}
+        >
+          <Pressable
+            style={[styles.viewersSheet, { paddingBottom: insets.bottom + 12 }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.viewersHandle} />
+            <View style={styles.viewersHeader}>
+              <Ionicons name="eye-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.viewersTitle}>
+                {viewersCount} {viewersCount === 1 ? 'view' : 'views'}
+              </Text>
+              <View style={{ flex: 1 }} />
+              <TouchableOpacity
+                onPress={() => setShowViewers(false)}
+                style={styles.viewersCloseBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.viewersDivider} />
+
+            {viewersLoading ? (
+              <View style={styles.viewersLoading}>
+                <ActivityIndicator color={COLORS.violet} />
+              </View>
+            ) : viewers.length === 0 ? (
+              <View style={styles.viewersEmpty}>
+                <Ionicons
+                  name="eye-off-outline"
+                  size={36}
+                  color={COLORS.mist}
+                />
+                <Text style={styles.viewersEmptyText}>No views yet</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={viewers}
+                keyExtractor={(item) => item.id}
+                style={{ maxHeight: 420 }}
+                contentContainerStyle={{ paddingVertical: 6 }}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item }) => (
+                  <View style={styles.viewerRow}>
+                    <Avatar
+                      name={item.display_name}
+                      color={item.avatar_color ?? COLORS.violet}
+                      avatarUrl={item.avatar_url}
+                      size={42}
+                    />
+                    <View style={styles.viewerInfo}>
+                      <Text style={styles.viewerName} numberOfLines={1}>
+                        {item.display_name}
+                      </Text>
+                      <Text style={styles.viewerTime}>
+                        {formatViewerTime(item.viewed_at)}
+                      </Text>
+                    </View>
+                    {item.liked && (
+                      <Ionicons
+                        name="heart"
+                        size={18}
+                        color="#EF4444"
+                        style={{ marginLeft: 8 }}
+                      />
+                    )}
+                  </View>
+                )}
+              />
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ✅ Profile-style Connect Popup */}
       {connectPopup && (
@@ -828,7 +1052,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
-  // ✅ Connect + Follow row (profile-style buttons)
   connectRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -852,7 +1075,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
-  // ✅ Follow button matches profile exactly
   followBtn: {
     minWidth: 110,
     height: 42,
@@ -961,6 +1183,108 @@ const styles = StyleSheet.create({
     bottom: 0,
     right: 0,
     width: '30%',
+  },
+
+  // ✅ Views indicator bar (bottom of own status)
+  viewsBar: {
+    backgroundColor: '#0A0C12',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+  },
+  viewsText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13.5,
+    fontFamily: FONTS.bodyMedium,
+  },
+
+  // ✅ Viewers bottom sheet
+  viewersBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  viewersSheet: {
+    backgroundColor: 'rgba(18,20,28,0.99)',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    paddingTop: 10,
+    paddingHorizontal: 12,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  viewersHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  viewersHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+  },
+  viewersTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontFamily: FONTS.displayBold,
+  },
+  viewersCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  viewersDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginVertical: 6,
+  },
+  viewersLoading: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  viewersEmpty: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    gap: 8,
+  },
+  viewersEmptyText: {
+    color: COLORS.mist,
+    fontSize: 13.5,
+    fontFamily: FONTS.body,
+  },
+  viewerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  viewerInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  viewerName: {
+    color: '#FFFFFF',
+    fontSize: 14.5,
+    fontFamily: FONTS.bodySemiBold,
+  },
+  viewerTime: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 12,
+    fontFamily: FONTS.body,
+    marginTop: 2,
   },
 
   // Profile-style popup styles
