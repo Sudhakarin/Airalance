@@ -1,7 +1,7 @@
 // app/status/[userId].tsx
 // Full-screen status viewer — cached statuses + cached viewers + realtime + blur backdrop + video playback
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Modal,
   FlatList,
   Animated,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -156,7 +157,6 @@ function StatusVideoPlayer({
   onCompleteRef.current = onComplete;
   onProgressRef.current = onProgress;
 
-  // Smooth progress polling (only when not paused)
   useEffect(() => {
     if (paused) return;
     const interval = setInterval(() => {
@@ -176,7 +176,6 @@ function StatusVideoPlayer({
     return () => clearInterval(interval);
   }, [player, paused]);
 
-  // Sync pause/resume with parent
   useEffect(() => {
     try {
       if (paused) player.pause();
@@ -196,9 +195,17 @@ function StatusVideoPlayer({
   );
 }
 
+// ============================================================
+// ✅ Constants for viewers sheet sizing
+// ============================================================
+const VIEWER_ROW_HEIGHT = 62;
+const VIEWERS_HEADER_HEIGHT = 70;
+const VIEWERS_MAX_RATIO = 0.7;
+
 export default function StatusViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
   const params = useLocalSearchParams<{ userId: string }>();
   const userId = params.userId;
 
@@ -216,10 +223,8 @@ export default function StatusViewerScreen() {
   const [connectPopup, setConnectPopup] = useState<'ask' | 'pending' | 'declined' | null>(null);
   const [sendingRequest, setSendingRequest] = useState(false);
 
-  // ✅ Pause state (also mirrored in ref for image timer)
   const [paused, setPaused] = useState(false);
 
-  // Viewers state
   const [viewersCount, setViewersCount] = useState(0);
   const [showViewers, setShowViewers] = useState(false);
   const [viewers, setViewers] = useState<Viewer[]>([]);
@@ -229,6 +234,22 @@ export default function StatusViewerScreen() {
   const elapsedRef = useRef(0);
   const frameStartRef = useRef(0);
   const rafRef = useRef<number | null>(null);
+
+  // ============================================================
+  // ✅ Viewers sheet height — computed so it opens at correct size
+  // ============================================================
+  const viewersSheetHeight = useMemo(() => {
+    const rowCount = viewersLoading ? 5 : viewers.length;
+    const contentHeight =
+      VIEWERS_HEADER_HEIGHT +
+      rowCount * VIEWER_ROW_HEIGHT +
+      insets.bottom +
+      12;
+    const maxHeight = screenHeight * VIEWERS_MAX_RATIO;
+    // Minimum so empty state also looks fine
+    const minHeight = 180;
+    return Math.max(minHeight, Math.min(contentHeight, maxHeight));
+  }, [viewers.length, viewersLoading, insets.bottom, screenHeight]);
 
   // ============================================================
   // Load statuses — CACHE FIRST, then silent refresh
@@ -283,7 +304,6 @@ export default function StatusViewerScreen() {
     };
   }, [userId]);
 
-  // Check following + connection status
   useEffect(() => {
     if (!myId || !userId || myId === userId) {
       setIsFollowing(false);
@@ -492,9 +512,6 @@ export default function StatusViewerScreen() {
     }
   }
 
-  // ============================================================
-  // ✅ Mark viewed + check liked on index change (for all media types)
-  // ============================================================
   useEffect(() => {
     if (loading || statuses.length === 0) return;
     const current = statuses[index];
@@ -503,16 +520,12 @@ export default function StatusViewerScreen() {
     checkLiked(current.id);
   }, [index, statuses, loading, markViewed, checkLiked]);
 
-  // ============================================================
-  // ✅ Progress timer — ONLY for image/text (video drives its own)
-  // ============================================================
   useEffect(() => {
     if (loading || statuses.length === 0) return;
     const current = statuses[index];
     if (!current) return;
-    if (current.media_type === 'video') return; // video handles progress
+    if (current.media_type === 'video') return;
 
-    // Reset pause state on new status
     pausedRef.current = false;
     setPaused(false);
 
@@ -545,7 +558,6 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, loading]);
 
-  // Views count (cache-first)
   useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -577,7 +589,6 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, myId]);
 
-  // Realtime updates
   useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -672,7 +683,6 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, myId]);
 
-  // Persist viewers to cache
   useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -756,19 +766,21 @@ export default function StatusViewerScreen() {
     if (current.user_id !== myId) return;
 
     hapticLight();
-    setShowViewers(true);
 
     const cache = await readViewersCache();
     const cached = cache[current.id];
 
     if (cached && Array.isArray(cached.viewers)) {
+      // ✅ Set data first, then open modal → correct size immediately
       setViewers(cached.viewers);
       setViewersCount(cached.count ?? cached.viewers.length);
       setViewersLoading(false);
+      setShowViewers(true);
       fetchViewers(current.id, true);
     } else {
       setViewers([]);
       setViewersLoading(true);
+      setShowViewers(true);
       fetchViewers(current.id, false);
     }
   }
@@ -865,7 +877,6 @@ export default function StatusViewerScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={[styles.headerBlock, { paddingTop: insets.top + 6 }]}>
         <View style={styles.progressRow}>
           {statuses.map((s, i) => (
@@ -930,7 +941,6 @@ export default function StatusViewerScreen() {
         </View>
       </View>
 
-      {/* Content */}
       <View style={styles.contentArea}>
         {isTextOnly ? (
           <LinearGradient
@@ -940,7 +950,6 @@ export default function StatusViewerScreen() {
             <Text style={styles.textContent}>{current.text_content}</Text>
           </LinearGradient>
         ) : isVideo ? (
-          /* ✅ Video playback */
           <StatusVideoPlayer
             key={current.id}
             uri={current.media_url!}
@@ -970,14 +979,12 @@ export default function StatusViewerScreen() {
         />
       </View>
 
-      {/* Caption */}
       {hasCaption && (
         <View style={styles.captionSection}>
           <Text style={styles.captionText}>{current.text_content}</Text>
         </View>
       )}
 
-      {/* Bottom actions */}
       {!isMine && (
         <View
           style={[
@@ -1070,7 +1077,6 @@ export default function StatusViewerScreen() {
         </View>
       )}
 
-      {/* Views indicator (own status) */}
       {isMine && (
         <TouchableOpacity
           style={[
@@ -1091,11 +1097,11 @@ export default function StatusViewerScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Viewers bottom sheet */}
+      {/* ✅ Viewers bottom sheet — fixed height + fade animation */}
       <Modal
         visible={showViewers}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setShowViewers(false)}
         statusBarTranslucent
       >
@@ -1110,7 +1116,13 @@ export default function StatusViewerScreen() {
             onPress={() => setShowViewers(false)}
           >
             <Pressable
-              style={[styles.viewersSheet, { paddingBottom: insets.bottom + 12 }]}
+              style={[
+                styles.viewersSheet,
+                {
+                  height: viewersSheetHeight,
+                  paddingBottom: insets.bottom + 12,
+                },
+              ]}
               onPress={(e) => e.stopPropagation()}
             >
               <View style={styles.viewersHandle} />
@@ -1146,9 +1158,13 @@ export default function StatusViewerScreen() {
                 <FlatList
                   data={viewers}
                   keyExtractor={(item) => item.id}
-                  style={{ maxHeight: 420 }}
+                  style={{ flex: 1 }}
                   contentContainerStyle={{ paddingVertical: 6 }}
                   showsVerticalScrollIndicator={false}
+                  initialNumToRender={10}
+                  maxToRenderPerBatch={8}
+                  windowSize={5}
+                  updateCellsBatchingPeriod={30}
                   renderItem={({ item }) => (
                     <View style={styles.viewerRow}>
                       <Avatar
@@ -1182,7 +1198,6 @@ export default function StatusViewerScreen() {
         </BlurView>
       </Modal>
 
-      {/* Connect Popup */}
       {connectPopup && (
         <Modal
           visible
@@ -1574,6 +1589,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderTopWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
   },
   viewersHandle: {
     width: 40,
@@ -1609,8 +1625,9 @@ const styles = StyleSheet.create({
     marginVertical: 6,
   },
   viewersEmpty: {
-    paddingVertical: 40,
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
   },
   viewersEmptyText: {
