@@ -104,7 +104,13 @@ export default function CreateStatusScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ mode?: string }>();
 
-  const [mode, setMode] = useState<Mode>('chooser');
+  // ✅ Initial mode directly from params — chooser never flashes
+  const [mode, setMode] = useState<Mode>(() =>
+    params.mode === 'text' ? 'text' : 'chooser'
+  );
+
+  // ✅ If opened for camera, hide chooser behind a loading screen
+  const [initializing, setInitializing] = useState(params.mode === 'camera');
 
   const [text, setText] = useState('');
   const [color, setColor] = useState(STATUS_COLORS[0]);
@@ -136,37 +142,52 @@ export default function CreateStatusScreen() {
   // ✅ Handle mode from param (from status tab popup)
   // ============================================================
   useEffect(() => {
-    const m = params.mode;
-    if (m === 'text') {
-      setMode('text');
-    } else if (m === 'camera') {
-      setTimeout(() => pickPhoto(), 300);
+    if (params.mode === 'camera') {
+      (async () => {
+        const success = await pickPhoto();
+        if (success) {
+          setInitializing(false);
+        } else {
+          safeGoBack();
+        }
+      })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function safeGoBack() {
+    try {
+      if (router.canGoBack()) router.back();
+      else router.replace('/(tabs)/status');
+    } catch {
+      try {
+        router.replace('/(tabs)/status');
+      } catch {}
+    }
+  }
+
   // ============================================================
   // PICK / CAMERA
   // ============================================================
-  async function pickPhoto() {
+  async function pickPhoto(): Promise<boolean> {
     hapticLight();
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert('Permission needed', 'Please allow photos access.');
-      return;
+      return false;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       quality: 0.85,
     });
-    if (result.canceled || !result.assets?.[0]) return;
+    if (result.canceled || !result.assets?.[0]) return false;
 
     const a = result.assets[0];
     const isVideo = a.type === 'video';
     if (!isVideo && a.fileSize && a.fileSize > CONSTANTS.MAX_IMAGE_BYTES) {
       hapticError();
       Alert.alert('Image too large', 'Maximum 8 MB.');
-      return;
+      return false;
     }
     resetEditor({
       uri: a.uri,
@@ -174,6 +195,7 @@ export default function CreateStatusScreen() {
       mimeType: a.mimeType,
       fileSize: a.fileSize,
     });
+    return true;
   }
 
   function resetEditor(a: PickedAsset) {
@@ -462,6 +484,15 @@ export default function CreateStatusScreen() {
   // RENDER
   // ============================================================
 
+  // ✅ Camera init — show loading, never render chooser
+  if (initializing) {
+    return (
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator color={COLORS.violet} />
+      </View>
+    );
+  }
+
   // ---- CHOOSER ----
   if (mode === 'chooser') {
     return (
@@ -618,7 +649,7 @@ export default function CreateStatusScreen() {
               <Ionicons name="text" size={20} color="#FFFFFF" />
             </TouchableOpacity>
 
-            {/* ✅ Crop — now opens ManualCrop directly */}
+            {/* ✅ Crop — opens ManualCrop directly */}
             <TouchableOpacity
               onPress={() => {
                 hapticLight();
@@ -835,7 +866,7 @@ export default function CreateStatusScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* ✅ Manual crop modal (only crop mode now) */}
+      {/* ✅ Manual crop modal */}
       {asset && (
         <ManualCropModal
           visible={showManualCrop}
@@ -1030,6 +1061,13 @@ function DraggableOverlay({
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   safeDark: { flex: 1, backgroundColor: '#0A0C12' },
+
+  loadingWrap: {
+    flex: 1,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   header: {
     flexDirection: 'row',
