@@ -1,5 +1,5 @@
 // app/status/create.tsx
-// Create a new status — chooser + photo editor with text overlay + drawing + manual crop
+// Create a new status — chooser + photo/video editor with text overlay + drawing + manual crop
 
 import { useState, useRef, useMemo, useEffect } from 'react';
 import {
@@ -19,6 +19,7 @@ import {
   Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -99,17 +100,35 @@ function pointsToPath(points: { x: number; y: number }[]): string {
   return d;
 }
 
+// ============================================================
+// ✅ Video preview (isolated component for hook rules)
+// ============================================================
+function VideoPreview({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = false;
+    p.play();
+  });
+
+  return (
+    <VideoView
+      player={player}
+      style={styles.editorMedia}
+      contentFit="cover"
+      nativeControls={false}
+    />
+  );
+}
+
 export default function CreateStatusScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ mode?: string }>();
 
-  // ✅ Initial mode directly from params — chooser never flashes
   const [mode, setMode] = useState<Mode>(() =>
     params.mode === 'text' ? 'text' : 'chooser'
   );
 
-  // ✅ If opened for camera, hide chooser behind a loading screen
   const [initializing, setInitializing] = useState(params.mode === 'camera');
 
   const [text, setText] = useState('');
@@ -138,8 +157,10 @@ export default function CreateStatusScreen() {
   const editorRef = useRef<View>(null);
   const originalAssetUri = useRef<string | null>(null);
 
+  const isVideo = asset?.type === 'video';
+
   // ============================================================
-  // ✅ Handle mode from param (from status tab popup)
+  // Handle mode from param
   // ============================================================
   useEffect(() => {
     if (params.mode === 'camera') {
@@ -167,7 +188,7 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
-  // PICK / CAMERA
+  // PICK / CAMERA — supports image + video
   // ============================================================
   async function pickPhoto(): Promise<boolean> {
     hapticLight();
@@ -179,19 +200,21 @@ export default function CreateStatusScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       quality: 0.85,
+      allowsEditing: true,          // ✅ Native trim for videos (iOS)
+      videoMaxDuration: 60,          // ✅ Max 60 sec
     });
     if (result.canceled || !result.assets?.[0]) return false;
 
     const a = result.assets[0];
-    const isVideo = a.type === 'video';
-    if (!isVideo && a.fileSize && a.fileSize > CONSTANTS.MAX_IMAGE_BYTES) {
+    const isVid = a.type === 'video';
+    if (!isVid && a.fileSize && a.fileSize > CONSTANTS.MAX_IMAGE_BYTES) {
       hapticError();
       Alert.alert('Image too large', 'Maximum 8 MB.');
       return false;
     }
     resetEditor({
       uri: a.uri,
-      type: isVideo ? 'video' : 'image',
+      type: isVid ? 'video' : 'image',
       mimeType: a.mimeType,
       fileSize: a.fileSize,
     });
@@ -238,7 +261,7 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
-  // POST MEDIA STATUS (capture composite)
+  // POST MEDIA STATUS (image with overlays, OR raw video)
   // ============================================================
   async function postMediaStatus() {
     if (!asset) return;
@@ -248,23 +271,35 @@ export default function CreateStatusScreen() {
       if (!authData.user) throw new Error('Not logged in');
 
       let uploadUri = asset.uri;
-      let uploadExt = (asset.uri.split('.').pop() ?? 'jpg')
-        .toLowerCase()
-        .slice(0, 5);
-      let uploadMime = asset.mimeType ?? 'image/jpeg';
+      let uploadExt: string;
+      let uploadMime: string;
 
-      if (overlays.length > 0 || strokes.length > 0 || rotation !== 0) {
-        try {
-          const captured = await captureRef(editorRef, {
-            format: 'jpg',
-            quality: 0.85,
-            result: 'tmpfile',
-          });
-          uploadUri = captured;
-          uploadExt = 'jpg';
-          uploadMime = 'image/jpeg';
-        } catch (captureErr) {
-          console.warn('Capture failed, using original:', captureErr);
+      if (asset.type === 'video') {
+        // ✅ Video: upload raw, no composite capture
+        uploadExt = (asset.uri.split('.').pop() ?? 'mp4')
+          .toLowerCase()
+          .slice(0, 5);
+        uploadMime = asset.mimeType ?? 'video/mp4';
+      } else {
+        // ✅ Image: capture composite if overlays/strokes/rotation exist
+        uploadExt = (asset.uri.split('.').pop() ?? 'jpg')
+          .toLowerCase()
+          .slice(0, 5);
+        uploadMime = asset.mimeType ?? 'image/jpeg';
+
+        if (overlays.length > 0 || strokes.length > 0 || rotation !== 0) {
+          try {
+            const captured = await captureRef(editorRef, {
+              format: 'jpg',
+              quality: 0.85,
+              result: 'tmpfile',
+            });
+            uploadUri = captured;
+            uploadExt = 'jpg';
+            uploadMime = 'image/jpeg';
+          } catch (captureErr) {
+            console.warn('Capture failed, using original:', captureErr);
+          }
         }
       }
 
@@ -284,7 +319,7 @@ export default function CreateStatusScreen() {
       const { error } = await supabase.from('statuses').insert({
         user_id: authData.user.id,
         media_url: urlData.publicUrl,
-        media_type: 'image',
+        media_type: asset.type,        // ✅ 'image' or 'video'
         text_content: caption.trim() || null,
       });
       if (error) throw error;
@@ -310,7 +345,6 @@ export default function CreateStatusScreen() {
     setDrawMode(false);
     setText('');
     setMode('chooser');
-    // ✅ Use router.back() to preserve tabs layout state
     if (router.canGoBack()) {
       router.back();
     } else {
@@ -429,7 +463,7 @@ export default function CreateStatusScreen() {
   }
 
   // ============================================================
-  // ✅ CROP — manual only (user-defined rect)
+  // CROP — manual (image only)
   // ============================================================
   async function applyManualCrop(crop: {
     originX: number;
@@ -489,7 +523,6 @@ export default function CreateStatusScreen() {
   // RENDER
   // ============================================================
 
-  // ✅ Camera init — show loading, never render chooser
   if (initializing) {
     return (
       <View style={styles.loadingWrap}>
@@ -646,33 +679,53 @@ export default function CreateStatusScreen() {
           </TouchableOpacity>
 
           <View style={styles.editorTopRight}>
-            <TouchableOpacity
-              onPress={openNewTextOverlay}
-              style={styles.editorTopBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="text" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
+            {/* ✅ Image-only tools — hidden for videos */}
+            {!isVideo && (
+              <>
+                <TouchableOpacity
+                  onPress={openNewTextOverlay}
+                  style={styles.editorTopBtn}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="text" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
 
-            {/* ✅ Crop — opens ManualCrop directly */}
-            <TouchableOpacity
-              onPress={() => {
-                hapticLight();
-                setShowManualCrop(true);
-              }}
-              style={styles.editorTopBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="crop-outline" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    hapticLight();
+                    setShowManualCrop(true);
+                  }}
+                  style={styles.editorTopBtn}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="crop-outline" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={handleRotate}
-              style={styles.editorTopBtn}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="refresh" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleRotate}
+                  style={styles.editorTopBtn}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="refresh" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    hapticLight();
+                    setDrawMode((d) => !d);
+                  }}
+                  style={[
+                    styles.editorTopBtn,
+                    drawMode && styles.editorTopBtnActive,
+                  ]}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="pencil" size={20} color="#FFFFFF" />
+                </TouchableOpacity>
+              </>
+            )}
+
+            {/* Music always available */}
             <TouchableOpacity
               onPress={handleMusic}
               style={styles.editorTopBtn}
@@ -680,24 +733,11 @@ export default function CreateStatusScreen() {
             >
               <Ionicons name="musical-notes" size={20} color="#FFFFFF" />
             </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => {
-                hapticLight();
-                setDrawMode((d) => !d);
-              }}
-              style={[
-                styles.editorTopBtn,
-                drawMode && styles.editorTopBtnActive,
-              ]}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="pencil" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Draw toolbar */}
-        {drawMode && (
+        {/* Draw toolbar (image only) */}
+        {drawMode && !isVideo && (
           <View style={styles.drawToolbar}>
             <ScrollView
               horizontal
@@ -756,19 +796,14 @@ export default function CreateStatusScreen() {
         )}
       </SafeAreaView>
 
-      {/* Capture area — photo + overlays + strokes */}
+      {/* Capture area */}
       <View ref={editorRef} style={styles.captureArea} collapsable={false}>
         <View style={styles.editorMediaWrap}>
           {asset?.type === 'video' ? (
-            <RNImage
-              source={{ uri: asset.uri }}
-              style={[
-                styles.editorMedia,
-                { transform: [{ rotate: `${rotation}deg` }] },
-              ]}
-              resizeMode="cover"
-            />
+            // ✅ Video preview
+            <VideoPreview uri={asset.uri} />
           ) : (
+            // ✅ Image preview
             <Image
               source={{ uri: asset?.uri }}
               style={[
@@ -781,44 +816,49 @@ export default function CreateStatusScreen() {
           )}
         </View>
 
-        {overlays.map((o) => (
-          <DraggableOverlay
-            key={o.id}
-            overlay={o}
-            onUpdate={updateOverlayPosition}
-            onTap={() => openEditTextOverlay(o)}
-          />
-        ))}
+        {/* Overlays (image only) */}
+        {!isVideo &&
+          overlays.map((o) => (
+            <DraggableOverlay
+              key={o.id}
+              overlay={o}
+              onUpdate={updateOverlayPosition}
+              onTap={() => openEditTextOverlay(o)}
+            />
+          ))}
 
-        <View
-          style={StyleSheet.absoluteFill}
-          pointerEvents={drawMode ? 'auto' : 'none'}
-          {...drawPanResponder.panHandlers}
-        >
-          <Svg style={StyleSheet.absoluteFill}>
-            {strokes.map((s) => (
-              <Path
-                key={s.id}
-                d={pointsToPath(s.points)}
-                stroke={s.color}
-                strokeWidth={5}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            ))}
-            {currentStroke && (
-              <Path
-                d={pointsToPath(currentStroke.points)}
-                stroke={currentStroke.color}
-                strokeWidth={5}
-                fill="none"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            )}
-          </Svg>
-        </View>
+        {/* Drawing layer (image only) */}
+        {!isVideo && (
+          <View
+            style={StyleSheet.absoluteFill}
+            pointerEvents={drawMode ? 'auto' : 'none'}
+            {...drawPanResponder.panHandlers}
+          >
+            <Svg style={StyleSheet.absoluteFill}>
+              {strokes.map((s) => (
+                <Path
+                  key={s.id}
+                  d={pointsToPath(s.points)}
+                  stroke={s.color}
+                  strokeWidth={5}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              ))}
+              {currentStroke && (
+                <Path
+                  d={pointsToPath(currentStroke.points)}
+                  stroke={currentStroke.color}
+                  strokeWidth={5}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+            </Svg>
+          </View>
+        )}
       </View>
 
       {/* Bottom bar */}
@@ -871,8 +911,8 @@ export default function CreateStatusScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* ✅ Manual crop modal */}
-      {asset && (
+      {/* Manual crop modal (image only) */}
+      {asset && !isVideo && (
         <ManualCropModal
           visible={showManualCrop}
           imageUri={originalAssetUri.current ?? asset.uri}
@@ -881,9 +921,9 @@ export default function CreateStatusScreen() {
         />
       )}
 
-      {/* Text modal */}
+      {/* Text modal (image only) */}
       <Modal
-        visible={!!textModal}
+        visible={!!textModal && !isVideo}
         transparent
         animationType="fade"
         onRequestClose={() => setTextModal(null)}
@@ -1061,7 +1101,7 @@ function DraggableOverlay({
 }
 
 // ============================================================
-// STYLES
+// STYLES (same as before, unchanged)
 // ============================================================
 const styles = StyleSheet.create({
   safe: { flex: 1 },
@@ -1094,7 +1134,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // ---- Chooser ----
   chooserHeader: {
     paddingHorizontal: SPACING.sm,
     paddingTop: SPACING.sm,
@@ -1145,7 +1184,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // ---- Text mode ----
   body: {
     flexGrow: 1,
     alignItems: 'center',
@@ -1194,12 +1232,8 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // ---- Editor ----
   editorSafe: { flex: 1, backgroundColor: '#000000' },
-
-  editorTopSafe: {
-    backgroundColor: '#000000',
-  },
+  editorTopSafe: { backgroundColor: '#000000' },
   editorTopBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1350,7 +1384,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---- Text modal ----
   textModalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
