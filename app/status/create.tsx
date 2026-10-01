@@ -310,7 +310,12 @@ export default function CreateStatusScreen() {
     setDrawMode(false);
     setText('');
     setMode('chooser');
-    router.replace('/(tabs)/status');
+    // ✅ Use router.back() to preserve tabs layout state
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/status');
+    }
   }
 
   // ============================================================
