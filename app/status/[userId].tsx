@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — with follow/connect logic
+// Full-screen status viewer — with profile-style connect popup
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -10,12 +10,13 @@ import {
   Image,
   ActivityIndicator,
   Pressable,
+  Modal,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { COLORS, FONTS, SPACING } from '../../constants/theme';
+import { COLORS, FONTS, RADII, SPACING, GRADIENTS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
@@ -48,6 +49,8 @@ type Status = {
   profile: Profile | null;
 };
 
+type ConnectionStatus = 'loading' | 'none' | 'pending' | 'connected' | 'declined';
+
 export default function StatusViewerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -64,6 +67,9 @@ export default function StatusViewerScreen() {
   const [likeLoading, setLikeLoading] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('loading');
+  const [connectPopup, setConnectPopup] = useState<'ask' | 'pending' | 'declined' | null>(null);
+  const [sendingRequest, setSendingRequest] = useState(false);
 
   const pausedRef = useRef(false);
   const elapsedRef = useRef(0);
@@ -77,7 +83,6 @@ export default function StatusViewerScreen() {
       if (mounted) {
         setMyId(authData.user?.id ?? null);
         if (authData.user) {
-          // Get my display name for push
           const { data: me } = await supabase
             .from('profiles')
             .select('display_name')
@@ -109,24 +114,48 @@ export default function StatusViewerScreen() {
     };
   }, [userId]);
 
-  // ✅ Check if I'm following this user
+  // Check following + connection status
   useEffect(() => {
     if (!myId || !userId || myId === userId) {
       setIsFollowing(false);
+      setConnectionStatus('none');
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await supabase
-          .from('follows')
-          .select('follower_id')
-          .eq('follower_id', myId)
-          .eq('followed_id', userId)
-          .maybeSingle();
-        if (!cancelled) setIsFollowing(!!data);
+        const [followRes, reqRes] = await Promise.all([
+          supabase
+            .from('follows')
+            .select('follower_id')
+            .eq('follower_id', myId)
+            .eq('followed_id', userId)
+            .maybeSingle(),
+          supabase
+            .from('connection_requests')
+            .select('status')
+            .or(
+              `and(from_user_id.eq.${myId},to_user_id.eq.${userId}),and(from_user_id.eq.${userId},to_user_id.eq.${myId})`
+            )
+            .maybeSingle(),
+        ]);
+        if (cancelled) return;
+        setIsFollowing(!!followRes.data);
+
+        if (reqRes.data) {
+          const s = reqRes.data.status;
+          if (s === 'accepted') setConnectionStatus('connected');
+          else if (s === 'pending') setConnectionStatus('pending');
+          else if (s === 'declined') setConnectionStatus('declined');
+          else setConnectionStatus('none');
+        } else {
+          setConnectionStatus('none');
+        }
       } catch {
-        if (!cancelled) setIsFollowing(false);
+        if (!cancelled) {
+          setIsFollowing(false);
+          setConnectionStatus('none');
+        }
       }
     })();
     return () => {
@@ -197,11 +226,9 @@ export default function StatusViewerScreen() {
     }
   }
 
-  // ✅ Toggle follow
+  // Follow toggle
   async function toggleFollow() {
-    if (!myId || followLoading) return;
-    if (myId === userId) return;
-
+    if (!myId || followLoading || myId === userId) return;
     setFollowLoading(true);
     const was = isFollowing;
     setIsFollowing(!was);
@@ -220,7 +247,6 @@ export default function StatusViewerScreen() {
           .insert({ follower_id: myId, followed_id: userId });
         if (error) throw error;
 
-        // Send push
         try {
           await supabase.functions.invoke('send-push', {
             body: {
@@ -242,50 +268,61 @@ export default function StatusViewerScreen() {
     }
   }
 
-  // ✅ Send connection request
-  async function handleConnect() {
+  // Connect tap — open appropriate popup
+  function handleConnectTap() {
     if (!myId || myId === userId) return;
     hapticLight();
+    if (connectionStatus === 'pending') setConnectPopup('pending');
+    else if (connectionStatus === 'declined') setConnectPopup('declined');
+    else setConnectPopup('ask');
+  }
+
+  // Send connection request
+  async function sendConnectionRequest() {
+    if (!myId || myId === userId || sendingRequest) return;
+    setSendingRequest(true);
     try {
-      // Check if request already exists
       const { data: existing } = await supabase
         .from('connection_requests')
         .select('id')
         .eq('from_user_id', myId)
         .eq('to_user_id', userId)
-        .in('status', ['pending', 'accepted'])
         .maybeSingle();
 
-      if (existing) {
-        hapticSuccess();
-        return;
-      }
+      const { error } = existing
+        ? await supabase
+            .from('connection_requests')
+            .update({
+              status: 'pending',
+              created_at: new Date().toISOString(),
+            })
+            .eq('id', existing.id)
+        : await supabase.from('connection_requests').insert({
+            from_user_id: myId,
+            to_user_id: userId,
+          });
 
-      const { error } = await supabase
-        .from('connection_requests')
-        .insert({
-          from_user_id: myId,
-          to_user_id: userId,
-          status: 'pending',
-        });
       if (error) throw error;
 
-      // Push notification
+      setConnectionStatus('pending');
+      setConnectPopup(null);
+      hapticSuccess();
+
       try {
         await supabase.functions.invoke('send-push', {
           body: {
             userId,
-            title: 'New connection request',
+            title: 'Connection request',
             body: `${myDisplayName || 'Someone'} wants to connect with you`,
-            data: { screen: 'notifications' },
+            data: { screen: 'profile', userId: myId },
           },
         });
       } catch {}
-
-      hapticSuccess();
     } catch (err) {
       console.warn('Connect error:', err);
       hapticError();
+    } finally {
+      setSendingRequest(false);
     }
   }
 
@@ -339,11 +376,8 @@ export default function StatusViewerScreen() {
 
   function safeGoBack() {
     try {
-      if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace('/(tabs)/status');
-      }
+      if (router.canGoBack()) router.back();
+      else router.replace('/(tabs)/status');
     } catch {
       try {
         router.replace('/(tabs)/status');
@@ -391,7 +425,6 @@ export default function StatusViewerScreen() {
   }
 
   const current = statuses[index];
-
   if (!current) {
     safeGoBack();
     return (
@@ -418,11 +451,7 @@ export default function StatusViewerScreen() {
                   styles.progressFill,
                   {
                     width:
-                      i < index
-                        ? '100%'
-                        : i > index
-                        ? '0%'
-                        : `${progress}%`,
+                      i < index ? '100%' : i > index ? '0%' : `${progress}%`,
                   },
                 ]}
               />
@@ -477,7 +506,7 @@ export default function StatusViewerScreen() {
         </View>
       </View>
 
-      {/* Photo / Text content */}
+      {/* Content */}
       <View style={styles.contentArea}>
         {isTextOnly ? (
           <LinearGradient
@@ -508,14 +537,14 @@ export default function StatusViewerScreen() {
         />
       </View>
 
-      {/* Caption section */}
+      {/* Caption */}
       {hasCaption && (
         <View style={styles.captionSection}>
           <Text style={styles.captionText}>{current.text_content}</Text>
         </View>
       )}
 
-      {/* ✅ Bottom actions — conditionally show based on follow state */}
+      {/* Bottom actions */}
       {!isMine && (
         <View
           style={[
@@ -524,7 +553,6 @@ export default function StatusViewerScreen() {
           ]}
         >
           {isFollowing ? (
-            // ---- Following: Reply + Heart ----
             <View style={styles.bottomRow}>
               <TouchableOpacity
                 style={styles.replyBar}
@@ -548,26 +576,42 @@ export default function StatusViewerScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            // ---- Not following: Connect + Follow ----
             <View style={styles.connectRow}>
               <TouchableOpacity
-                style={styles.connectBtn}
-                onPress={handleConnect}
+                style={[
+                  styles.connectBtn,
+                  (connectionStatus === 'pending' ||
+                    connectionStatus === 'declined') && { opacity: 0.6 },
+                ]}
+                onPress={handleConnectTap}
                 activeOpacity={0.85}
+                disabled={connectionStatus === 'loading'}
               >
                 <LinearGradient
-                  colors={['#7C5CFF', '#9C82FF']}
+                  colors={GRADIENTS.violet}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={styles.connectBtnInner}
                 >
                   <Ionicons
-                    name="person-add-outline"
+                    name={
+                      connectionStatus === 'pending'
+                        ? 'time-outline'
+                        : connectionStatus === 'declined'
+                        ? 'close-circle-outline'
+                        : 'person-add-outline'
+                    }
                     size={16}
                     color="#FFFFFF"
                     style={{ marginRight: 6 }}
                   />
-                  <Text style={styles.connectBtnText}>Connect</Text>
+                  <Text style={styles.connectBtnText}>
+                    {connectionStatus === 'pending'
+                      ? 'Sent'
+                      : connectionStatus === 'declined'
+                      ? 'Declined'
+                      : 'Connect'}
+                  </Text>
                 </LinearGradient>
               </TouchableOpacity>
 
@@ -584,7 +628,7 @@ export default function StatusViewerScreen() {
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.followBtnText}>
-                    {isFollowing ? 'Unfollow' : 'Follow'}
+                    {isFollowing ? 'Following' : 'Follow'}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -594,6 +638,103 @@ export default function StatusViewerScreen() {
       )}
 
       {isMine && <View style={{ paddingBottom: insets.bottom + 8 }} />}
+
+      {/* ✅ Profile-style Connect Popup */}
+      {connectPopup && (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={() => setConnectPopup(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <Avatar
+                name={profile?.display_name ?? 'Unknown'}
+                color={profile?.avatar_color ?? COLORS.violet}
+                avatarUrl={profile?.avatar_url ?? null}
+                size={70}
+              />
+              <Text style={styles.modalName}>{profile?.display_name}</Text>
+              <Text style={styles.modalUsername}>@{profile?.username}</Text>
+
+              <View style={styles.modalDivider} />
+
+              {connectPopup === 'ask' && (
+                <>
+                  <Text style={styles.modalMessage}>
+                    Do you want to connect with{' '}
+                    <Text style={{ fontFamily: FONTS.bodySemiBold }}>
+                      {profile?.display_name}
+                    </Text>
+                    ?
+                  </Text>
+                  <View style={styles.modalRow}>
+                    <TouchableOpacity
+                      style={styles.modalCancel}
+                      onPress={() => setConnectPopup(null)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.modalCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.modalPrimary}
+                      onPress={sendConnectionRequest}
+                      disabled={sendingRequest}
+                      activeOpacity={0.85}
+                    >
+                      <LinearGradient
+                        colors={GRADIENTS.violet}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.modalPrimaryGradient}
+                      >
+                        {sendingRequest ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.modalPrimaryText}>
+                            Yes, Connect
+                          </Text>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {connectPopup === 'pending' && (
+                <>
+                  <Text style={styles.modalMessage}>
+                    You've already sent a request.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.modalFull}
+                    onPress={() => setConnectPopup(null)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.modalCancelText}>OK</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {connectPopup === 'declined' && (
+                <>
+                  <Text style={styles.modalMessage}>
+                    {profile?.display_name} declined your request.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.modalFull}
+                    onPress={() => setConnectPopup(null)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.modalCancelText}>OK</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -685,7 +826,6 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
-  // ✅ Connect + Follow row
   connectRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -693,7 +833,7 @@ const styles = StyleSheet.create({
   },
   connectBtn: {
     flex: 1,
-    borderRadius: 999,
+    borderRadius: RADII.full,
     overflow: 'hidden',
   },
   connectBtnInner: {
@@ -707,18 +847,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
-  // ✅ Follow button — red styled, matches profile
   followBtn: {
     minWidth: 110,
     paddingHorizontal: 20,
     paddingVertical: 11,
-    borderRadius: 999,
+    borderRadius: RADII.full,
     backgroundColor: '#E54E60',
     alignItems: 'center',
     justifyContent: 'center',
   },
   followBtnFollowing: {
     backgroundColor: '#2E2E2E',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
   },
   followBtnText: {
     color: '#FFFFFF',
@@ -728,7 +869,7 @@ const styles = StyleSheet.create({
 
   replyBar: {
     flex: 1,
-    borderRadius: 999,
+    borderRadius: RADII.full,
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.5)',
     paddingVertical: 9,
@@ -814,5 +955,90 @@ const styles = StyleSheet.create({
     bottom: 0,
     right: 0,
     width: '30%',
+  },
+
+  // ✅ Profile-style popup styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SPACING.lg,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: '#121212',
+    borderRadius: RADII.xl,
+    padding: SPACING.lg,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1F1F23',
+  },
+  modalName: {
+    fontSize: 17,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    marginTop: SPACING.sm,
+    textAlign: 'center',
+  },
+  modalUsername: {
+    fontSize: 12.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
+    marginTop: 2,
+  },
+  modalDivider: {
+    height: 1,
+    width: '100%',
+    backgroundColor: '#1F1F23',
+    marginVertical: SPACING.md,
+  },
+  modalMessage: {
+    fontSize: 13.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: SPACING.md,
+  },
+  modalRow: { flexDirection: 'row', gap: 10, width: '100%' },
+  modalCancel: {
+    flex: 1,
+    height: 42,
+    borderRadius: RADII.full,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCancelText: {
+    color: COLORS.mistLight,
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+  },
+  modalPrimary: {
+    flex: 1,
+    borderRadius: RADII.full,
+    overflow: 'hidden',
+  },
+  modalPrimaryGradient: {
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+  },
+  modalFull: {
+    width: '100%',
+    height: 42,
+    borderRadius: RADII.full,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
