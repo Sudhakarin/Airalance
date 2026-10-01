@@ -56,7 +56,6 @@ type Status = {
   created_at: string;
   expires_at: string;
   profile: Profile | null;
-  // ✅ Music
   music_url?: string | null;
   music_title?: string | null;
   music_artist?: string | null;
@@ -140,7 +139,7 @@ async function writeStatusesCache(userId: string, statuses: Status[]) {
 }
 
 // ============================================================
-// ✅ Video player
+// Video player
 // ============================================================
 function StatusVideoPlayer({
   uri,
@@ -167,7 +166,6 @@ function StatusVideoPlayer({
   onCompleteRef.current = onComplete;
   onProgressRef.current = onProgress;
 
-  // Sync mute
   useEffect(() => {
     try {
       player.muted = muted;
@@ -213,7 +211,7 @@ function StatusVideoPlayer({
 }
 
 // ============================================================
-// ✅ Music player — plays selected loop, pauses with status
+// Music player
 // ============================================================
 function StatusMusicPlayer({
   uri,
@@ -226,27 +224,35 @@ function StatusMusicPlayer({
   durationSec: number;
   paused: boolean;
 }) {
-  const player = useAudioPlayer(uri);
+  const player = useAudioPlayer();
 
   const startRef = useRef(startSec);
   const durRef = useRef(durationSec);
   startRef.current = startSec;
   durRef.current = durationSec;
 
-  // Init: seek + play
   useEffect(() => {
+    let cancelled = false;
     try {
-      player.seekTo(startSec);
-      player.loop = false;
-      player.volume = 1;
-      player.play();
+      player.replace(uri);
+      if (!cancelled) {
+        player.seekTo(startSec);
+        player.loop = false;
+        player.volume = 1;
+        player.play();
+      }
     } catch (err) {
       console.warn('music init error', err);
     }
+    return () => {
+      cancelled = true;
+      try {
+        player.pause();
+      } catch {}
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uri]);
 
-  // Loop within window
   useEffect(() => {
     if (paused) return;
     const t = setInterval(() => {
@@ -261,7 +267,6 @@ function StatusMusicPlayer({
     return () => clearInterval(t);
   }, [paused, player]);
 
-  // Pause / resume with status
   useEffect(() => {
     try {
       if (paused) player.pause();
@@ -269,20 +274,11 @@ function StatusMusicPlayer({
     } catch {}
   }, [paused, player]);
 
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      try {
-        player.pause();
-      } catch {}
-    };
-  }, [player]);
-
   return null;
 }
 
 // ============================================================
-// Constants for viewers sheet sizing
+// Constants
 // ============================================================
 const VIEWER_ROW_HEIGHT = 62;
 const VIEWERS_HEADER_HEIGHT = 70;
@@ -321,9 +317,6 @@ export default function StatusViewerScreen() {
   const frameStartRef = useRef(0);
   const rafRef = useRef<number | null>(null);
 
-  // ============================================================
-  // Viewers sheet height
-  // ============================================================
   const viewersSheetHeight = useMemo(() => {
     const rowCount = viewersLoading ? 5 : viewers.length;
     const contentHeight =
@@ -336,9 +329,7 @@ export default function StatusViewerScreen() {
     return Math.max(minHeight, Math.min(contentHeight, maxHeight));
   }, [viewers.length, viewersLoading, insets.bottom, screenHeight]);
 
-  // ============================================================
   // Load statuses
-  // ============================================================
   useEffect(() => {
     let mounted = true;
     async function load() {
@@ -964,12 +955,10 @@ export default function StatusViewerScreen() {
   const isVideo = current.media_type === 'video';
   const hasCaption = !isTextOnly && !!current.text_content;
 
-  // ✅ Music present?
   const hasMusic = !!current.music_url;
 
   return (
     <View style={styles.container}>
-      {/* ✅ Music player — invisible, just plays */}
       {hasMusic && (
         <StatusMusicPlayer
           key={current.id + '_music'}
@@ -1082,7 +1071,7 @@ export default function StatusViewerScreen() {
           onPressOut={resume}
         />
 
-        {/* ✅ Music chip — Instagram-style at bottom-left of content */}
+        {/* ✅ Music chip — RN Image with resizeMode */}
         {hasMusic && (
           <View style={styles.musicChipOverlay} pointerEvents="box-none">
             <View style={styles.musicChip}>
@@ -1090,8 +1079,7 @@ export default function StatusViewerScreen() {
                 <Image
                   source={{ uri: current.music_artwork }}
                   style={styles.musicChipArt}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
+                  resizeMode="cover"
                 />
               )}
               <View style={styles.musicChipText}>
@@ -1234,7 +1222,6 @@ export default function StatusViewerScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Viewers sheet */}
       <Modal
         visible={showViewers}
         transparent
@@ -1534,7 +1521,6 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
 
-  // ✅ Music chip on status content
   musicChipOverlay: {
     position: 'absolute',
     left: 12,
