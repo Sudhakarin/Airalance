@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — photo + separate caption section below + actions
+// Full-screen status viewer — with follow/connect logic
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -19,6 +19,11 @@ import { COLORS, FONTS, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
+import {
+  hapticLight,
+  hapticSuccess,
+  hapticError,
+} from '../../lib/haptics';
 
 const STATUS_DURATION_MS = 15000;
 
@@ -53,9 +58,12 @@ export default function StatusViewerScreen() {
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [myId, setMyId] = useState<string | null>(null);
+  const [myDisplayName, setMyDisplayName] = useState('');
   const [progress, setProgress] = useState(0);
   const [liked, setLiked] = useState(false);
   const [likeLoading, setLikeLoading] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
 
   const pausedRef = useRef(false);
   const elapsedRef = useRef(0);
@@ -66,7 +74,18 @@ export default function StatusViewerScreen() {
     let mounted = true;
     async function load() {
       const { data: authData } = await supabase.auth.getUser();
-      if (mounted) setMyId(authData.user?.id ?? null);
+      if (mounted) {
+        setMyId(authData.user?.id ?? null);
+        if (authData.user) {
+          // Get my display name for push
+          const { data: me } = await supabase
+            .from('profiles')
+            .select('display_name')
+            .eq('id', authData.user.id)
+            .single();
+          if (me?.display_name) setMyDisplayName(me.display_name);
+        }
+      }
 
       const { data, error } = await supabase
         .from('statuses')
@@ -89,6 +108,31 @@ export default function StatusViewerScreen() {
       mounted = false;
     };
   }, [userId]);
+
+  // ✅ Check if I'm following this user
+  useEffect(() => {
+    if (!myId || !userId || myId === userId) {
+      setIsFollowing(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('follows')
+          .select('follower_id')
+          .eq('follower_id', myId)
+          .eq('followed_id', userId)
+          .maybeSingle();
+        if (!cancelled) setIsFollowing(!!data);
+      } catch {
+        if (!cancelled) setIsFollowing(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [myId, userId]);
 
   const markViewed = useCallback(
     async (statusId: string) => {
@@ -131,6 +175,7 @@ export default function StatusViewerScreen() {
     setLikeLoading(true);
     const wasLiked = liked;
     setLiked(!wasLiked);
+    hapticLight();
 
     try {
       if (wasLiked) {
@@ -149,6 +194,98 @@ export default function StatusViewerScreen() {
       setLiked(wasLiked);
     } finally {
       setLikeLoading(false);
+    }
+  }
+
+  // ✅ Toggle follow
+  async function toggleFollow() {
+    if (!myId || followLoading) return;
+    if (myId === userId) return;
+
+    setFollowLoading(true);
+    const was = isFollowing;
+    setIsFollowing(!was);
+    hapticLight();
+
+    try {
+      if (was) {
+        await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', myId)
+          .eq('followed_id', userId);
+      } else {
+        const { error } = await supabase
+          .from('follows')
+          .insert({ follower_id: myId, followed_id: userId });
+        if (error) throw error;
+
+        // Send push
+        try {
+          await supabase.functions.invoke('send-push', {
+            body: {
+              userId,
+              title: 'New follower',
+              body: `${myDisplayName || 'Someone'} started following you`,
+              data: { screen: 'profile', userId: myId },
+            },
+          });
+        } catch {}
+      }
+      hapticSuccess();
+    } catch (err) {
+      console.warn('Follow toggle error:', err);
+      setIsFollowing(was);
+      hapticError();
+    } finally {
+      setFollowLoading(false);
+    }
+  }
+
+  // ✅ Send connection request
+  async function handleConnect() {
+    if (!myId || myId === userId) return;
+    hapticLight();
+    try {
+      // Check if request already exists
+      const { data: existing } = await supabase
+        .from('connection_requests')
+        .select('id')
+        .eq('from_user_id', myId)
+        .eq('to_user_id', userId)
+        .in('status', ['pending', 'accepted'])
+        .maybeSingle();
+
+      if (existing) {
+        hapticSuccess();
+        return;
+      }
+
+      const { error } = await supabase
+        .from('connection_requests')
+        .insert({
+          from_user_id: myId,
+          to_user_id: userId,
+          status: 'pending',
+        });
+      if (error) throw error;
+
+      // Push notification
+      try {
+        await supabase.functions.invoke('send-push', {
+          body: {
+            userId,
+            title: 'New connection request',
+            body: `${myDisplayName || 'Someone'} wants to connect with you`,
+            data: { screen: 'notifications' },
+          },
+        });
+      } catch {}
+
+      hapticSuccess();
+    } catch (err) {
+      console.warn('Connect error:', err);
+      hapticError();
     }
   }
 
@@ -271,7 +408,7 @@ export default function StatusViewerScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ---------- Header ---------- */}
+      {/* Header */}
       <View style={[styles.headerBlock, { paddingTop: insets.top + 6 }]}>
         <View style={styles.progressRow}>
           {statuses.map((s, i) => (
@@ -340,7 +477,7 @@ export default function StatusViewerScreen() {
         </View>
       </View>
 
-      {/* ---------- PHOTO / TEXT content (flex:1) ---------- */}
+      {/* Photo / Text content */}
       <View style={styles.contentArea}>
         {isTextOnly ? (
           <LinearGradient
@@ -357,7 +494,6 @@ export default function StatusViewerScreen() {
           />
         )}
 
-        {/* Tap zones for navigation */}
         <Pressable
           style={styles.tapLeft}
           onPress={() => advance(-1)}
@@ -372,14 +508,14 @@ export default function StatusViewerScreen() {
         />
       </View>
 
-      {/* ---------- CAPTION SECTION (separate, below photo) ---------- */}
+      {/* Caption section */}
       {hasCaption && (
         <View style={styles.captionSection}>
           <Text style={styles.captionText}>{current.text_content}</Text>
         </View>
       )}
 
-      {/* ---------- BOTTOM ACTIONS (separate section) ---------- */}
+      {/* ✅ Bottom actions — conditionally show based on follow state */}
       {!isMine && (
         <View
           style={[
@@ -387,22 +523,8 @@ export default function StatusViewerScreen() {
             { paddingBottom: insets.bottom + SPACING.sm },
           ]}
         >
-          {isTextOnly ? (
-            <View style={styles.textOnlyRow}>
-              <TouchableOpacity
-                style={[styles.heartBtn, liked && styles.heartBtnActive]}
-                onPress={toggleLike}
-                activeOpacity={0.7}
-                disabled={likeLoading}
-              >
-                <Ionicons
-                  name={liked ? 'heart' : 'heart-outline'}
-                  size={20}
-                  color={liked ? '#EF4444' : '#FFFFFF'}
-                />
-              </TouchableOpacity>
-            </View>
-          ) : (
+          {isFollowing ? (
+            // ---- Following: Reply + Heart ----
             <View style={styles.bottomRow}>
               <TouchableOpacity
                 style={styles.replyBar}
@@ -425,23 +547,59 @@ export default function StatusViewerScreen() {
                 />
               </TouchableOpacity>
             </View>
+          ) : (
+            // ---- Not following: Connect + Follow ----
+            <View style={styles.connectRow}>
+              <TouchableOpacity
+                style={styles.connectBtn}
+                onPress={handleConnect}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={['#7C5CFF', '#9C82FF']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.connectBtnInner}
+                >
+                  <Ionicons
+                    name="person-add-outline"
+                    size={16}
+                    color="#FFFFFF"
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={styles.connectBtnText}>Connect</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.followBtn,
+                  isFollowing && styles.followBtnFollowing,
+                ]}
+                onPress={toggleFollow}
+                activeOpacity={0.85}
+                disabled={followLoading}
+              >
+                {followLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.followBtnText}>
+                    {isFollowing ? 'Unfollow' : 'Follow'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       )}
 
-      {/* For own statuses: no actions, just bottom padding */}
-      {isMine && (
-        <View style={{ paddingBottom: insets.bottom + 8 }} />
-      )}
+      {isMine && <View style={{ paddingBottom: insets.bottom + 8 }} />}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
+  container: { flex: 1, backgroundColor: '#000' },
   loadingWrap: {
     flex: 1,
     backgroundColor: '#000',
@@ -456,11 +614,7 @@ const styles = StyleSheet.create({
     gap: 14,
     padding: SPACING.lg,
   },
-  emptyText: {
-    color: COLORS.mist,
-    fontSize: 14,
-    fontFamily: FONTS.body,
-  },
+  emptyText: { color: COLORS.mist, fontSize: 14, fontFamily: FONTS.body },
   emptyBtn: {
     paddingHorizontal: 20,
     paddingVertical: 10,
@@ -478,7 +632,6 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.sm,
   },
 
-  // ✅ Content area (photo) — takes remaining space
   contentArea: {
     flex: 1,
     backgroundColor: '#000',
@@ -490,8 +643,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-
-  // Text-only status content
   textBg: {
     flex: 1,
     width: '100%',
@@ -507,12 +658,11 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
 
-  // ✅ Caption section — separate block below photo
   captionSection: {
     backgroundColor: '#0A0C12',
     paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingTop: 12,
+    paddingBottom: 12,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
   },
@@ -524,7 +674,6 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
 
-  // ✅ Bottom actions section
   bottomSection: {
     backgroundColor: '#0A0C12',
     paddingHorizontal: SPACING.sm,
@@ -535,10 +684,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  textOnlyRow: {
+
+  // ✅ Connect + Follow row
+  connectRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
   },
+  connectBtn: {
+    flex: 1,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  connectBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 11,
+  },
+  connectBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+  },
+  // ✅ Follow button — red styled, matches profile
+  followBtn: {
+    minWidth: 110,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 999,
+    backgroundColor: '#E54E60',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followBtnFollowing: {
+    backgroundColor: '#2E2E2E',
+  },
+  followBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+  },
+
   replyBar: {
     flex: 1,
     borderRadius: 999,
@@ -567,7 +754,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239,68,68,0.15)',
   },
 
-  // Progress bar
   progressRow: {
     flexDirection: 'row',
     gap: 3,
@@ -586,7 +772,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -594,14 +779,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.sm,
     paddingVertical: SPACING.sm,
   },
-  headerInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  headerNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  headerInfo: { flex: 1, minWidth: 0 },
+  headerNameRow: { flexDirection: 'row', alignItems: 'center' },
   headerName: {
     color: '#FFFFFF',
     fontSize: 13.5,
@@ -622,7 +801,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Tap zones
   tapLeft: {
     position: 'absolute',
     top: 0,
