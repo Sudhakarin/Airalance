@@ -1,7 +1,7 @@
 // app/status/create.tsx
 // Create a new status — chooser + photo editor with text overlay + drawing
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,6 @@ import {
   PanResponder,
   Modal,
   Pressable,
-  Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import {
@@ -31,7 +30,7 @@ import * as ImagePicker from 'expo-image-picker';
 import Svg, { Path } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
 import { BlurView } from 'expo-blur';
-import { COLORS, FONTS, RADII, SPACING, CONSTANTS, GRADIENTS } from '../../constants/theme';
+import { COLORS, FONTS, SPACING, CONSTANTS, GRADIENTS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import {
   hapticLight,
@@ -159,28 +158,6 @@ export default function CreateStatusScreen() {
     });
   }
 
-  async function openCamera() {
-    hapticLight();
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permission needed', 'Please allow camera access.');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      quality: 0.85,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    const a = result.assets[0];
-    const isVideo = a.type === 'video';
-    resetEditor({
-      uri: a.uri,
-      type: isVideo ? 'video' : 'image',
-      mimeType: a.mimeType,
-      fileSize: a.fileSize,
-    });
-  }
-
   function resetEditor(a: PickedAsset) {
     setAsset(a);
     setRotation(0);
@@ -235,7 +212,6 @@ export default function CreateStatusScreen() {
         .slice(0, 5);
       let uploadMime = asset.mimeType ?? 'image/jpeg';
 
-      // Capture composite if overlays/drawings/rotation exist
       if (overlays.length > 0 || strokes.length > 0 || rotation !== 0) {
         try {
           const captured = await captureRef(editorRef, {
@@ -283,11 +259,7 @@ export default function CreateStatusScreen() {
     }
   }
 
-  // ============================================================
-  // SAFE NAVIGATION — reset state and go back to status tab
-  // ============================================================
   function goBackToStatus() {
-    // Reset editor state so nothing lingers
     setAsset(null);
     setOverlays([]);
     setStrokes([]);
@@ -297,7 +269,6 @@ export default function CreateStatusScreen() {
     setDrawMode(false);
     setText('');
     setMode('chooser');
-    // Replace current screen with status tab
     router.replace('/(tabs)/status');
   }
 
@@ -559,7 +530,7 @@ export default function CreateStatusScreen() {
   // ---- EDITOR MODE ----
   return (
     <View style={styles.editorSafe}>
-      {/* Top bar — outside capture area */}
+      {/* Top bar */}
       <SafeAreaView style={styles.editorTopSafe} edges={['top']}>
         <View style={styles.editorTopBar}>
           <TouchableOpacity
@@ -612,11 +583,7 @@ export default function CreateStatusScreen() {
               ]}
               activeOpacity={0.7}
             >
-              <Ionicons
-                name="pencil"
-                size={20}
-                color={drawMode ? '#FFFFFF' : '#FFFFFF'}
-              />
+              <Ionicons name="pencil" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
         </View>
@@ -681,7 +648,7 @@ export default function CreateStatusScreen() {
         )}
       </SafeAreaView>
 
-      {/* Capture area — photo + overlays + strokes */}
+      {/* Capture area — photo + overlays + strokes (full bleed, cover mode) */}
       <View ref={editorRef} style={styles.captureArea} collapsable={false}>
         <View style={styles.editorMediaWrap}>
           {asset?.type === 'video' ? (
@@ -691,7 +658,7 @@ export default function CreateStatusScreen() {
                 styles.editorMedia,
                 { transform: [{ rotate: `${rotation}deg` }] },
               ]}
-              resizeMode="contain"
+              resizeMode="cover"
             />
           ) : (
             <Image
@@ -700,7 +667,7 @@ export default function CreateStatusScreen() {
                 styles.editorMedia,
                 { transform: [{ rotate: `${rotation}deg` }] },
               ]}
-              contentFit="contain"
+              contentFit="cover"
               cachePolicy="memory-disk"
             />
           )}
@@ -748,7 +715,7 @@ export default function CreateStatusScreen() {
         </View>
       </View>
 
-      {/* Bottom bar — outside capture area */}
+      {/* Bottom bar */}
       <SafeAreaView style={styles.editorBottomSafe} edges={['bottom']}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -771,7 +738,7 @@ export default function CreateStatusScreen() {
                 activeOpacity={0.7}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                <Ionicons name="at" size={18} color="#FFFFFF" />
+                <Ionicons name="at" size={16} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
 
@@ -790,7 +757,7 @@ export default function CreateStatusScreen() {
                 {uploading ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Ionicons name="send" size={18} color="#FFFFFF" />
+                  <Ionicons name="send" size={16} color="#FFFFFF" />
                 )}
               </LinearGradient>
             </TouchableOpacity>
@@ -889,7 +856,7 @@ export default function CreateStatusScreen() {
 }
 
 // ============================================================
-// Chooser circle button (WhatsApp style)
+// Chooser circle button
 // ============================================================
 function ChooserCircle({
   icon,
@@ -1004,7 +971,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // ---- Chooser (WhatsApp style) ----
+  // ---- Chooser ----
   chooserHeader: {
     paddingHorizontal: SPACING.sm,
     paddingTop: SPACING.sm,
@@ -1125,7 +1092,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // ✅ Only bg change — no border growth
   editorTopBtnActive: {
     backgroundColor: 'rgba(124,92,255,0.45)',
   },
@@ -1146,7 +1112,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 14,
     borderRadius: 26,
   },
-  // ✅ Bigger padding so active scale doesn't clip
   drawColorRow: {
     gap: 10,
     paddingHorizontal: 4,
@@ -1171,7 +1136,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Photo area (between top and bottom bars)
+  // ✅ Photo area — full bleed, no padding, no bars
   captureArea: {
     flex: 1,
     backgroundColor: '#000',
@@ -1182,8 +1147,6 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
   },
   editorMedia: {
     width: '100%',
@@ -1214,23 +1177,24 @@ const styles = StyleSheet.create({
   editorBottomBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 10,
-    paddingHorizontal: 14,
+    gap: 8,
+    paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: 12,
   },
+  // ✅ Thinner caption — matches send button height
   captionBox: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(20,20,20,0.75)',
-    borderRadius: 24,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     paddingLeft: 14,
     paddingRight: 4,
-    minHeight: 42, // ✅ thinner
-    maxHeight: 90,
+    minHeight: 40,
+    maxHeight: 80,
   },
   captionInput: {
     flex: 1,
@@ -1241,16 +1205,17 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   } as any,
   mentionBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // ✅ Smaller send button — matches caption box height
   sendBtnWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#7C5CFF',
     shadowOffset: { width: 0, height: 4 },
@@ -1259,8 +1224,8 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   sendBtn: {
-    width: 46,
-    height: 46,
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
