@@ -83,6 +83,7 @@ type ProfileCachePayload = {
   followersCount: number;
   followingCount: number;
   statusCount: number;
+  activeStatusCount: number;
   followingIds: string[];
 };
 
@@ -230,6 +231,7 @@ export default function ProfileScreen() {
   const [followersCount, setFollowersCount] = useState<number | null>(null);
   const [followingCount, setFollowingCount] = useState<number | null>(null);
   const [statusCount, setStatusCount] = useState<number | null>(null);
+  const [activeStatusCount, setActiveStatusCount] = useState<number>(0);
   const [nameDraft, setNameDraft] = useState('');
   const [bioDraft, setBioDraft] = useState('');
   const [loading, setLoading] = useState(true);
@@ -274,6 +276,7 @@ export default function ProfileScreen() {
         setFollowersCount(cache.followersCount);
         setFollowingCount(cache.followingCount);
         setStatusCount(cache.statusCount);
+        setActiveStatusCount(cache.activeStatusCount ?? 0);
         setMyFollowingIds(new Set(cache.followingIds ?? []));
         setLoading(false);
       }
@@ -301,36 +304,49 @@ export default function ProfileScreen() {
       setNameDraft(p.display_name ?? '');
       setBioDraft(p.bio ?? '');
 
-      const [f1, f2, statusRes, followingRes] = await Promise.all([
-        supabase
-          .from('follows')
-          .select('follower_id', { count: 'exact', head: true })
-          .eq('followed_id', uid),
-        supabase
-          .from('follows')
-          .select('followed_id', { count: 'exact', head: true })
-          .eq('follower_id', uid),
-        supabase
-          .from('statuses')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', uid),
-        supabase
-          .from('follows')
-          .select('followed_id')
-          .eq('follower_id', uid),
-      ]);
+      const [f1, f2, totalStatusRes, activeStatusRes, followingRes] =
+        await Promise.all([
+          supabase
+            .from('follows')
+            .select('follower_id', { count: 'exact', head: true })
+            .eq('followed_id', uid),
+          supabase
+            .from('follows')
+            .select('followed_id', { count: 'exact', head: true })
+            .eq('follower_id', uid),
+          // Total statuses (all-time)
+          supabase
+            .from('statuses')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', uid),
+          // ✅ Only ACTIVE statuses (not expired)
+          supabase
+            .from('statuses')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', uid)
+            .gt('expires_at', new Date().toISOString()),
+          supabase
+            .from('follows')
+            .select('followed_id')
+            .eq('follower_id', uid),
+        ]);
 
       const followers = f1.count ?? 0;
       const following = f2.count ?? 0;
+      const totalCount = totalStatusRes.count ?? 0;
+      const liveCount = activeStatusRes.count ?? 0;
+
+      // Stats number uses total (or profile's denormalized status_total if larger)
       const totalFromProfile = (p as any)?.status_total;
-      const liveCount = statusRes.count ?? 0;
-      const finalStatus = typeof totalFromProfile === 'number'
-        ? Math.max(totalFromProfile, liveCount)
-        : liveCount;
+      const finalStatus =
+        typeof totalFromProfile === 'number'
+          ? Math.max(totalFromProfile, totalCount)
+          : totalCount;
 
       setFollowersCount(followers);
       setFollowingCount(following);
       setStatusCount(finalStatus);
+      setActiveStatusCount(liveCount);
 
       const ids = new Set<string>(
         (followingRes.data ?? []).map((r: any) => r.followed_id)
@@ -347,6 +363,7 @@ export default function ProfileScreen() {
         followersCount: followers,
         followingCount: following,
         statusCount: finalStatus,
+        activeStatusCount: liveCount,
         followingIds: Array.from(ids),
       });
     } catch (err) {
@@ -366,6 +383,7 @@ export default function ProfileScreen() {
       followersCount: number;
       followingCount: number;
       statusCount: number;
+      activeStatusCount: number;
       followingIds: Set<string>;
     }>) => {
       const uid = myIdRef.current;
@@ -378,6 +396,7 @@ export default function ProfileScreen() {
           followersCount: followersCount ?? 0,
           followingCount: followingCount ?? 0,
           statusCount: statusCount ?? 0,
+          activeStatusCount: activeStatusCount ?? 0,
           followingIds: Array.from(myFollowingIds),
         };
       const next = {
@@ -385,13 +404,14 @@ export default function ProfileScreen() {
         followersCount: patch.followersCount ?? base.followersCount,
         followingCount: patch.followingCount ?? base.followingCount,
         statusCount: patch.statusCount ?? base.statusCount,
+        activeStatusCount: patch.activeStatusCount ?? base.activeStatusCount,
         followingIds: patch.followingIds
           ? Array.from(patch.followingIds)
           : base.followingIds,
       };
       await writeProfileCache(uid, next);
     },
-    [profile, followersCount, followingCount, statusCount, myFollowingIds]
+    [profile, followersCount, followingCount, statusCount, activeStatusCount, myFollowingIds]
   );
 
   const loadFollowList = useCallback(
@@ -689,9 +709,8 @@ export default function ProfileScreen() {
   }
 
   const verified = isVerified(profile);
-  const ownActiveStatusCount = statusCount ?? 0;
-  const statusShown =
-    statusCount === null ? null : Math.max(statusCount, ownActiveStatusCount);
+  // Stats number — total (all-time) count
+  const statusShown = statusCount;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -718,8 +737,9 @@ export default function ProfileScreen() {
             activeOpacity={0.85}
             style={styles.avatarWrap}
           >
+            {/* ✅ Ring only if user has at least 1 ACTIVE (non-expired) status */}
             <StatusRing
-              hasStatus={ownActiveStatusCount > 0}
+              hasStatus={activeStatusCount > 0}
               viewed={true}
             >
               <Avatar
