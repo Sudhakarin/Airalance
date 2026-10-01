@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — Instagram-story style with progress bar, swipe down, tap zones
+// Full-screen status viewer — Instagram-story style with progress bar, tap zones, caption overlay
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -198,10 +198,25 @@ export default function StatusViewerScreen() {
     const next = index + dir;
     if (next < 0) return;
     if (next >= statuses.length) {
-      router.back();
+      safeGoBack();
       return;
     }
     setIndex(next);
+  }
+
+  // ✅ Safe navigation — never crash on back
+  function safeGoBack() {
+    try {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/(tabs)/status');
+      }
+    } catch {
+      try {
+        router.replace('/(tabs)/status');
+      } catch {}
+    }
   }
 
   function pause() {
@@ -239,7 +254,7 @@ export default function StatusViewerScreen() {
           <Text style={styles.emptyText}>This status has expired</Text>
           <TouchableOpacity
             style={styles.emptyBtn}
-            onPress={() => router.back()}
+            onPress={safeGoBack}
           >
             <Text style={styles.emptyBtnText}>Go back</Text>
           </TouchableOpacity>
@@ -249,12 +264,23 @@ export default function StatusViewerScreen() {
   }
 
   const current = statuses[index];
+
+  // ✅ Defensive — prevent crash if index out of bounds
+  if (!current) {
+    safeGoBack();
+    return (
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator color={COLORS.violet} />
+      </View>
+    );
+  }
+
   const profile = current.profile;
   const isMine = current.user_id === myId;
 
   return (
     <View style={styles.container}>
-      {/* ---------- Fixed header block (own space, never overlaps content) ---------- */}
+      {/* ---------- Header block ---------- */}
       <View style={[styles.headerBlock, { paddingTop: insets.top + 6 }]}>
         <View style={styles.progressRow}>
           {statuses.map((s, i) => (
@@ -298,11 +324,15 @@ export default function StatusViewerScreen() {
             <TouchableOpacity
               style={styles.headerIconBtn}
               onPress={async () => {
-                await supabase
-                  .from('statuses')
-                  .delete()
-                  .eq('id', current.id);
-                router.back();
+                try {
+                  await supabase
+                    .from('statuses')
+                    .delete()
+                    .eq('id', current.id);
+                } catch (err) {
+                  console.warn('Delete status error:', err);
+                }
+                safeGoBack();
               }}
               activeOpacity={0.7}
             >
@@ -311,7 +341,7 @@ export default function StatusViewerScreen() {
           )}
           <TouchableOpacity
             style={styles.headerIconBtn}
-            onPress={() => router.back()}
+            onPress={safeGoBack}
             activeOpacity={0.7}
           >
             <Ionicons name="close" size={22} color="#FFFFFF" />
@@ -319,10 +349,9 @@ export default function StatusViewerScreen() {
         </View>
       </View>
 
-      {/* ---------- Separator between header and status content ---------- */}
       <View style={styles.separator} />
 
-      {/* ---------- Status content area (media / text), sits below header ---------- */}
+      {/* ---------- Content area ---------- */}
       <View style={styles.contentArea}>
         {current.media_type === 'video' && current.media_url ? (
           <View style={styles.mediaWrap}>
@@ -345,6 +374,21 @@ export default function StatusViewerScreen() {
           >
             <Text style={styles.textContent}>{current.text_content}</Text>
           </LinearGradient>
+        )}
+
+        {/* ✅ Caption overlay — for image/video statuses with caption */}
+        {!!current.text_content && !!current.media_url && (
+          <View
+            style={[
+              styles.captionOverlay,
+              { paddingBottom: insets.bottom + 90 },
+            ]}
+            pointerEvents="none"
+          >
+            <Text style={styles.captionOverlayText}>
+              {current.text_content}
+            </Text>
+          </View>
         )}
 
         <LinearGradient
@@ -437,7 +481,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Header now lives in normal flow, own solid background — never overlaps content
   headerBlock: {
     backgroundColor: '#0A0C12',
     paddingBottom: SPACING.sm,
@@ -477,6 +520,26 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.displayBold,
     textAlign: 'center',
     lineHeight: 32,
+  },
+
+  // ✅ Caption overlay (image/video statuses)
+  captionOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  captionOverlayText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontFamily: FONTS.bodyMedium,
+    textAlign: 'center',
+    lineHeight: 21,
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
   },
 
   bottomGradient: {
