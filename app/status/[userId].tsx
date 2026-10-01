@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — with profile-style connect popup
+// Full-screen status viewer — with connection-gated reply/heart + profile-style buttons
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
@@ -552,7 +552,8 @@ export default function StatusViewerScreen() {
             { paddingBottom: insets.bottom + SPACING.sm },
           ]}
         >
-          {isFollowing ? (
+          {connectionStatus === 'connected' ? (
+            // ✅ Connection accepted → Reply + Heart
             <View style={styles.bottomRow}>
               <TouchableOpacity
                 style={styles.replyBar}
@@ -576,12 +577,13 @@ export default function StatusViewerScreen() {
               </TouchableOpacity>
             </View>
           ) : (
+            // ✅ Not connected → Connect + Follow
             <View style={styles.connectRow}>
               <TouchableOpacity
                 style={[
                   styles.connectBtn,
                   (connectionStatus === 'pending' ||
-                    connectionStatus === 'declined') && { opacity: 0.6 },
+                    connectionStatus === 'declined') && { opacity: 0.55 },
                 ]}
                 onPress={handleConnectTap}
                 activeOpacity={0.85}
@@ -628,7 +630,7 @@ export default function StatusViewerScreen() {
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.followBtnText}>
-                    {isFollowing ? 'Following' : 'Follow'}
+                    {isFollowing ? 'Unfollow' : 'Follow'}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -826,6 +828,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
 
+  // ✅ Connect + Follow row (profile-style buttons)
   connectRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -833,25 +836,28 @@ const styles = StyleSheet.create({
   },
   connectBtn: {
     flex: 1,
-    borderRadius: RADII.full,
+    height: 42,
+    borderRadius: RADII.md,
     overflow: 'hidden',
   },
   connectBtnInner: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 11,
+    paddingHorizontal: 16,
   },
   connectBtnText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
+  // ✅ Follow button matches profile exactly
   followBtn: {
     minWidth: 110,
+    height: 42,
     paddingHorizontal: 20,
-    paddingVertical: 11,
-    borderRadius: RADII.full,
+    borderRadius: RADII.md,
     backgroundColor: '#E54E60',
     alignItems: 'center',
     justifyContent: 'center',
@@ -957,7 +963,7 @@ const styles = StyleSheet.create({
     width: '30%',
   },
 
-  // ✅ Profile-style popup styles
+  // Profile-style popup styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',
