@@ -23,7 +23,6 @@
       "versionCode": 1,
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": false,
-      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "NOTIFICATIONS",
         "POST_NOTIFICATIONS",
