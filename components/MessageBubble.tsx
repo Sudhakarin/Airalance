@@ -1,5 +1,5 @@
 // components/MessageBubble.tsx
-// Double-tap heart reaction + reaction pills + haptics + entrance animation + swipe-to-reply + voice waveform
+// Double-tap heart reaction + reaction pills + haptics + entrance animation + swipe-to-reply + voice waveform + delivery ticks
 
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
@@ -25,6 +25,7 @@ type Message = {
   content: string;
   created_at: string;
   read_at: string | null;
+  delivered_at?: string | null;
   message_type: 'text' | 'image' | 'voice';
   media_url: string | null;
   media_duration: number | null;
@@ -90,10 +91,6 @@ function replyPreviewText(msg: Message): string {
   return msg.content || '';
 }
 
-/**
- * Deterministic pseudo-random waveform generator.
- * Same seed → same bars. So each voice note has a stable pattern.
- */
 function generateWaveform(seed: string, count = WAVE_BAR_COUNT): number[] {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
@@ -105,11 +102,52 @@ function generateWaveform(seed: string, count = WAVE_BAR_COUNT): number[] {
   for (let i = 0; i < count; i++) {
     state = (state * 9301 + 49297) % 233280;
     const r = state / 233280;
-    // Bias toward mid heights for more natural look
     const shaped = 0.25 + Math.pow(r, 0.7) * 0.75;
     bars.push(shaped);
   }
   return bars;
+}
+
+// ============================================================
+// ✅ Delivery ticks — WhatsApp-style 3 states
+// ============================================================
+function DeliveryTicks({ message }: { message: Message }) {
+  const isRead = !!message.read_at;
+  const isDelivered = !!message.delivered_at || isRead;
+
+  if (isRead) {
+    // ✓✓ blue — read
+    return (
+      <Ionicons
+        name="checkmark-done"
+        size={15}
+        color="#7DD3FC"
+        style={{ marginLeft: 4 }}
+      />
+    );
+  }
+
+  if (isDelivered) {
+    // ✓✓ grey — delivered
+    return (
+      <Ionicons
+        name="checkmark-done"
+        size={15}
+        color="rgba(255,255,255,0.65)"
+        style={{ marginLeft: 4 }}
+      />
+    );
+  }
+
+  // ✓ grey — sent only
+  return (
+    <Ionicons
+      name="checkmark"
+      size={14}
+      color="rgba(255,255,255,0.55)"
+      style={{ marginLeft: 4 }}
+    />
+  );
 }
 
 // ---------- Voice bubble with waveform ----------
@@ -132,13 +170,11 @@ function VoiceBubble({
       ? Math.min(1, status.currentTime / status.duration)
       : 0;
 
-  // ✅ Deterministic bars — same message = same pattern
   const bars = useMemo(
     () => generateWaveform(messageId, WAVE_BAR_COUNT),
     [messageId]
   );
 
-  // How many bars are "played"
   const activeCount = Math.round(progress * bars.length);
 
   const toggle = useCallback(() => {
@@ -163,7 +199,6 @@ function VoiceBubble({
 
   return (
     <View style={[styles.voiceWrap, isMine && styles.voiceWrapMine]}>
-      {/* Play / pause button */}
       <TouchableOpacity
         onPress={toggle}
         activeOpacity={0.75}
@@ -179,11 +214,10 @@ function VoiceBubble({
         />
       </TouchableOpacity>
 
-      {/* Waveform */}
       <View style={styles.waveWrap}>
         {bars.map((h, i) => {
           const active = i < activeCount;
-          const barHeight = 4 + h * 18; // 4px → 22px
+          const barHeight = 4 + h * 18;
           return (
             <View
               key={i}
@@ -205,7 +239,6 @@ function VoiceBubble({
         })}
       </View>
 
-      {/* Duration */}
       <Text
         style={[styles.voiceDuration, isMine && styles.voiceDurationMine]}
       >
@@ -275,7 +308,6 @@ function MessageBubbleBase({
       : 'Them'
     : '';
 
-  // ---------- Entrance animation ----------
   const enterAnim = useRef(new Animated.Value(animate ? 0 : 1)).current;
   const hasAnimatedRef = useRef(!animate);
 
@@ -312,7 +344,6 @@ function MessageBubbleBase({
     [enterAnim]
   );
 
-  // ---------- Swipe to reply ----------
   const swipeableRef = useRef<any>(null);
 
   const renderLeftActions = useCallback(
@@ -333,7 +364,6 @@ function MessageBubbleBase({
     swipeableRef.current?.close();
   }, [isDeleted, onSwipeReply, message]);
 
-  // ---------- Double-tap detection ----------
   const lastTapRef = useRef<number>(0);
 
   const handlePress = useCallback(() => {
@@ -354,7 +384,6 @@ function MessageBubbleBase({
     onLongPress?.(message);
   }, [onLongPress, message]);
 
-  // ---------- Grouped reactions for pills ----------
   const groupedReactions = useMemo(() => {
     if (!reactions || reactions.length === 0) return [];
     const map: Record<string, { count: number; mine: boolean }> = {};
@@ -408,7 +437,6 @@ function MessageBubbleBase({
               { alignItems: isMine ? 'flex-end' : 'flex-start' },
             ]}
           >
-            {/* Quoted reply */}
             {hasReply && replyMessage && (
               <View
                 style={[
@@ -505,21 +533,12 @@ function MessageBubbleBase({
               )}
             </View>
 
+            {/* ✅ Meta row: time + delivery ticks */}
             <View style={styles.metaRow}>
               <Text style={styles.time}>{formatTime(message.created_at)}</Text>
-              {isMine && (
-                <Ionicons
-                  name={message.read_at ? 'checkmark-done' : 'checkmark'}
-                  size={14}
-                  color={
-                    message.read_at ? '#7DD3FC' : 'rgba(255,255,255,0.55)'
-                  }
-                  style={{ marginLeft: 4 }}
-                />
-              )}
+              {isMine && <DeliveryTicks message={message} />}
             </View>
 
-            {/* Reaction pills */}
             {groupedReactions.length > 0 && (
               <View style={styles.reactionsRow}>
                 {groupedReactions.map((r) => (
@@ -545,7 +564,6 @@ function MessageBubbleBase({
   );
 }
 
-// ---------- Custom comparator ----------
 function areEqual(prev: Props, next: Props) {
   if (prev.message !== next.message) return false;
   if (prev.isMine !== next.isMine) return false;
@@ -736,7 +754,6 @@ const styles = StyleSheet.create({
   },
   image: { width: 220, height: 220, borderRadius: 16 },
 
-  // ---------- Voice bubble with waveform ----------
   voiceWrap: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -755,7 +772,6 @@ const styles = StyleSheet.create({
   voicePlayBtnMine: { backgroundColor: 'rgba(255,255,255,0.22)' },
   voicePlayBtnOther: { backgroundColor: 'rgba(124,92,255,0.15)' },
 
-  // Waveform container
   waveWrap: {
     flex: 1,
     minWidth: 120,
