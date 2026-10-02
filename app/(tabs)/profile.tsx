@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-// My profile — larger fonts + spacing + AsyncStorage cache + custom dark theme dialogs
+// My profile — larger fonts + spacing + AsyncStorage cache + SQLite wipe on logout
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -34,6 +34,7 @@ import {
   VERIFIED_USERNAMES,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { dbWipeAll } from '../../lib/db';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import StatusRing from '../../components/StatusRing';
@@ -246,7 +247,6 @@ export default function ProfileScreen() {
   const [myFollowingIds, setMyFollowingIds] = useState<Set<string>>(new Set());
   const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
 
-  // ✅ Custom dialog state
   const [dialog, setDialog] = useState<CustomDialog | null>(null);
 
   const cacheShownRef = useRef(false);
@@ -259,7 +259,6 @@ export default function ProfileScreen() {
         p.username?.toLowerCase() ?? ''
       ));
 
-  // ---------- Cache-first ----------
   useEffect(() => {
     (async () => {
       const { data: authData } = await supabase.auth.getUser();
@@ -314,12 +313,10 @@ export default function ProfileScreen() {
             .from('follows')
             .select('followed_id', { count: 'exact', head: true })
             .eq('follower_id', uid),
-          // Total statuses (all-time)
           supabase
             .from('statuses')
             .select('id', { count: 'exact', head: true })
             .eq('user_id', uid),
-          // ✅ Only ACTIVE statuses (not expired)
           supabase
             .from('statuses')
             .select('id', { count: 'exact', head: true })
@@ -336,7 +333,6 @@ export default function ProfileScreen() {
       const totalCount = totalStatusRes.count ?? 0;
       const liveCount = activeStatusRes.count ?? 0;
 
-      // Stats number uses total (or profile's denormalized status_total if larger)
       const totalFromProfile = (p as any)?.status_total;
       const finalStatus =
         typeof totalFromProfile === 'number'
@@ -612,7 +608,6 @@ export default function ProfileScreen() {
     }
   }
 
-  // ✅ Custom themed notification permission flow
   async function requestNotificationPermission() {
     if (Platform.OS === 'web') return;
     hapticLight();
@@ -664,7 +659,7 @@ export default function ProfileScreen() {
     }
   }
 
-  // ✅ Custom themed logout confirmation
+  // ✅ Logout: wipe AsyncStorage cache + SQLite DB
   function handleLogout() {
     hapticMedium();
     setDialog({
@@ -684,6 +679,11 @@ export default function ProfileScreen() {
           const uid = myIdRef.current;
           if (uid) await AsyncStorage.removeItem(profileCacheKey(uid));
         } catch {}
+        try {
+          await dbWipeAll();
+        } catch (err) {
+          console.warn('[logout] SQLite wipe failed:', err);
+        }
         await supabase.auth.signOut();
         router.replace('/(auth)/login');
       },
@@ -709,7 +709,6 @@ export default function ProfileScreen() {
   }
 
   const verified = isVerified(profile);
-  // Stats number — total (all-time) count
   const statusShown = statusCount;
 
   return (
@@ -737,7 +736,6 @@ export default function ProfileScreen() {
             activeOpacity={0.85}
             style={styles.avatarWrap}
           >
-            {/* ✅ Ring only if user has at least 1 ACTIVE (non-expired) status */}
             <StatusRing
               hasStatus={activeStatusCount > 0}
               viewed={true}
@@ -926,7 +924,6 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Followers / Following List Modal */}
       {listTab && (
         <Modal
           visible
@@ -1095,7 +1092,6 @@ export default function ProfileScreen() {
         </Modal>
       )}
 
-      {/* ✅ Custom themed dialog (notifications / logout) */}
       <Modal
         visible={!!dialog}
         transparent
@@ -1601,7 +1597,6 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
 
-  // ✅ Custom dialog styles (match chats.tsx)
   blurBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
