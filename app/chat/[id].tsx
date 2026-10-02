@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — messages, realtime, send, typing, images, voice, actions, reactions + cache + pagination + lock enforcement + haptics + entrance animation + sounds + typing dots + wallpaper + swipe-to-reply
+// Chat screen — SQLite-backed offline-first messaging + all features
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -25,7 +25,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as Clipboard from 'expo-clipboard';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   useAudioRecorder,
   useAudioRecorderState,
@@ -46,6 +45,14 @@ import Avatar from '../../components/Avatar';
 import MessageBubble from '../../components/MessageBubble';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import TypingDots from '../../components/TypingDots';
+import {
+  dbGetMessages,
+  dbUpsertMessage,
+  dbDeleteMessage,
+  dbGetPendingMessages,
+  getDB,
+  DBMessage,
+} from '../../lib/db';
 import {
   hashPin,
   loadStoredPinHash,
@@ -73,6 +80,7 @@ type Message = {
   media_duration: number | null;
   reply_to_id: string | null;
   is_deleted: boolean | null;
+  local_status?: 'synced' | 'pending' | 'failed';
 };
 
 type OtherProfile = {
@@ -93,48 +101,85 @@ type Reaction = {
 };
 
 const PAGE_SIZE = 10;
-const MESSAGES_CACHE_LIMIT = 40;
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const MESSAGES_SQLITE_LIMIT = 100;
 
-function messagesCacheKey(convoId: string) {
-  return `airalance:messages:${convoId}`;
+// ============================================================
+// SQLite <-> Message conversions
+// ============================================================
+function dbRowToMessage(row: DBMessage): Message {
+  return {
+    id: row.id,
+    conversation_id: row.conversation_id,
+    sender_id: row.sender_id,
+    content: row.content ?? '',
+    created_at: row.created_at,
+    read_at: row.read_at,
+    message_type: (row.message_type as any) ?? 'text',
+    media_url: row.media_url,
+    media_duration: row.media_duration,
+    reply_to_id: row.reply_to_id,
+    is_deleted: row.is_deleted === 1,
+    local_status: (row.local_status as any) ?? 'synced',
+  };
 }
 
-type MessagesCache = {
-  t: number;
-  messages: Message[];
-  hiddenIds: string[];
-};
+function messageToDbRow(m: Message) {
+  return {
+    id: m.id,
+    conversation_id: m.conversation_id,
+    sender_id: m.sender_id,
+    content: m.content,
+    message_type: m.message_type,
+    media_url: m.media_url,
+    media_duration: m.media_duration,
+    reply_to_id: m.reply_to_id,
+    is_deleted: m.is_deleted ? 1 : 0,
+    is_edited: 0,
+    is_pinned: 0,
+    reaction: null,
+    read_at: m.read_at,
+    delivered_at: null,
+    created_at: m.created_at,
+    local_status: m.local_status ?? 'synced',
+  };
+}
 
-async function readMessagesCache(convoId: string): Promise<MessagesCache | null> {
+async function persistMessages(list: Message[]) {
   try {
-    const raw = await AsyncStorage.getItem(messagesCacheKey(convoId));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as MessagesCache;
-    if (!parsed?.messages || !Array.isArray(parsed.messages)) return null;
-    if (Date.now() - (parsed.t ?? 0) > CACHE_TTL_MS) return null;
-    return parsed;
-  } catch {
-    return null;
+    for (const m of list) {
+      await dbUpsertMessage(messageToDbRow(m));
+    }
+  } catch (err) {
+    console.warn('[chat] persistMessages error:', err);
   }
 }
 
-async function writeMessagesCache(
-  convoId: string,
-  messages: Message[],
-  hiddenIds: string[]
-) {
+async function patchMessageInDb(id: string, patch: Partial<DBMessage>) {
   try {
-    const cleaned = messages
-      .filter((m) => !m.id.startsWith('temp-'))
-      .slice(-MESSAGES_CACHE_LIMIT);
-    const payload: MessagesCache = {
-      t: Date.now(),
-      messages: cleaned,
-      hiddenIds,
-    };
-    await AsyncStorage.setItem(messagesCacheKey(convoId), JSON.stringify(payload));
-  } catch {}
+    const db = await getDB();
+    const existing = await db.getFirstAsync<DBMessage>(
+      `SELECT * FROM messages WHERE id = ?`,
+      [id]
+    );
+    if (!existing) return;
+    await db.runAsync(
+      `UPDATE messages SET
+        content = COALESCE(?, content),
+        is_deleted = COALESCE(?, is_deleted),
+        read_at = COALESCE(?, read_at),
+        local_status = COALESCE(?, local_status)
+       WHERE id = ?`,
+      [
+        patch.content ?? null,
+        patch.is_deleted ?? null,
+        patch.read_at ?? null,
+        patch.local_status ?? null,
+        id,
+      ]
+    );
+  } catch (err) {
+    console.warn('[chat] patchMessageInDb error:', err);
+  }
 }
 
 // ---------- Memoized row ----------
@@ -196,22 +241,18 @@ export default function ChatScreen() {
   const [otherOnline, setOtherOnline] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // ✅ Lock states
   const [lockRequired, setLockRequired] = useState(false);
   const [storedPinHash, setStoredPinHash] = useState<string | null>(null);
   const [pinVerifyInput, setPinVerifyInput] = useState('');
   const [pinVerifyError, setPinVerifyError] = useState('');
   const [lockChecked, setLockChecked] = useState(false);
 
-  // ✅ Mute state (per-conversation)
   const [isMutedForConvo, setIsMutedForConvo] = useState(false);
 
-  // ✅ Pagination state
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const loadingMoreRef = useRef(false);
 
-  // ✅ Entrance animation state
   const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
 
   const [showScrollBtn, setShowScrollBtn] = useState(false);
@@ -233,6 +274,7 @@ export default function ChatScreen() {
   const prevMsgCountRef = useRef(0);
   const isNearBottomRef = useRef(true);
   const initialScrollDoneRef = useRef(false);
+  const cacheShownRef = useRef(false);
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 100);
@@ -240,7 +282,6 @@ export default function ChatScreen() {
 
   const visibleMessages = messages.filter((m) => !hiddenForMeIds.has(m.id));
 
-  // ✅ Mark message ID as animating (capped to prevent memory growth)
   const markAnimating = useCallback((id: string) => {
     setAnimatingIds((prev) => {
       const next = new Set(prev);
@@ -261,32 +302,34 @@ export default function ChatScreen() {
     }).start();
   }, [showScrollBtn, scrollBtnAnim]);
 
+  // ✅ PHASE 3: Show SQLite cache instantly
   useEffect(() => {
-    if (!convoId) return;
-    let cancelled = false;
+    if (!convoId || cacheShownRef.current) return;
     (async () => {
-      const cache = await readMessagesCache(convoId);
-      if (cancelled || !cache) return;
-      if (cache.messages.length > 0) {
-        setMessages(cache.messages);
-        setHiddenForMeIds(new Set(cache.hiddenIds ?? []));
-        setLoading(false);
-        prevMsgCountRef.current = cache.messages.length;
+      try {
+        const rows = await dbGetMessages(convoId, MESSAGES_SQLITE_LIMIT);
+        if (rows.length > 0) {
+          const ordered = [...rows].reverse().map(dbRowToMessage);
+          setMessages(ordered);
+          setLoading(false);
+          prevMsgCountRef.current = ordered.length;
+        }
+      } catch (err) {
+        console.warn('[chat] SQLite read error:', err);
       }
+      cacheShownRef.current = true;
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [convoId]);
 
+  // ✅ PHASE 3: Persist messages to SQLite on change
   useEffect(() => {
     if (!convoId) return;
-    if (messages.length === 0 && hiddenForMeIds.size === 0) return;
+    if (messages.length === 0) return;
     const timer = setTimeout(() => {
-      writeMessagesCache(convoId, messages, Array.from(hiddenForMeIds));
-    }, 400);
+      persistMessages(messages);
+    }, 500);
     return () => clearTimeout(timer);
-  }, [messages, hiddenForMeIds, convoId]);
+  }, [messages, convoId]);
 
   useEffect(() => {
     let mounted = true;
@@ -367,6 +410,9 @@ export default function ChatScreen() {
         prevMsgCountRef.current = ordered.length;
         setHasMore(msgs.length === PAGE_SIZE);
 
+        // ✅ PHASE 3: save to SQLite
+        await persistMessages(ordered);
+
         if (ordered.length > 0) {
           const { data: rx } = await supabase
             .from('message_reactions')
@@ -393,8 +439,6 @@ export default function ChatScreen() {
         );
         setHiddenForMeIds(hiddenIds);
 
-        await writeMessagesCache(convoId, ordered, Array.from(hiddenIds));
-
         const unreadIds = msgs
           .filter((m: any) => m.sender_id !== uid && !m.read_at)
           .map((m: any) => m.id);
@@ -417,11 +461,61 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
+  // ✅ PHASE 3: Retry pending messages on mount
+  useEffect(() => {
+    if (!myId || !convoId) return;
+    if (lockRequired) return;
+    (async () => {
+      try {
+        const pending = await dbGetPendingMessages();
+        const forThisConvo = pending.filter(
+          (p) => p.conversation_id === convoId
+        );
+        for (const p of forThisConvo) {
+          try {
+            const { data: inserted, error } = await supabase
+              .from('messages')
+              .insert({
+                conversation_id: p.conversation_id,
+                sender_id: p.sender_id,
+                content: p.content,
+                message_type: p.message_type,
+                media_url: p.media_url,
+                reply_to_id: p.reply_to_id,
+              })
+              .select()
+              .single();
+
+            if (error) throw error;
+            if (inserted) {
+              await dbDeleteMessage(p.id);
+              await dbUpsertMessage({
+                ...messageToDbRow(inserted as Message),
+                local_status: 'synced',
+              });
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === p.id
+                    ? { ...(inserted as Message), local_status: 'synced' }
+                    : m
+                )
+              );
+            }
+          } catch (err) {
+            console.warn('[chat] retry pending failed:', err);
+            await patchMessageInDb(p.id, { local_status: 'failed' });
+          }
+        }
+      } catch (err) {
+        console.warn('[chat] offline queue error:', err);
+      }
+    })();
+  }, [myId, convoId, lockRequired]);
+
   useEffect(() => {
     initialScrollDoneRef.current = false;
   }, [convoId]);
 
-  // ✅ Auto-scroll to bottom on initial load
   useEffect(() => {
     if (loading) return;
     if (lockRequired) return;
@@ -435,7 +529,6 @@ export default function ChatScreen() {
     return () => clearTimeout(t);
   }, [loading, lockRequired, visibleMessages.length]);
 
-  // ✅ Load older messages (pagination)
   const loadOlderMessages = useCallback(async () => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
@@ -463,6 +556,9 @@ export default function ChatScreen() {
       }
 
       const older = [...data].reverse() as Message[];
+
+      // ✅ PHASE 3: save to SQLite
+      await persistMessages(older);
 
       const olderIds = older.map((m) => m.id);
       const { data: rx } = await supabase
@@ -511,13 +607,13 @@ export default function ChatScreen() {
           setPeerTyping(false);
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
-          // ✅ Mark received messages as animating + play receive sound (respect mute)
           if (incoming.sender_id !== myId) {
             markAnimating(incoming.id);
-            if (!isMutedForConvo) {
-              playReceive();
-            }
+            if (!isMutedForConvo) playReceive();
           }
+
+          // ✅ PHASE 3: save incoming to SQLite
+          persistMessages([incoming]);
 
           setMessages((prev) => {
             if (prev.some((m) => m.id === incoming.id)) return prev;
@@ -555,6 +651,14 @@ export default function ChatScreen() {
         },
         (payload) => {
           const updated = payload.new as Message;
+
+          // ✅ PHASE 3: patch SQLite
+          patchMessageInDb(updated.id, {
+            content: updated.content,
+            is_deleted: updated.is_deleted ? 1 : 0,
+            read_at: updated.read_at,
+          });
+
           setMessages((prev) =>
             prev.map((m) => (m.id === updated.id ? updated : m))
           );
@@ -839,14 +943,11 @@ export default function ChatScreen() {
     [toggleReaction]
   );
 
-  const handleReply = useCallback(
-    (msg: Message) => {
-      setActionSheetMsg(null);
-      setReplyingTo(msg);
-      setTimeout(() => inputRef.current?.focus(), 150);
-    },
-    []
-  );
+  const handleReply = useCallback((msg: Message) => {
+    setActionSheetMsg(null);
+    setReplyingTo(msg);
+    setTimeout(() => inputRef.current?.focus(), 150);
+  }, []);
 
   async function handleCopy(msg: Message) {
     setActionSheetMsg(null);
@@ -952,7 +1053,10 @@ export default function ChatScreen() {
   async function deleteForEveryone(msg: Message) {
     if (!myId) return;
     if (msg.sender_id !== myId) {
-      Alert.alert('Cannot delete', 'You can only delete your own messages for everyone.');
+      Alert.alert(
+        'Cannot delete',
+        'You can only delete your own messages for everyone.'
+      );
       setDeleteConfirmMsg(null);
       return;
     }
@@ -963,6 +1067,10 @@ export default function ChatScreen() {
         .from('messages')
         .update({ is_deleted: true })
         .eq('id', msg.id);
+
+      // ✅ PHASE 3: patch SQLite
+      patchMessageInDb(msg.id, { is_deleted: 1 });
+
       setMessages((prev) =>
         prev.map((m) => (m.id === msg.id ? { ...m, is_deleted: true } : m))
       );
@@ -994,6 +1102,7 @@ export default function ChatScreen() {
     } catch {}
   }
 
+  // ✅ PHASE 3: Send message — SQLite first, then Supabase
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
@@ -1022,46 +1131,83 @@ export default function ChatScreen() {
       media_duration: null,
       reply_to_id: replyTarget?.id ?? null,
       is_deleted: false,
+      local_status: 'pending',
     };
+
     setMessages((prev) => [...prev, optimistic]);
     markAnimating(tempId);
 
-    const { data: inserted, error } = await supabase
-      .from('messages')
-      .insert({
-        conversation_id: convoId,
-        sender_id: myId,
-        content,
-        message_type: 'text',
-        reply_to_id: replyTarget?.id ?? null,
-      })
-      .select()
-      .single();
+    // ✅ PHASE 3: save pending to SQLite
+    try {
+      await dbUpsertMessage(messageToDbRow(optimistic));
+    } catch (err) {
+      console.warn('[chat] SQLite pending save failed:', err);
+    }
 
-    if (error || !inserted) {
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+    try {
+      const { data: inserted, error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: convoId,
+          sender_id: myId,
+          content,
+          message_type: 'text',
+          reply_to_id: replyTarget?.id ?? null,
+        })
+        .select()
+        .single();
+
+      if (error || !inserted) throw error || new Error('Insert failed');
+
+      // ✅ PHASE 3: replace temp with server row in SQLite
+      const serverMsg: Message = {
+        ...(inserted as Message),
+        local_status: 'synced',
+      };
+      try {
+        await dbDeleteMessage(tempId);
+        await dbUpsertMessage(messageToDbRow(serverMsg));
+      } catch (err) {
+        console.warn('[chat] SQLite sync save failed:', err);
+      }
+
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === serverMsg.id))
+          return prev.filter((m) => m.id !== tempId);
+        return prev.map((m) => (m.id === tempId ? serverMsg : m));
+      });
+
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      });
+
+      hapticLight();
+      playSend();
+      if (other?.id) triggerPushNotification(other.id, content, 'text');
+    } catch (err) {
+      console.warn('Send failed:', err);
+
+      // ✅ PHASE 3: keep in SQLite as failed
+      try {
+        await patchMessageInDb(tempId, { local_status: 'failed' });
+      } catch {}
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId ? { ...m, local_status: 'failed' } : m
+        )
+      );
+
       setInput(content);
       setReplyingTo(replyTarget);
       hapticError();
-      Alert.alert('Failed to send', 'Please try again.');
+      Alert.alert(
+        'Failed to send',
+        'Message saved. Will retry automatically.'
+      );
+    } finally {
       setSending(false);
-      return;
     }
-
-    setMessages((prev) => {
-      if (prev.some((m) => m.id === (inserted as Message).id))
-        return prev.filter((m) => m.id !== tempId);
-      return prev.map((m) => (m.id === tempId ? (inserted as Message) : m));
-    });
-
-    requestAnimationFrame(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
-    });
-
-    hapticLight();
-    playSend();
-    if (other?.id) triggerPushNotification(other.id, content, 'text');
-    setSending(false);
   }
 
   async function pickImage() {
@@ -1082,7 +1228,9 @@ export default function ChatScreen() {
     try {
       const response = await fetch(asset.uri);
       const arrayBuffer = await response.arrayBuffer();
-      const ext = (asset.uri.split('.').pop() ?? 'jpg').toLowerCase().slice(0, 5);
+      const ext = (asset.uri.split('.').pop() ?? 'jpg')
+        .toLowerCase()
+        .slice(0, 5);
       const path = `${convoId}/${myId}-${Date.now()}.${ext}`;
 
       const { error: uploadError } = await supabase.storage
@@ -1112,6 +1260,9 @@ export default function ChatScreen() {
 
       if (error) throw error;
       if (inserted) {
+        // ✅ PHASE 3: save to SQLite
+        await persistMessages([inserted as Message]);
+
         markAnimating((inserted as Message).id);
         setMessages((prev) =>
           prev.some((m) => m.id === (inserted as Message).id)
@@ -1195,6 +1346,9 @@ export default function ChatScreen() {
 
       if (error) throw error;
       if (inserted) {
+        // ✅ PHASE 3: save to SQLite
+        await persistMessages([inserted as Message]);
+
         markAnimating((inserted as Message).id);
         setMessages((prev) =>
           prev.some((m) => m.id === (inserted as Message).id)
@@ -1707,7 +1861,7 @@ export default function ChatScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* Action Menu — with Android blur fix */}
+      {/* Action Menu */}
       <Modal
         visible={!!actionSheetMsg}
         transparent
@@ -1761,7 +1915,7 @@ export default function ChatScreen() {
         </BlurView>
       </Modal>
 
-      {/* Delete Confirm — with Android blur fix */}
+      {/* Delete Confirm */}
       <Modal
         visible={!!deleteConfirmMsg}
         transparent
