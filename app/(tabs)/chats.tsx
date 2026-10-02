@@ -1,5 +1,5 @@
 // app/(tabs)/chats.tsx
-// Chats list — SQLite-backed (offline-first) + locked row + haptics
+// Chats list — SQLite-backed (offline-first) + offline auth + network auto-reload
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
@@ -22,6 +22,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { getCurrentUserId } from '../../lib/auth';
+import { subscribeNetwork, isOnline } from '../../lib/network';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import {
@@ -90,9 +92,6 @@ function formatTime(iso: string) {
   return date.toLocaleDateString();
 }
 
-// ============================================================
-// SQLite <-> Conversation conversions
-// ============================================================
 function dbRowToConversation(row: DBConversation): Conversation {
   return {
     id: row.id,
@@ -325,6 +324,9 @@ export default function ChatsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [myId, setMyId] = useState<string | null>(null);
 
+  // ✅ Network tracking
+  const [online, setOnline] = useState(isOnline());
+
   const [actionSheetConvo, setActionSheetConvo] = useState<Conversation | null>(
     null
   );
@@ -348,10 +350,23 @@ export default function ChatsScreen() {
   const isLoadingRef = useRef(false);
   const cacheShownRef = useRef(false);
 
+  // ✅ OFFLINE FIX: use getCurrentUserId() (reads from local session)
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setMyId(data.user.id);
-    });
+    let mounted = true;
+    (async () => {
+      const uid = await getCurrentUserId();
+      if (mounted && uid) setMyId(uid);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // ✅ Subscribe to network changes
+  useEffect(() => {
+    setOnline(isOnline());
+    const unsub = subscribeNetwork(setOnline);
+    return unsub;
   }, []);
 
   // Load stored PIN hash
@@ -382,6 +397,7 @@ export default function ChatsScreen() {
 
   const loadConversations = useCallback(async () => {
     if (!myId) return;
+    if (!isOnline()) return; // ✅ skip network call offline
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
 
@@ -396,7 +412,6 @@ export default function ChatsScreen() {
       const convoIds = (participantRows ?? []).map((r) => r.conversation_id);
       if (convoIds.length === 0) {
         setConversations([]);
-        // ✅ PHASE 2: wipe SQLite
         await dbClearAllConversations();
         return;
       }
@@ -492,7 +507,6 @@ export default function ChatsScreen() {
       rows.sort((a, b) => (a.last_at < b.last_at ? 1 : -1));
       setConversations(rows);
 
-      // ✅ PHASE 2: save to SQLite
       await persistConversations(rows);
     } catch (err) {
       console.warn('Load conversations error:', err);
@@ -507,8 +521,17 @@ export default function ChatsScreen() {
     loadConversations();
   }, [loadConversations]);
 
+  // ✅ AUTO-RELOAD when internet comes back
+  useEffect(() => {
+    if (online && myId) {
+      console.log('[chats] back online — reloading');
+      loadConversations();
+    }
+  }, [online, myId, loadConversations]);
+
   useEffect(() => {
     if (!myId) return;
+    if (!online) return; // ✅ don't subscribe offline
 
     const scheduleReload = () => {
       if (realtimeTimeoutRef.current) clearTimeout(realtimeTimeoutRef.current);
@@ -540,9 +563,8 @@ export default function ChatsScreen() {
       if (realtimeTimeoutRef.current) clearTimeout(realtimeTimeoutRef.current);
       supabase.removeChannel(channel);
     };
-  }, [myId, loadConversations]);
+  }, [myId, loadConversations, online]);
 
-  // ✅ PHASE 2: cache write now goes to SQLite
   const updateCache = useCallback(
     async (next: Conversation[]) => {
       if (!myId) return;
@@ -583,7 +605,6 @@ export default function ChatsScreen() {
     setConversations(next);
     updateCache(next);
 
-    // ✅ PHASE 2: delete from SQLite
     await dbDeleteConversation(convoId);
 
     try {
@@ -617,7 +638,6 @@ export default function ChatsScreen() {
     setConversations(next);
     updateCache(next);
 
-    // ✅ PHASE 2: patch SQLite
     await patchDbConversation(convo.id, { is_muted: nextMuted ? 1 : 0 });
 
     try {
@@ -682,7 +702,6 @@ export default function ChatsScreen() {
       setConversations(next);
       updateCache(next);
 
-      // ✅ PHASE 2: patch SQLite
       await patchDbConversation(convoId, { is_locked: lock ? 1 : 0 });
     } catch (err) {
       console.warn('Lock failed:', err);
@@ -795,7 +814,6 @@ export default function ChatsScreen() {
       setConversations(next);
       updateCache(next);
 
-      // ✅ PHASE 2: delete from SQLite
       await dbDeleteConversation(convo.id);
 
       Alert.alert('Blocked', `@${convo.other_profile?.username} has been blocked.`);
@@ -842,6 +860,16 @@ export default function ChatsScreen() {
           <Ionicons name="create-outline" size={20} color={COLORS.text} />
         </TouchableOpacity>
       </View>
+
+      {/* ✅ Offline banner */}
+      {!online && (
+        <View style={styles.offlineBanner}>
+          <Ionicons name="cloud-offline-outline" size={14} color="#FFFFFF" />
+          <Text style={styles.offlineBannerText}>
+            You're offline — showing cached chats
+          </Text>
+        </View>
+      )}
 
       {!loading && lockedConversations.length > 0 && (
         <TouchableOpacity
@@ -1368,6 +1396,23 @@ function ActionRow({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
+
+  // ✅ Offline banner
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: '#B45309',
+  },
+  offlineBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontFamily: FONTS.bodyMedium,
+    flexShrink: 1,
+  },
 
   header: {
     flexDirection: 'row',
