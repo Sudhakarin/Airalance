@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — SQLite offline-first + network detection + auto-retry + delivery ticks
+// Chat screen — SQLite offline-first + offline auth + network auto-reload + delivery ticks
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -41,6 +41,8 @@ import {
   CONSTANTS,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { getCurrentUserId } from '../../lib/auth';
+import { subscribeNetwork, isOnline } from '../../lib/network';
 import Avatar from '../../components/Avatar';
 import MessageBubble from '../../components/MessageBubble';
 import VerifiedBadge from '../../components/VerifiedBadge';
@@ -53,7 +55,6 @@ import {
   getDB,
   DBMessage,
 } from '../../lib/db';
-import { subscribeNetwork, isOnline } from '../../lib/network';
 import {
   hashPin,
   loadStoredPinHash,
@@ -246,7 +247,6 @@ export default function ChatScreen() {
   const [otherOnline, setOtherOnline] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  // ✅ Network status
   const [online, setOnline] = useState(isOnline());
 
   const [lockRequired, setLockRequired] = useState(false);
@@ -284,6 +284,7 @@ export default function ChatScreen() {
   const initialScrollDoneRef = useRef(false);
   const cacheShownRef = useRef(false);
   const retryInProgressRef = useRef(false);
+  const bootstrapDoneRef = useRef(false);
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 100);
@@ -320,7 +321,7 @@ export default function ChatScreen() {
     return unsub;
   }, []);
 
-  // ✅ PHASE 3: Show SQLite cache instantly
+  // ✅ PHASE 3: Show SQLite cache instantly (works offline)
   useEffect(() => {
     if (!convoId || cacheShownRef.current) return;
     (async () => {
@@ -349,128 +350,148 @@ export default function ChatScreen() {
     return () => clearTimeout(timer);
   }, [messages, convoId]);
 
+  // ✅ Bootstrap: works OFFLINE (uses getCurrentUserId from local session)
   useEffect(() => {
+    if (!convoId) return;
+    if (bootstrapDoneRef.current) return;
+    bootstrapDoneRef.current = true;
+
     let mounted = true;
 
     async function bootstrap() {
-      const { data: authData } = await supabase.auth.getUser();
-      if (!authData.user || !mounted) return;
-      const uid = authData.user.id;
+      // ✅ OFFLINE FIX: read user ID from local session (no network)
+      const uid = await getCurrentUserId();
+      if (!uid || !mounted) {
+        setLoading(false);
+        setLockChecked(true);
+        return;
+      }
 
-      const [
-        profileRes,
-        otherRes,
-        msgRes,
-        pinsRes,
-        delRes,
-        chatSettingsRes,
-        pinHash,
-      ] = await Promise.all([
-        supabase.from('profiles').select('display_name').eq('id', uid).single(),
-        supabase
-          .from('conversation_participants')
-          .select(
-            'user_id, profiles(id, username, display_name, avatar_color, avatar_url, verified, last_seen)'
-          )
-          .eq('conversation_id', convoId)
-          .neq('user_id', uid)
-          .limit(1),
-        supabase
-          .from('messages')
-          .select('*')
-          .eq('conversation_id', convoId)
-          .order('created_at', { ascending: false })
-          .limit(PAGE_SIZE),
-        supabase
-          .from('message_pins')
-          .select('message_id')
-          .eq('conversation_id', convoId)
-          .eq('user_id', uid)
-          .limit(1),
-        supabase
-          .from('message_deletions')
-          .select('message_id')
-          .eq('user_id', uid),
-        supabase
-          .from('chat_settings')
-          .select('is_locked, is_muted')
-          .eq('user_id', uid)
-          .eq('conversation_id', convoId)
-          .maybeSingle(),
-        loadStoredPinHash(uid),
-      ]);
-
+      // Load PIN hash (local)
+      const pinHash = await loadStoredPinHash(uid);
       if (!mounted) return;
-
       setStoredPinHash(pinHash);
-
-      const chatLocked = chatSettingsRes.data?.is_locked === true;
-      setIsMutedForConvo(chatSettingsRes.data?.is_muted === true);
-      const needsPin = chatLocked && !isSessionUnlocked();
-
       setMyId(uid);
-      setLockRequired(needsPin);
-      setLockChecked(true);
 
-      if (needsPin) {
+      // If offline → skip network, just stop loading (SQLite cache already shown)
+      if (!isOnline()) {
+        setLockChecked(true);
         setLoading(false);
         return;
       }
 
-      if (profileRes.data?.display_name) setMyName(profileRes.data.display_name);
-      if (otherRes.data?.[0])
-        setOther((otherRes.data[0] as any).profiles as OtherProfile);
-
-      const msgs = msgRes.data;
-      if (msgs) {
-        const ordered = [...msgs].reverse() as Message[];
-        setMessages(ordered);
-        prevMsgCountRef.current = ordered.length;
-        setHasMore(msgs.length === PAGE_SIZE);
-
-        await persistMessages(ordered);
-
-        if (ordered.length > 0) {
-          const { data: rx } = await supabase
-            .from('message_reactions')
-            .select('*')
-            .in(
-              'message_id',
-              ordered.map((m) => m.id)
-            );
-          const grouped: Record<string, Reaction[]> = {};
-          (rx ?? []).forEach((r: Reaction) => {
-            grouped[r.message_id] = [...(grouped[r.message_id] ?? []), r];
-          });
-          if (mounted) setReactionsByMsg(grouped);
-        }
-
-        const pinnedId = pinsRes.data?.[0]?.message_id;
-        if (pinnedId) {
-          const found = ordered.find((m) => m.id === pinnedId);
-          if (found) setPinnedMessage(found);
-        }
-
-        const hiddenIds = new Set<string>(
-          (delRes.data ?? []).map((r: any) => r.message_id)
-        );
-        setHiddenForMeIds(hiddenIds);
-
-        // Mark incoming messages as read
-        const unreadIds = msgs
-          .filter((m: any) => m.sender_id !== uid && !m.read_at)
-          .map((m: any) => m.id);
-        if (unreadIds.length > 0) {
+      try {
+        const [
+          profileRes,
+          otherRes,
+          msgRes,
+          pinsRes,
+          delRes,
+          chatSettingsRes,
+        ] = await Promise.all([
+          supabase.from('profiles').select('display_name').eq('id', uid).single(),
+          supabase
+            .from('conversation_participants')
+            .select(
+              'user_id, profiles(id, username, display_name, avatar_color, avatar_url, verified, last_seen)'
+            )
+            .eq('conversation_id', convoId)
+            .neq('user_id', uid)
+            .limit(1),
           supabase
             .from('messages')
-            .update({ read_at: new Date().toISOString() })
-            .in('id', unreadIds)
-            .then(() => {});
+            .select('*')
+            .eq('conversation_id', convoId)
+            .order('created_at', { ascending: false })
+            .limit(PAGE_SIZE),
+          supabase
+            .from('message_pins')
+            .select('message_id')
+            .eq('conversation_id', convoId)
+            .eq('user_id', uid)
+            .limit(1),
+          supabase
+            .from('message_deletions')
+            .select('message_id')
+            .eq('user_id', uid),
+          supabase
+            .from('chat_settings')
+            .select('is_locked, is_muted')
+            .eq('user_id', uid)
+            .eq('conversation_id', convoId)
+            .maybeSingle(),
+        ]);
+
+        if (!mounted) return;
+
+        const chatLocked = chatSettingsRes.data?.is_locked === true;
+        setIsMutedForConvo(chatSettingsRes.data?.is_muted === true);
+        const needsPin = chatLocked && !isSessionUnlocked();
+        setLockRequired(needsPin);
+        setLockChecked(true);
+
+        if (needsPin) {
+          setLoading(false);
+          return;
         }
-      } else {
-        setHasMore(false);
+
+        if (profileRes.data?.display_name) setMyName(profileRes.data.display_name);
+        if (otherRes.data?.[0])
+          setOther((otherRes.data[0] as any).profiles as OtherProfile);
+
+        const msgs = msgRes.data;
+        if (msgs) {
+          const ordered = [...msgs].reverse() as Message[];
+          setMessages(ordered);
+          prevMsgCountRef.current = ordered.length;
+          setHasMore(msgs.length === PAGE_SIZE);
+
+          await persistMessages(ordered);
+
+          if (ordered.length > 0) {
+            const { data: rx } = await supabase
+              .from('message_reactions')
+              .select('*')
+              .in(
+                'message_id',
+                ordered.map((m) => m.id)
+              );
+            const grouped: Record<string, Reaction[]> = {};
+            (rx ?? []).forEach((r: Reaction) => {
+              grouped[r.message_id] = [...(grouped[r.message_id] ?? []), r];
+            });
+            if (mounted) setReactionsByMsg(grouped);
+          }
+
+          const pinnedId = pinsRes.data?.[0]?.message_id;
+          if (pinnedId) {
+            const found = ordered.find((m) => m.id === pinnedId);
+            if (found) setPinnedMessage(found);
+          }
+
+          const hiddenIds = new Set<string>(
+            (delRes.data ?? []).map((r: any) => r.message_id)
+          );
+          setHiddenForMeIds(hiddenIds);
+
+          const unreadIds = msgs
+            .filter((m: any) => m.sender_id !== uid && !m.read_at)
+            .map((m: any) => m.id);
+          if (unreadIds.length > 0) {
+            supabase
+              .from('messages')
+              .update({ read_at: new Date().toISOString() })
+              .in('id', unreadIds)
+              .then(() => {});
+          }
+        } else {
+          setHasMore(false);
+        }
+      } catch (err) {
+        console.warn('[chat] bootstrap network error:', err);
+      } finally {
+        if (mounted) setLoading(false);
       }
-      setLoading(false);
     }
 
     bootstrap();
@@ -479,7 +500,7 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
-  // ✅ PHASE 3 + 4: Retry pending messages (on mount and on network online)
+  // ✅ Retry pending messages
   const retryPendingMessages = useCallback(async () => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
@@ -534,7 +555,6 @@ export default function ChatScreen() {
     }
   }, [myId, convoId, lockRequired]);
 
-  // Retry on mount (after myId ready)
   useEffect(() => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
@@ -568,6 +588,7 @@ export default function ChatScreen() {
   const loadOlderMessages = useCallback(async () => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
+    if (!isOnline()) return;
     if (loadingMoreRef.current || !hasMore) return;
 
     const oldestMsg = messages[0];
@@ -591,8 +612,7 @@ export default function ChatScreen() {
         return;
       }
 
-      const older = [...data].reverse() as Message[];
-
+      const older = [...data].reverse() as Message;
       await persistMessages(older);
 
       const olderIds = older.map((m) => m.id);
@@ -623,9 +643,11 @@ export default function ChatScreen() {
     }
   }, [myId, convoId, hasMore, messages, lockRequired]);
 
+  // ✅ Realtime — only subscribe when online
   useEffect(() => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
+    if (!online) return;
 
     const channel = supabase
       .channel(`chat:${convoId}`)
@@ -646,7 +668,6 @@ export default function ChatScreen() {
             markAnimating(incoming.id);
             if (!isMutedForConvo) playReceive();
 
-            // ✅ PHASE 4: Mark delivered (if not already)
             if (!incoming.delivered_at) {
               const deliveredAt = new Date().toISOString();
               supabase
@@ -654,8 +675,6 @@ export default function ChatScreen() {
                 .update({ delivered_at: deliveredAt })
                 .eq('id', incoming.id)
                 .then(() => {});
-
-              // Local optimistic update
               incoming.delivered_at = deliveredAt;
             }
           }
@@ -698,14 +717,12 @@ export default function ChatScreen() {
         },
         (payload) => {
           const updated = payload.new as Message;
-
           patchMessageInDb(updated.id, {
             content: updated.content,
             is_deleted: updated.is_deleted ? 1 : 0,
             read_at: updated.read_at,
             delivered_at: updated.delivered_at ?? null,
           });
-
           setMessages((prev) =>
             prev.map((m) => (m.id === updated.id ? updated : m))
           );
@@ -762,11 +779,12 @@ export default function ChatScreen() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [myId, convoId, lockRequired, markAnimating, isMutedForConvo]);
+  }, [myId, convoId, lockRequired, markAnimating, isMutedForConvo, online]);
 
   useEffect(() => {
     if (!other?.id) return;
     if (lockRequired) return;
+    if (!online) return;
     let cancelled = false;
     const check = async () => {
       const { data } = await supabase
@@ -786,7 +804,7 @@ export default function ChatScreen() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [other?.id, lockRequired]);
+  }, [other?.id, lockRequired, online]);
 
   useEffect(() => {
     const count = visibleMessages.length;
@@ -853,6 +871,7 @@ export default function ChatScreen() {
       messageType: 'text' | 'image' | 'voice' = 'text'
     ) => {
       if (!myName || !receiverId) return;
+      if (!isOnline()) return;
       try {
         let bodyText = messageText;
         if (messageType === 'image') bodyText = '📷 Image';
@@ -913,6 +932,7 @@ export default function ChatScreen() {
   const toggleReaction = useCallback(
     async (msg: Message, emoji: string) => {
       if (!myId || msg.is_deleted) return;
+      if (!isOnline()) return;
       hapticLight();
       const existing = (reactionsByMsg[msg.id] ?? []).find(
         (r) => r.user_id === myId && r.emoji === emoji
@@ -1017,6 +1037,10 @@ export default function ChatScreen() {
   async function handlePin(msg: Message) {
     setActionSheetMsg(null);
     if (!myId || !convoId) return;
+    if (!isOnline()) {
+      Alert.alert('Offline', 'Pinning requires internet.');
+      return;
+    }
 
     if (pinnedMessage?.id === msg.id) {
       await unpinMessage();
@@ -1244,10 +1268,12 @@ export default function ChatScreen() {
       setInput(content);
       setReplyingTo(replyTarget);
       hapticError();
-      Alert.alert(
-        'Failed to send',
-        'Message saved. Will retry automatically.'
-      );
+      if (isOnline()) {
+        Alert.alert(
+          'Failed to send',
+          'Message saved. Will retry automatically.'
+        );
+      }
     } finally {
       setSending(false);
     }
@@ -1255,6 +1281,10 @@ export default function ChatScreen() {
 
   async function pickImage() {
     if (!myId || !convoId || uploading) return;
+    if (!isOnline()) {
+      Alert.alert('Offline', 'Cannot upload photos while offline.');
+      return;
+    }
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert('Permission needed', 'Please allow photos access.');
@@ -1327,6 +1357,10 @@ export default function ChatScreen() {
 
   async function startRecording() {
     if (isRecording) return;
+    if (!isOnline()) {
+      Alert.alert('Offline', 'Cannot record voice while offline.');
+      return;
+    }
     try {
       const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
@@ -1357,6 +1391,10 @@ export default function ChatScreen() {
       setIsRecording(false);
 
       if (!uri || durationMs < 1000) return;
+      if (!isOnline()) {
+        Alert.alert('Offline', 'Cannot send voice while offline.');
+        return;
+      }
 
       setUploading(true);
       const response = await fetch(uri);
@@ -1488,7 +1526,6 @@ export default function ChatScreen() {
 
   const recordSeconds = Math.floor((recorderState.durationMillis ?? 0) / 1000);
 
-  // ---------- LOADING ----------
   if (loading || !myId || !lockChecked) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -1499,7 +1536,6 @@ export default function ChatScreen() {
     );
   }
 
-  // ---------- LOCK SCREEN ----------
   if (lockRequired) {
     const onVerify = async () => {
       if (!storedPinHash) {
@@ -1585,7 +1621,6 @@ export default function ChatScreen() {
     );
   }
 
-  // ---------- MAIN CHAT ----------
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
@@ -1593,7 +1628,6 @@ export default function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        {/* ✅ Offline banner */}
         {!online && (
           <View style={styles.offlineBanner}>
             <Ionicons name="cloud-offline-outline" size={14} color="#FFFFFF" />
@@ -1912,7 +1946,6 @@ export default function ChatScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* Action Menu */}
       <Modal
         visible={!!actionSheetMsg}
         transparent
@@ -1966,7 +1999,6 @@ export default function ChatScreen() {
         </BlurView>
       </Modal>
 
-      {/* Delete Confirm */}
       <Modal
         visible={!!deleteConfirmMsg}
         transparent
@@ -2085,7 +2117,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.ink900 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  // ✅ Offline banner
   offlineBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2552,7 +2583,7 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     borderRadius: 10,
   },
-  actionLabel Amber: {
+  actionLabel: {
     fontSize: 15,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
