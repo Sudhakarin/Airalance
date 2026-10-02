@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — cached + realtime + video + music playback
+// Full-screen status viewer — Instagram-style music in header
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
@@ -89,9 +89,6 @@ type StatusContentCache = {
   cachedAt: number;
 };
 
-// ============================================================
-// Viewers cache helpers
-// ============================================================
 async function readViewersCache(): Promise<ViewersCache> {
   try {
     const raw = await AsyncStorage.getItem(VIEWERS_CACHE_KEY);
@@ -108,9 +105,6 @@ async function writeViewersCache(map: ViewersCache) {
   } catch {}
 }
 
-// ============================================================
-// Status content cache helpers
-// ============================================================
 function statusContentKey(userId: string) {
   return `${STATUSES_CACHE_KEY}:${userId}`;
 }
@@ -224,7 +218,7 @@ function StatusMusicPlayer({
   durationSec: number;
   paused: boolean;
 }) {
-  const player = useAudioPlayer();
+  const player = useAudioPlayer(null);
 
   const startRef = useRef(startSec);
   const durRef = useRef(durationSec);
@@ -275,6 +269,60 @@ function StatusMusicPlayer({
   }, [paused, player]);
 
   return null;
+}
+
+// ============================================================
+// Music Marquee — Instagram style scrolling text
+// ============================================================
+function MusicMarquee({ text }: { text: string }) {
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [textWidth, setTextWidth] = useState(0);
+  const translateX = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (containerWidth === 0 || textWidth === 0) return;
+    if (textWidth <= containerWidth) {
+      // No need to scroll
+      translateX.setValue(0);
+      return;
+    }
+    const overflow = textWidth - containerWidth;
+    const duration = overflow * 40; // speed
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(1000),
+        Animated.timing(translateX, {
+          toValue: -overflow,
+          duration,
+          useNativeDriver: true,
+        }),
+        Animated.delay(800),
+        Animated.timing(translateX, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        }),
+        Animated.delay(400),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [containerWidth, textWidth, translateX]);
+
+  return (
+    <View
+      style={styles.marqueeContainer}
+      onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+    >
+      <Animated.Text
+        style={[styles.musicHeaderText, { transform: [{ translateX }] }]}
+        numberOfLines={1}
+        onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}
+      >
+        {text}
+      </Animated.Text>
+    </View>
+  );
 }
 
 // ============================================================
@@ -380,7 +428,6 @@ export default function StatusViewerScreen() {
     };
   }, [userId]);
 
-  // Connection / follow check
   useEffect(() => {
     if (!myId || !userId || myId === userId) {
       setIsFollowing(false);
@@ -597,7 +644,6 @@ export default function StatusViewerScreen() {
     checkLiked(current.id);
   }, [index, statuses, loading, markViewed, checkLiked]);
 
-  // Progress timer — image/text only
   useEffect(() => {
     if (loading || statuses.length === 0) return;
     const current = statuses[index];
@@ -636,7 +682,6 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, loading]);
 
-  // Views count
   useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -668,7 +713,6 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, myId]);
 
-  // Realtime
   useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -763,7 +807,6 @@ export default function StatusViewerScreen() {
     };
   }, [index, statuses, myId]);
 
-  // Persist viewers
   useEffect(() => {
     const current = statuses[index];
     if (!current || !myId) return;
@@ -956,6 +999,9 @@ export default function StatusViewerScreen() {
   const hasCaption = !isTextOnly && !!current.text_content;
 
   const hasMusic = !!current.music_url;
+  const musicText = hasMusic
+    ? `${current.music_artist ?? ''}${current.music_artist && current.music_title ? ' · ' : ''}${current.music_title ?? ''}`.trim()
+    : '';
 
   return (
     <View style={styles.container}>
@@ -991,19 +1037,34 @@ export default function StatusViewerScreen() {
             name={profile?.display_name ?? 'Unknown'}
             color={profile?.avatar_color ?? COLORS.violet}
             avatarUrl={profile?.avatar_url ?? null}
-            size={34}
+            size={38}
           />
           <View style={styles.headerInfo}>
+            {/* Row 1: Name + verified + time */}
             <View style={styles.headerNameRow}>
               <Text style={styles.headerName} numberOfLines={1}>
                 {profile?.display_name ?? 'Unknown'}
               </Text>
               {profile?.verified && <VerifiedBadge size={13} />}
+              <Text style={styles.headerTime}>
+                {formatTime(current.created_at)}
+              </Text>
             </View>
-            <Text style={styles.headerTime}>
-              {formatTime(current.created_at)}
-            </Text>
+
+            {/* ✅ Row 2: Music marquee (Instagram style) */}
+            {hasMusic && (
+              <View style={styles.musicHeaderRow}>
+                <Ionicons
+                  name="musical-note"
+                  size={11}
+                  color="#FFFFFF"
+                  style={styles.musicHeaderIcon}
+                />
+                <MusicMarquee text={musicText} />
+              </View>
+            )}
           </View>
+
           {isMine && (
             <TouchableOpacity
               style={styles.headerIconBtn}
@@ -1070,38 +1131,6 @@ export default function StatusViewerScreen() {
           onLongPress={pause}
           onPressOut={resume}
         />
-
-        {/* ✅ Music chip — RN Image with resizeMode */}
-        {hasMusic && (
-          <View style={styles.musicChipOverlay} pointerEvents="box-none">
-            <View style={styles.musicChip}>
-              {current.music_artwork && (
-                <Image
-                  source={{ uri: current.music_artwork }}
-                  style={styles.musicChipArt}
-                  resizeMode="cover"
-                />
-              )}
-              <View style={styles.musicChipText}>
-                <View style={styles.musicChipTitleRow}>
-                  <Ionicons
-                    name="musical-note"
-                    size={11}
-                    color="rgba(255,255,255,0.85)"
-                  />
-                  <Text style={styles.musicChipTitle} numberOfLines={1}>
-                    {current.music_title ?? 'Music'}
-                  </Text>
-                </View>
-                {!!current.music_artist && (
-                  <Text style={styles.musicChipArtist} numberOfLines={1}>
-                    {current.music_artist}
-                  </Text>
-                )}
-              </View>
-            </View>
-          </View>
-        )}
       </View>
 
       {hasCaption && (
@@ -1521,50 +1550,25 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
 
-  musicChipOverlay: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    bottom: 12,
-  },
-  musicChip: {
+  // ✅ Music in header (Instagram style)
+  musicHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    borderRadius: 14,
-    paddingHorizontal: 8,
-    paddingVertical: 7,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    alignSelf: 'flex-start',
+    marginTop: 2,
     maxWidth: '100%',
   },
-  musicChipArt: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+  musicHeaderIcon: {
+    marginRight: 5,
   },
-  musicChipText: {
+  marqueeContainer: {
+    flex: 1,
+    overflow: 'hidden',
     minWidth: 0,
-    maxWidth: 220,
   },
-  musicChipTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  musicChipTitle: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontFamily: FONTS.bodySemiBold,
-  },
-  musicChipArtist: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 11,
+  musicHeaderText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 12,
     fontFamily: FONTS.body,
-    marginTop: 1,
-    marginLeft: 16,
   },
 
   captionSection: {
@@ -1699,10 +1703,10 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   headerTime: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 11,
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 11.5,
     fontFamily: FONTS.body,
-    marginTop: 1,
+    marginLeft: 6,
   },
   headerIconBtn: {
     width: 34,
