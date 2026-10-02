@@ -1,5 +1,5 @@
 // app/_layout.tsx
-// Root layout — fonts, auth, theme, navigation stack, push notifications, sounds, SQLite init, network tracker
+// Root layout — fonts, auth, theme, navigation stack, push notifications, sounds, SQLite init, network tracker, stale cache cleanup
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Stack } from 'expo-router';
@@ -12,6 +12,7 @@ import * as Font from 'expo-font';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -83,6 +84,26 @@ export default function RootLayout() {
     } catch (err) {
       console.warn('[net] Network init failed:', err);
     }
+  }, []);
+
+  // ---------- Cleanup stale AsyncStorage keys (chats/messages now in SQLite) ----------
+  useEffect(() => {
+    (async () => {
+      try {
+        const keys = await AsyncStorage.getAllKeys();
+        const stale = keys.filter(
+          (k) =>
+            k.startsWith('airalance:chats:') ||
+            k.startsWith('airalance:messages:')
+        );
+        if (stale.length > 0) {
+          await AsyncStorage.multiRemove(stale);
+          console.log('[cleanup] removed', stale.length, 'stale keys');
+        }
+      } catch (err) {
+        console.warn('[cleanup] failed:', err);
+      }
+    })();
   }, []);
 
   // ---------- Web-only: hide scrollbars ----------
