@@ -1,5 +1,5 @@
 // app/chat/[id].tsx
-// Chat screen — SQLite-backed offline-first messaging + all features
+// Chat screen — SQLite offline-first + network detection + auto-retry + delivery ticks
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -53,6 +53,7 @@ import {
   getDB,
   DBMessage,
 } from '../../lib/db';
+import { subscribeNetwork, isOnline } from '../../lib/network';
 import {
   hashPin,
   loadStoredPinHash,
@@ -75,6 +76,7 @@ type Message = {
   content: string;
   created_at: string;
   read_at: string | null;
+  delivered_at?: string | null;
   message_type: 'text' | 'image' | 'voice';
   media_url: string | null;
   media_duration: number | null;
@@ -114,6 +116,7 @@ function dbRowToMessage(row: DBMessage): Message {
     content: row.content ?? '',
     created_at: row.created_at,
     read_at: row.read_at,
+    delivered_at: row.delivered_at,
     message_type: (row.message_type as any) ?? 'text',
     media_url: row.media_url,
     media_duration: row.media_duration,
@@ -138,7 +141,7 @@ function messageToDbRow(m: Message) {
     is_pinned: 0,
     reaction: null,
     read_at: m.read_at,
-    delivered_at: null,
+    delivered_at: m.delivered_at ?? null,
     created_at: m.created_at,
     local_status: m.local_status ?? 'synced',
   };
@@ -167,12 +170,14 @@ async function patchMessageInDb(id: string, patch: Partial<DBMessage>) {
         content = COALESCE(?, content),
         is_deleted = COALESCE(?, is_deleted),
         read_at = COALESCE(?, read_at),
+        delivered_at = COALESCE(?, delivered_at),
         local_status = COALESCE(?, local_status)
        WHERE id = ?`,
       [
         patch.content ?? null,
         patch.is_deleted ?? null,
         patch.read_at ?? null,
+        patch.delivered_at ?? null,
         patch.local_status ?? null,
         id,
       ]
@@ -241,6 +246,9 @@ export default function ChatScreen() {
   const [otherOnline, setOtherOnline] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // ✅ Network status
+  const [online, setOnline] = useState(isOnline());
+
   const [lockRequired, setLockRequired] = useState(false);
   const [storedPinHash, setStoredPinHash] = useState<string | null>(null);
   const [pinVerifyInput, setPinVerifyInput] = useState('');
@@ -275,6 +283,7 @@ export default function ChatScreen() {
   const isNearBottomRef = useRef(true);
   const initialScrollDoneRef = useRef(false);
   const cacheShownRef = useRef(false);
+  const retryInProgressRef = useRef(false);
 
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 100);
@@ -301,6 +310,15 @@ export default function ChatScreen() {
       useNativeDriver: true,
     }).start();
   }, [showScrollBtn, scrollBtnAnim]);
+
+  // ✅ Network subscription
+  useEffect(() => {
+    setOnline(isOnline());
+    const unsub = subscribeNetwork((next) => {
+      setOnline(next);
+    });
+    return unsub;
+  }, []);
 
   // ✅ PHASE 3: Show SQLite cache instantly
   useEffect(() => {
@@ -410,7 +428,6 @@ export default function ChatScreen() {
         prevMsgCountRef.current = ordered.length;
         setHasMore(msgs.length === PAGE_SIZE);
 
-        // ✅ PHASE 3: save to SQLite
         await persistMessages(ordered);
 
         if (ordered.length > 0) {
@@ -439,6 +456,7 @@ export default function ChatScreen() {
         );
         setHiddenForMeIds(hiddenIds);
 
+        // Mark incoming messages as read
         const unreadIds = msgs
           .filter((m: any) => m.sender_id !== uid && !m.read_at)
           .map((m: any) => m.id);
@@ -461,56 +479,74 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
-  // ✅ PHASE 3: Retry pending messages on mount
+  // ✅ PHASE 3 + 4: Retry pending messages (on mount and on network online)
+  const retryPendingMessages = useCallback(async () => {
+    if (!myId || !convoId) return;
+    if (lockRequired) return;
+    if (retryInProgressRef.current) return;
+    if (!isOnline()) return;
+
+    retryInProgressRef.current = true;
+    try {
+      const pending = await dbGetPendingMessages();
+      const forThisConvo = pending.filter(
+        (p) => p.conversation_id === convoId
+      );
+      for (const p of forThisConvo) {
+        try {
+          const { data: inserted, error } = await supabase
+            .from('messages')
+            .insert({
+              conversation_id: p.conversation_id,
+              sender_id: p.sender_id,
+              content: p.content,
+              message_type: p.message_type,
+              media_url: p.media_url,
+              reply_to_id: p.reply_to_id,
+            })
+            .select()
+            .single();
+
+          if (error) throw error;
+          if (inserted) {
+            await dbDeleteMessage(p.id);
+            await dbUpsertMessage({
+              ...messageToDbRow(inserted as Message),
+              local_status: 'synced',
+            });
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === p.id
+                  ? { ...(inserted as Message), local_status: 'synced' }
+                  : m
+              )
+            );
+          }
+        } catch (err) {
+          console.warn('[chat] retry pending failed:', err);
+          await patchMessageInDb(p.id, { local_status: 'failed' });
+        }
+      }
+    } catch (err) {
+      console.warn('[chat] offline queue error:', err);
+    } finally {
+      retryInProgressRef.current = false;
+    }
+  }, [myId, convoId, lockRequired]);
+
+  // Retry on mount (after myId ready)
   useEffect(() => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
-    (async () => {
-      try {
-        const pending = await dbGetPendingMessages();
-        const forThisConvo = pending.filter(
-          (p) => p.conversation_id === convoId
-        );
-        for (const p of forThisConvo) {
-          try {
-            const { data: inserted, error } = await supabase
-              .from('messages')
-              .insert({
-                conversation_id: p.conversation_id,
-                sender_id: p.sender_id,
-                content: p.content,
-                message_type: p.message_type,
-                media_url: p.media_url,
-                reply_to_id: p.reply_to_id,
-              })
-              .select()
-              .single();
+    retryPendingMessages();
+  }, [myId, convoId, lockRequired, retryPendingMessages]);
 
-            if (error) throw error;
-            if (inserted) {
-              await dbDeleteMessage(p.id);
-              await dbUpsertMessage({
-                ...messageToDbRow(inserted as Message),
-                local_status: 'synced',
-              });
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === p.id
-                    ? { ...(inserted as Message), local_status: 'synced' }
-                    : m
-                )
-              );
-            }
-          } catch (err) {
-            console.warn('[chat] retry pending failed:', err);
-            await patchMessageInDb(p.id, { local_status: 'failed' });
-          }
-        }
-      } catch (err) {
-        console.warn('[chat] offline queue error:', err);
-      }
-    })();
-  }, [myId, convoId, lockRequired]);
+  // ✅ Auto-retry when network comes back online
+  useEffect(() => {
+    if (online) {
+      retryPendingMessages();
+    }
+  }, [online, retryPendingMessages]);
 
   useEffect(() => {
     initialScrollDoneRef.current = false;
@@ -557,7 +593,6 @@ export default function ChatScreen() {
 
       const older = [...data].reverse() as Message[];
 
-      // ✅ PHASE 3: save to SQLite
       await persistMessages(older);
 
       const olderIds = older.map((m) => m.id);
@@ -610,9 +645,21 @@ export default function ChatScreen() {
           if (incoming.sender_id !== myId) {
             markAnimating(incoming.id);
             if (!isMutedForConvo) playReceive();
+
+            // ✅ PHASE 4: Mark delivered (if not already)
+            if (!incoming.delivered_at) {
+              const deliveredAt = new Date().toISOString();
+              supabase
+                .from('messages')
+                .update({ delivered_at: deliveredAt })
+                .eq('id', incoming.id)
+                .then(() => {});
+
+              // Local optimistic update
+              incoming.delivered_at = deliveredAt;
+            }
           }
 
-          // ✅ PHASE 3: save incoming to SQLite
           persistMessages([incoming]);
 
           setMessages((prev) => {
@@ -652,11 +699,11 @@ export default function ChatScreen() {
         (payload) => {
           const updated = payload.new as Message;
 
-          // ✅ PHASE 3: patch SQLite
           patchMessageInDb(updated.id, {
             content: updated.content,
             is_deleted: updated.is_deleted ? 1 : 0,
             read_at: updated.read_at,
+            delivered_at: updated.delivered_at ?? null,
           });
 
           setMessages((prev) =>
@@ -1068,7 +1115,6 @@ export default function ChatScreen() {
         .update({ is_deleted: true })
         .eq('id', msg.id);
 
-      // ✅ PHASE 3: patch SQLite
       patchMessageInDb(msg.id, { is_deleted: 1 });
 
       setMessages((prev) =>
@@ -1102,7 +1148,6 @@ export default function ChatScreen() {
     } catch {}
   }
 
-  // ✅ PHASE 3: Send message — SQLite first, then Supabase
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
@@ -1126,6 +1171,7 @@ export default function ChatScreen() {
       content,
       created_at: new Date().toISOString(),
       read_at: null,
+      delivered_at: null,
       message_type: 'text',
       media_url: null,
       media_duration: null,
@@ -1137,7 +1183,6 @@ export default function ChatScreen() {
     setMessages((prev) => [...prev, optimistic]);
     markAnimating(tempId);
 
-    // ✅ PHASE 3: save pending to SQLite
     try {
       await dbUpsertMessage(messageToDbRow(optimistic));
     } catch (err) {
@@ -1159,7 +1204,6 @@ export default function ChatScreen() {
 
       if (error || !inserted) throw error || new Error('Insert failed');
 
-      // ✅ PHASE 3: replace temp with server row in SQLite
       const serverMsg: Message = {
         ...(inserted as Message),
         local_status: 'synced',
@@ -1187,7 +1231,6 @@ export default function ChatScreen() {
     } catch (err) {
       console.warn('Send failed:', err);
 
-      // ✅ PHASE 3: keep in SQLite as failed
       try {
         await patchMessageInDb(tempId, { local_status: 'failed' });
       } catch {}
@@ -1260,7 +1303,6 @@ export default function ChatScreen() {
 
       if (error) throw error;
       if (inserted) {
-        // ✅ PHASE 3: save to SQLite
         await persistMessages([inserted as Message]);
 
         markAnimating((inserted as Message).id);
@@ -1346,7 +1388,6 @@ export default function ChatScreen() {
 
       if (error) throw error;
       if (inserted) {
-        // ✅ PHASE 3: save to SQLite
         await persistMessages([inserted as Message]);
 
         markAnimating((inserted as Message).id);
@@ -1552,6 +1593,16 @@ export default function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
+        {/* ✅ Offline banner */}
+        {!online && (
+          <View style={styles.offlineBanner}>
+            <Ionicons name="cloud-offline-outline" size={14} color="#FFFFFF" />
+            <Text style={styles.offlineBannerText}>
+              No internet — messages will be sent when you're back online
+            </Text>
+          </View>
+        )}
+
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backBtn}
@@ -2034,6 +2085,23 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.ink900 },
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
+  // ✅ Offline banner
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: '#B45309',
+  },
+  offlineBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontFamily: FONTS.bodyMedium,
+    flexShrink: 1,
+  },
+
   lockScreenWrap: {
     flex: 1,
     alignItems: 'center',
@@ -2484,7 +2552,7 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     borderRadius: 10,
   },
-  actionLabel: {
+  actionLabel Amber: {
     fontSize: 15,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
