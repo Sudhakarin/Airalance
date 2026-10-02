@@ -257,12 +257,12 @@ const CategoryPill = memo(function CategoryPill({
           end={{ x: 1, y: 1 }}
           style={styles.pill}
         >
-          <Ionicons name={icon} size={18} color="#FFFFFF" />
+          <Ionicons name={icon} size={15} color="#FFFFFF" />
           <Text style={styles.pillTextActive}>{label}</Text>
         </LinearGradient>
       ) : (
         <View style={[styles.pill, styles.pillInactive]}>
-          <Ionicons name={icon} size={18} color={COLORS.mistLight} />
+          <Ionicons name={icon} size={15} color={COLORS.mistLight} />
           <Text style={styles.pillTextInactive}>{label}</Text>
         </View>
       )}
@@ -294,7 +294,7 @@ const FeaturedCard = memo(function FeaturedCard({
       />
 
       <View style={styles.featuredBadge}>
-        <Ionicons name="star" size={12} color="#FFFFFF" />
+        <Ionicons name="star" size={10} color="#FFFFFF" />
         <Text style={styles.featuredBadgeText}>Featured</Text>
       </View>
       <View style={styles.featuredTime}>
@@ -320,15 +320,14 @@ const FeaturedCard = memo(function FeaturedCard({
           </Text>
           <Ionicons name="checkmark-circle" size={16} color={COLORS.violetLight} />
           <View style={styles.readTime}>
-            <Ionicons name="document-text" size={14} color={COLORS.mist} />
+            <Ionicons name="document-text" size={13} color={COLORS.mist} />
             <Text style={styles.readTimeText} numberOfLines={1}>
-              {article.read_time}
+              {(article.read_time ?? '').replace(/\s*read$/i, '')}
             </Text>
           </View>
-          <View style={{ flex: 1 }} />
           <View style={styles.readMoreBtn}>
-            <Text style={styles.readMoreText}>Read more</Text>
-            <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+            <Text style={styles.readMoreText} numberOfLines={1}>Read more</Text>
+            <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
           </View>
         </View>
       </View>
@@ -704,9 +703,9 @@ const styles = StyleSheet.create({
   // Category chips
   categoriesRow: {
     paddingHorizontal: SIDE,
-    paddingTop: 6,
-    paddingBottom: 16,
-    gap: 10,
+    paddingTop: 4,
+    paddingBottom: 14,
+    gap: 8,
   },
   pillGlow: {
     borderRadius: RADII.full,
@@ -718,9 +717,9 @@ const styles = StyleSheet.create({
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 16,
-    height: 44,
+    gap: 6,
+    paddingHorizontal: 12,
+    height: 32,
     borderRadius: RADII.full,
   },
   pillInactive: {
@@ -730,12 +729,12 @@ const styles = StyleSheet.create({
   },
   pillTextActive: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 12.5,
     fontFamily: FONTS.bodySemiBold,
   },
   pillTextInactive: {
     color: COLORS.mistLight,
-    fontSize: 14,
+    fontSize: 12.5,
     fontFamily: FONTS.bodySemiBold,
   },
 
@@ -777,33 +776,33 @@ const styles = StyleSheet.create({
   },
   featuredBadge: {
     position: 'absolute',
-    top: 12,
-    left: 12,
+    top: 10,
+    left: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: RADII.full,
     backgroundColor: COLORS.violet,
   },
   featuredBadgeText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 10.5,
     fontFamily: FONTS.bodySemiBold,
   },
   featuredTime: {
     position: 'absolute',
-    top: 12,
-    right: 12,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+    top: 10,
+    right: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: RADII.full,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   featuredTimeText: {
     color: COLORS.mistLight,
-    fontSize: 11.5,
+    fontSize: 10.5,
     fontFamily: FONTS.bodyMedium,
   },
   featuredContent: {
@@ -834,9 +833,10 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   sourceAvatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    flexShrink: 0,
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.25)',
@@ -850,28 +850,30 @@ const styles = StyleSheet.create({
   },
   sourceName: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11.5,
     fontFamily: FONTS.bodySemiBold,
-    maxWidth: 90,
+    flexShrink: 1,
   },
   readTime: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginLeft: 6,
+    gap: 3,
+    marginLeft: 2,
+    flexShrink: 0,
   },
   readTimeText: {
     color: COLORS.mist,
     fontSize: 11,
     fontFamily: FONTS.body,
-    maxWidth: 70,
   },
   readMoreBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: 4,
+    marginLeft: 'auto',
+    flexShrink: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: COLORS.violet,
@@ -879,7 +881,7 @@ const styles = StyleSheet.create({
   },
   readMoreText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11.5,
     fontFamily: FONTS.bodySemiBold,
   },
 
