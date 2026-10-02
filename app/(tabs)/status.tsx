@@ -1,7 +1,7 @@
 // app/(tabs)/status.tsx
-// Status tab — shows status list grouped by user with story rings + new status popup
+// Status tab — offline cache + network auto-reload + story rings + new status popup
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,8 +17,11 @@ import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { getCurrentUserId } from '../../lib/auth';
+import { subscribeNetwork, isOnline } from '../../lib/network';
 import Avatar from '../../components/Avatar';
 import StatusRing from '../../components/StatusRing';
 import VerifiedBadge from '../../components/VerifiedBadge';
@@ -50,6 +53,40 @@ type UserStatusGroup = {
   statuses: Status[];
   latestAt: string;
 };
+
+// ✅ Status cache (short TTL, tiny payload)
+const STATUS_CACHE_KEY = 'airalance:status-tab:v1';
+const STATUS_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24h
+
+type StatusCache = {
+  t: number;
+  myStatuses: Status[];
+  otherGroups: UserStatusGroup[];
+  viewedIds: string[];
+  myProfile: Profile | null;
+};
+
+async function readStatusCache(): Promise<StatusCache | null> {
+  try {
+    const raw = await AsyncStorage.getItem(STATUS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StatusCache;
+    if (!parsed?.myStatuses && !parsed?.otherGroups) return null;
+    if (Date.now() - (parsed.t ?? 0) > STATUS_CACHE_TTL_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writeStatusCache(payload: Omit<StatusCache, 't'>) {
+  try {
+    await AsyncStorage.setItem(
+      STATUS_CACHE_KEY,
+      JSON.stringify({ t: Date.now(), ...payload })
+    );
+  } catch {}
+}
 
 function SkeletonBlock({
   width,
@@ -122,24 +159,49 @@ export default function StatusScreen() {
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
 
+  // ✅ Network
+  const [online, setOnline] = useState(isOnline());
+  const cacheShownRef = useRef(false);
+
+  // ✅ Network subscription
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) {
-        setMyId(data.user.id);
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', data.user.id)
-          .single()
-          .then(({ data: p }) => {
-            if (p) setMyProfile(p as Profile);
-          });
+    setOnline(isOnline());
+    const unsub = subscribeNetwork(setOnline);
+    return unsub;
+  }, []);
+
+  // ✅ Load user from LOCAL session (works offline)
+  useEffect(() => {
+    (async () => {
+      const uid = await getCurrentUserId();
+      if (uid) setMyId(uid);
+    })();
+  }, []);
+
+  // ✅ Show cache instantly (offline-friendly)
+  useEffect(() => {
+    if (cacheShownRef.current) return;
+    (async () => {
+      const cache = await readStatusCache();
+      if (cache) {
+        setMyStatuses(cache.myStatuses ?? []);
+        setOtherGroups(cache.otherGroups ?? []);
+        setViewedIds(new Set(cache.viewedIds ?? []));
+        if (cache.myProfile) setMyProfile(cache.myProfile);
+        setLoading(false);
       }
-    });
+      cacheShownRef.current = true;
+    })();
   }, []);
 
   const loadStatuses = useCallback(async () => {
     if (!myId) return;
+    if (!isOnline()) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     try {
       const { data: statusData, error } = await supabase
         .from('statuses')
@@ -176,22 +238,55 @@ export default function StatusScreen() {
         .from('status_views')
         .select('status_id')
         .eq('viewer_id', myId);
-      setViewedIds(new Set((views ?? []).map((v: any) => v.status_id)));
+      const vIds = (views ?? []).map((v: any) => v.status_id);
+      setViewedIds(new Set(vIds));
+
+      // ✅ save cache
+      await writeStatusCache({
+        myStatuses: mine,
+        otherGroups: Object.values(grouped),
+        viewedIds: vIds,
+        myProfile: myProfile ?? null,
+      });
     } catch (err) {
       console.warn('Load statuses error:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [myId]);
+  }, [myId, myProfile]);
 
   useEffect(() => {
     loadStatuses();
   }, [loadStatuses]);
 
-  // Safe realtime
+  // ✅ Load my profile (needs online; cached version shown in step above)
   useEffect(() => {
     if (!myId) return;
+    if (!isOnline()) return;
+    if (myProfile) return;
+
+    (async () => {
+      const { data: p } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', myId)
+        .single();
+      if (p) setMyProfile(p as Profile);
+    })();
+  }, [myId, myProfile, online]);
+
+  // ✅ Auto-reload when back online
+  useEffect(() => {
+    if (online && myId) {
+      loadStatuses();
+    }
+  }, [online, myId, loadStatuses]);
+
+  // Safe realtime — only when online
+  useEffect(() => {
+    if (!myId) return;
+    if (!online) return;
 
     let channel: any = null;
     let debounceTimer: any = null;
@@ -230,9 +325,13 @@ export default function StatusScreen() {
         } catch {}
       }
     };
-  }, [myId, loadStatuses]);
+  }, [myId, loadStatuses, online]);
 
   async function onRefresh() {
+    if (!isOnline()) {
+      setRefreshing(false);
+      return;
+    }
     setRefreshing(true);
     await loadStatuses();
   }
@@ -255,13 +354,15 @@ export default function StatusScreen() {
     router.push(`/status/${userId}`);
   }
 
-  // ✅ New status popup menu
   function openAddMenu() {
     setShowAddMenu(true);
   }
 
   function navigateToCreate(mode: 'text' | 'camera' | 'music') {
     setShowAddMenu(false);
+    if (!isOnline()) {
+      // allow — queue handled at create
+    }
     router.push(`/status/create?mode=${mode}`);
   }
 
@@ -303,6 +404,16 @@ export default function StatusScreen() {
           <Ionicons name="add" size={22} color={COLORS.text} />
         </TouchableOpacity>
       </View>
+
+      {/* ✅ Offline banner */}
+      {!online && (
+        <View style={styles.offlineBanner}>
+          <Ionicons name="cloud-offline-outline" size={14} color="#FFFFFF" />
+          <Text style={styles.offlineBannerText}>
+            You're offline — showing cached updates
+          </Text>
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={styles.scroll}
@@ -492,7 +603,7 @@ export default function StatusScreen() {
           )}
       </ScrollView>
 
-      {/* ✅ New status popup */}
+      {/* New status popup */}
       <Modal
         visible={showAddMenu}
         transparent
@@ -575,6 +686,22 @@ export default function StatusScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
   scroll: { paddingBottom: SPACING.lg },
+
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: '#B45309',
+  },
+  offlineBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontFamily: FONTS.bodyMedium,
+    flexShrink: 1,
+  },
 
   header: {
     flexDirection: 'row',
@@ -751,7 +878,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
 
-  // ✅ New status popup styles
   addMenuBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.4)',
