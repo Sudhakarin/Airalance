@@ -1,5 +1,5 @@
 // components/MusicPicker.tsx
-// Instagram-style music picker — safe version (fixes instant crash)
+// Instagram-style music picker — fixed 88% height sheet
 
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -25,6 +25,8 @@ import { COLORS, FONTS, GRADIENTS } from '../constants/theme';
 import { hapticLight, hapticSuccess } from '../lib/haptics';
 import { searchMusic, MusicTrack } from '../lib/music';
 
+const SHEET_HEIGHT_RATIO = 0.88;
+
 type Props = {
   visible: boolean;
   onClose: () => void;
@@ -37,8 +39,11 @@ type Props = {
 
 export default function MusicPicker({ visible, onClose, onSelect }: Props) {
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
   const [stage, setStage] = useState<'search' | 'trim'>('search');
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
+
+  const sheetHeight = screenHeight * SHEET_HEIGHT_RATIO;
 
   useEffect(() => {
     if (visible) {
@@ -66,7 +71,15 @@ export default function MusicPicker({ visible, onClose, onSelect }: Props) {
 
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + 8 }]}>
+        <View
+          style={[
+            styles.sheet,
+            {
+              height: sheetHeight,
+              paddingBottom: insets.bottom + 8,
+            },
+          ]}
+        >
           <View style={styles.handle} />
           {stage === 'search' ? (
             <SearchStage
@@ -109,7 +122,6 @@ function SearchStage({
   const [playingId, setPlayingId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ✅ SAFE: pass null explicitly (empty useAudioPlayer() crashes on some Android)
   const preview = useAudioPlayer(null);
 
   useEffect(() => {
@@ -313,7 +325,6 @@ function TrimStage({
   const [barWidth, setBarWidth] = useState(0);
   const [audioDuration, setAudioDuration] = useState(30);
 
-  // ✅ SAFE: useAudioPlayer(null)
   const player = useAudioPlayer(null);
 
   const startRef = useRef(start);
@@ -328,7 +339,6 @@ function TrimStage({
   barWidthRef.current = barWidth;
   audioDurRef.current = audioDuration;
 
-  // Load track safely
   useEffect(() => {
     let cancelled = false;
     try {
@@ -347,7 +357,6 @@ function TrimStage({
     };
   }, [track.streamUrl, player]);
 
-  // Duration poll
   useEffect(() => {
     const t = setInterval(() => {
       try {
@@ -358,7 +367,6 @@ function TrimStage({
     return () => clearInterval(t);
   }, [player]);
 
-  // Loop within window
   useEffect(() => {
     if (!isPlaying) return;
     const t = setInterval(() => {
@@ -427,7 +435,7 @@ function TrimStage({
   const leftPct = audioDuration > 0 ? (start / audioDuration) * 100 : 0;
 
   return (
-    <View style={styles.trimWrap}>
+    <View style={{ flex: 1 }}>
       <View style={styles.trimHeader}>
         <TouchableOpacity
           onPress={onBack}
@@ -546,12 +554,10 @@ const styles = StyleSheet.create({
   },
   backdropTint: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.25)',
+    backgroundColor: 'rgba(0,0,0,0.3)',
   },
 
   sheet: {
-    maxHeight: '90%',
-    minHeight: 320,
     backgroundColor: '#0F1119',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
@@ -607,7 +613,6 @@ const styles = StyleSheet.create({
 
   centerBox: {
     flex: 1,
-    minHeight: 220,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 30,
@@ -669,7 +674,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  trimWrap: { flex: 1, minHeight: 340 },
   trimHeader: {
     flexDirection: 'row',
     alignItems: 'center',
