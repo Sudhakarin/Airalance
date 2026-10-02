@@ -1,5 +1,5 @@
 // app/(tabs)/profile.tsx
-// My profile — larger fonts + spacing + AsyncStorage cache + SQLite wipe on logout
+// My profile — offline auth + network auto-reload + SQLite wipe on logout
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -34,6 +34,8 @@ import {
   VERIFIED_USERNAMES,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { getCurrentUserId, getCurrentSession } from '../../lib/auth';
+import { subscribeNetwork, isOnline } from '../../lib/network';
 import { dbWipeAll } from '../../lib/db';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
@@ -241,6 +243,9 @@ export default function ProfileScreen() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [notifPermission, setNotifPermission] = useState<string>('undetermined');
 
+  // ✅ Network status
+  const [online, setOnline] = useState(isOnline());
+
   const [listTab, setListTab] = useState<ListTab | null>(null);
   const [listUsers, setListUsers] = useState<Profile[]>([]);
   const [listLoading, setListLoading] = useState(false);
@@ -251,6 +256,7 @@ export default function ProfileScreen() {
 
   const cacheShownRef = useRef(false);
   const myIdRef = useRef<string | null>(null);
+  const profileLoadedRef = useRef(false);
 
   const isVerified = (p: Profile | null) =>
     !!p &&
@@ -259,12 +265,23 @@ export default function ProfileScreen() {
         p.username?.toLowerCase() ?? ''
       ));
 
+  // ✅ Network subscribe
+  useEffect(() => {
+    setOnline(isOnline());
+    const unsub = subscribeNetwork(setOnline);
+    return unsub;
+  }, []);
+
+  // ✅ OFFLINE FIX: use getCurrentUserId (local session)
   useEffect(() => {
     (async () => {
-      const { data: authData } = await supabase.auth.getUser();
-      if (!authData.user) return;
-      const uid = authData.user.id;
+      const uid = await getCurrentUserId();
+      if (!uid) return;
       myIdRef.current = uid;
+
+      // load email from session (local)
+      const session = await getCurrentSession();
+      if (session?.user?.email) setEmail(session.user.email);
 
       if (cacheShownRef.current) return;
       const cache = await readProfileCache(uid);
@@ -285,11 +302,18 @@ export default function ProfileScreen() {
 
   const loadProfile = useCallback(async () => {
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      if (!authData.user) return;
-      const uid = authData.user.id;
+      const uid = await getCurrentUserId();
+      if (!uid) {
+        setLoading(false);
+        return;
+      }
       myIdRef.current = uid;
-      setEmail(authData.user.email ?? '');
+
+      // ✅ Skip network fetch if offline
+      if (!isOnline()) {
+        setLoading(false);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('profiles')
@@ -373,6 +397,13 @@ export default function ProfileScreen() {
     loadProfile();
   }, [loadProfile]);
 
+  // ✅ Auto-reload when network comes back online
+  useEffect(() => {
+    if (online && myIdRef.current) {
+      loadProfile();
+    }
+  }, [online, loadProfile]);
+
   const syncCache = useCallback(
     async (patch: Partial<{
       profile: Profile;
@@ -413,6 +444,10 @@ export default function ProfileScreen() {
   const loadFollowList = useCallback(
     async (tab: ListTab) => {
       if (!profile) return;
+      if (!isOnline()) {
+        Alert.alert('Offline', 'Cannot load list while offline.');
+        return;
+      }
       setListTab(tab);
       setListLoading(true);
       try {
@@ -449,6 +484,10 @@ export default function ProfileScreen() {
   async function toggleFollowFromList(targetId: string) {
     if (!profile || toggleLoadingId) return;
     if (targetId === profile.id) return;
+    if (!isOnline()) {
+      Alert.alert('Offline', 'Cannot follow while offline.');
+      return;
+    }
 
     const isFollowing = myFollowingIds.has(targetId);
     setToggleLoadingId(targetId);
@@ -505,6 +544,10 @@ export default function ProfileScreen() {
 
   async function pickAvatar() {
     if (!profile || uploading) return;
+    if (!isOnline()) {
+      Alert.alert('Offline', 'Cannot upload avatar while offline.');
+      return;
+    }
 
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -571,6 +614,10 @@ export default function ProfileScreen() {
 
   async function saveChanges() {
     if (!profile || saving) return;
+    if (!isOnline()) {
+      Alert.alert('Offline', 'Cannot save changes while offline.');
+      return;
+    }
     const trimmedName = nameDraft.trim();
     const trimmedBio = bioDraft.trim();
 
@@ -659,7 +706,6 @@ export default function ProfileScreen() {
     }
   }
 
-  // ✅ Logout: wipe AsyncStorage cache + SQLite DB
   function handleLogout() {
     hapticMedium();
     setDialog({
@@ -724,6 +770,16 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* ✅ Offline banner */}
+      {!online && (
+        <View style={styles.offlineBanner}>
+          <Ionicons name="cloud-offline-outline" size={14} color="#FFFFFF" />
+          <Text style={styles.offlineBannerText}>
+            You're offline — showing cached profile
+          </Text>
+        </View>
+      )}
+
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -736,10 +792,7 @@ export default function ProfileScreen() {
             activeOpacity={0.85}
             style={styles.avatarWrap}
           >
-            <StatusRing
-              hasStatus={activeStatusCount > 0}
-              viewed={true}
-            >
+            <StatusRing hasStatus={activeStatusCount > 0} viewed={true}>
               <Avatar
                 name={profile.display_name}
                 color={profile.avatar_color}
@@ -791,9 +844,7 @@ export default function ProfileScreen() {
 
         <View style={styles.bioBlock}>
           <Text style={styles.username}>@{profile.username}</Text>
-          {profile.bio ? (
-            <Text style={styles.bio}>{profile.bio}</Text>
-          ) : null}
+          {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
           {profile.bio_link ? (
             <Text style={styles.bioLink}>{profile.bio_link}</Text>
           ) : null}
@@ -1194,6 +1245,23 @@ function StatItem({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
   scroll: { paddingBottom: SPACING.lg },
+
+  // ✅ Offline banner
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    backgroundColor: '#B45309',
+  },
+  offlineBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontFamily: FONTS.bodyMedium,
+    flexShrink: 1,
+  },
 
   header: {
     flexDirection: 'row',
