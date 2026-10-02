@@ -1,5 +1,5 @@
 // app/_layout.tsx
-// Root layout — fonts, auth, theme, navigation stack, push notifications, sounds
+// Root layout — fonts, auth, theme, navigation stack, push notifications, sounds, SQLite init
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Stack } from 'expo-router';
@@ -27,6 +27,7 @@ import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono';
 import { supabase } from '../lib/supabase';
 import { setSessionUnlocked } from '../lib/pin';
 import { initSounds } from '../lib/sounds';
+import { getDB } from '../lib/db';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -59,6 +60,18 @@ export default function RootLayout() {
   // ---------- Init sounds (once on mount) ----------
   useEffect(() => {
     initSounds();
+  }, []);
+
+  // ---------- Init SQLite (once on mount) ----------
+  useEffect(() => {
+    (async () => {
+      try {
+        await getDB();
+        console.log('[db] SQLite ready');
+      } catch (err) {
+        console.warn('[db] SQLite init failed:', err);
+      }
+    })();
   }, []);
 
   // ---------- Web-only: hide scrollbars ----------
