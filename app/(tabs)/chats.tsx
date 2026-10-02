@@ -1,5 +1,5 @@
 // app/(tabs)/chats.tsx
-// Chats list — WhatsApp-style locked row + Android blur fix + AsyncStorage cache + haptics
+// Chats list — SQLite-backed (offline-first) + locked row + haptics
 
 import { useEffect, useState, useCallback, useRef, memo } from 'react';
 import {
@@ -20,11 +20,17 @@ import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
+import {
+  dbGetConversations,
+  dbUpsertConversation,
+  dbDeleteConversation,
+  dbClearAllConversations,
+  DBConversation,
+} from '../../lib/db';
 import {
   hashPin,
   loadStoredPinHash,
@@ -68,11 +74,6 @@ type ChatSetting = {
 };
 
 const ROW_HEIGHT = 78;
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
-
-function chatsCacheKey(userId: string) {
-  return `airalance:chats:${userId}`;
-}
 
 function formatTime(iso: string) {
   if (!iso) return '';
@@ -89,26 +90,70 @@ function formatTime(iso: string) {
   return date.toLocaleDateString();
 }
 
-async function readChatsCache(uid: string): Promise<Conversation[] | null> {
+// ============================================================
+// SQLite <-> Conversation conversions
+// ============================================================
+function dbRowToConversation(row: DBConversation): Conversation {
+  return {
+    id: row.id,
+    is_group: row.is_group === 1,
+    name: row.name,
+    other_profile: row.other_user_id
+      ? {
+          id: row.other_user_id,
+          username: row.other_username ?? '',
+          display_name: row.other_display_name ?? 'Unknown',
+          avatar_color: row.other_avatar_color ?? COLORS.violet,
+          avatar_url: row.other_avatar_url,
+          verified: row.other_verified === 1,
+        }
+      : null,
+    last_message: row.last_message ?? '',
+    last_at: row.last_at ?? '',
+    unread_count: row.unread_count ?? 0,
+    is_muted: row.is_muted === 1,
+    is_locked: row.is_locked === 1,
+  };
+}
+
+function conversationToDbRow(c: Conversation) {
+  return {
+    id: c.id,
+    is_group: c.is_group ? 1 : 0,
+    name: c.name,
+    other_user_id: c.other_profile?.id ?? null,
+    other_username: c.other_profile?.username ?? null,
+    other_display_name: c.other_profile?.display_name ?? null,
+    other_avatar_color: c.other_profile?.avatar_color ?? null,
+    other_avatar_url: c.other_profile?.avatar_url ?? null,
+    other_verified: c.other_profile?.verified ? 1 : 0,
+    last_message: c.last_message,
+    last_at: c.last_at,
+    unread_count: c.unread_count,
+    is_muted: c.is_muted ? 1 : 0,
+    is_locked: c.is_locked ? 1 : 0,
+  };
+}
+
+async function persistConversations(list: Conversation[]) {
   try {
-    const raw = await AsyncStorage.getItem(chatsCacheKey(uid));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { t: number; d: Conversation[] };
-    if (!parsed?.d || !Array.isArray(parsed.d)) return null;
-    if (Date.now() - (parsed.t ?? 0) > CACHE_TTL_MS) return null;
-    return parsed.d;
-  } catch {
-    return null;
+    for (const c of list) {
+      await dbUpsertConversation(conversationToDbRow(c));
+    }
+  } catch (err) {
+    console.warn('[chats] persistConversations error:', err);
   }
 }
 
-async function writeChatsCache(uid: string, list: Conversation[]) {
+async function patchDbConversation(
+  id: string,
+  patch: Partial<DBConversation>
+) {
   try {
-    await AsyncStorage.setItem(
-      chatsCacheKey(uid),
-      JSON.stringify({ t: Date.now(), d: list })
-    );
-  } catch {}
+    await dbUpsertConversation({ id, ...patch });
+  } catch (err) {
+    console.warn('[chats] patchDbConversation error:', err);
+  }
 }
 
 // ---------- Skeleton ----------
@@ -192,7 +237,7 @@ const ChatRow = memo(
           style={styles.row}
           onPress={() => onPress(item.id)}
           onLongPress={() => {
-            hapticMedium(); // ✅ Haptic on long press
+            hapticMedium();
             onLongPress(item);
           }}
           delayLongPress={350}
@@ -309,7 +354,7 @@ export default function ChatsScreen() {
     });
   }, []);
 
-  // ✅ Load stored PIN hash (auto-migrates old plaintext PINs)
+  // Load stored PIN hash
   useEffect(() => {
     if (!myId) return;
     (async () => {
@@ -318,13 +363,18 @@ export default function ChatsScreen() {
     })();
   }, [myId]);
 
+  // ✅ PHASE 2: Show SQLite cache instantly (offline-first)
   useEffect(() => {
     if (!myId || cacheShownRef.current) return;
     (async () => {
-      const cached = await readChatsCache(myId);
-      if (cached && cached.length > 0) {
-        setConversations(cached);
-        setLoading(false);
+      try {
+        const rows = await dbGetConversations();
+        if (rows.length > 0) {
+          setConversations(rows.map(dbRowToConversation));
+          setLoading(false);
+        }
+      } catch (err) {
+        console.warn('[chats] SQLite read error:', err);
       }
       cacheShownRef.current = true;
     })();
@@ -346,7 +396,8 @@ export default function ChatsScreen() {
       const convoIds = (participantRows ?? []).map((r) => r.conversation_id);
       if (convoIds.length === 0) {
         setConversations([]);
-        await writeChatsCache(myId, []);
+        // ✅ PHASE 2: wipe SQLite
+        await dbClearAllConversations();
         return;
       }
 
@@ -440,7 +491,9 @@ export default function ChatsScreen() {
 
       rows.sort((a, b) => (a.last_at < b.last_at ? 1 : -1));
       setConversations(rows);
-      await writeChatsCache(myId, rows);
+
+      // ✅ PHASE 2: save to SQLite
+      await persistConversations(rows);
     } catch (err) {
       console.warn('Load conversations error:', err);
     } finally {
@@ -489,10 +542,11 @@ export default function ChatsScreen() {
     };
   }, [myId, loadConversations]);
 
+  // ✅ PHASE 2: cache write now goes to SQLite
   const updateCache = useCallback(
     async (next: Conversation[]) => {
       if (!myId) return;
-      await writeChatsCache(myId, next);
+      await persistConversations(next);
     },
     [myId]
   );
@@ -512,7 +566,6 @@ export default function ChatsScreen() {
     [router]
   );
 
-  // ✅ Wait for modal close animation before navigating
   const openLockedChat = useCallback(
     (convoId: string) => {
       setLockedViewOpen(false);
@@ -524,11 +577,14 @@ export default function ChatsScreen() {
   );
 
   async function deleteConversation(convoId: string) {
-    hapticHeavy(); // ✅ Haptic on delete
+    hapticHeavy();
     setDeleteConfirmConvo(null);
     const next = conversations.filter((c) => c.id !== convoId);
     setConversations(next);
     updateCache(next);
+
+    // ✅ PHASE 2: delete from SQLite
+    await dbDeleteConversation(convoId);
 
     try {
       await supabase
@@ -543,7 +599,7 @@ export default function ChatsScreen() {
         .eq('user_id', myId);
     } catch (err) {
       console.warn('Delete failed:', err);
-      hapticError(); // ✅ Error haptic
+      hapticError();
       Alert.alert('Delete failed', 'Please try again.');
       loadConversations();
     }
@@ -552,7 +608,7 @@ export default function ChatsScreen() {
   async function toggleMute(convo: Conversation) {
     if (!myId) return;
     setActionSheetConvo(null);
-    hapticSelection(); // ✅ Haptic on mute toggle
+    hapticSelection();
     const nextMuted = !convo.is_muted;
 
     const next = conversations.map((c) =>
@@ -560,6 +616,9 @@ export default function ChatsScreen() {
     );
     setConversations(next);
     updateCache(next);
+
+    // ✅ PHASE 2: patch SQLite
+    await patchDbConversation(convo.id, { is_muted: nextMuted ? 1 : 0 });
 
     try {
       const { error } = await supabase.from('chat_settings').upsert(
@@ -580,6 +639,9 @@ export default function ChatsScreen() {
       );
       setConversations(revert);
       updateCache(revert);
+      await patchDbConversation(convo.id, {
+        is_muted: !nextMuted ? 1 : 0,
+      });
       Alert.alert('Failed', 'Could not update mute.');
     }
   }
@@ -619,6 +681,9 @@ export default function ChatsScreen() {
       );
       setConversations(next);
       updateCache(next);
+
+      // ✅ PHASE 2: patch SQLite
+      await patchDbConversation(convoId, { is_locked: lock ? 1 : 0 });
     } catch (err) {
       console.warn('Lock failed:', err);
       hapticError();
@@ -627,11 +692,10 @@ export default function ChatsScreen() {
   }
 
   async function unlockChat(convo: Conversation) {
-    hapticSuccess(); // ✅ Haptic on unlock success
+    hapticSuccess();
     await applyLock(convo.id, false);
   }
 
-  // ✅ Uses hashed PIN storage
   async function confirmPinSetup() {
     if (!pinSetupConvo || !myId) return;
     if (pinInput1.length !== 4) {
@@ -648,7 +712,7 @@ export default function ChatsScreen() {
       const hash = await savePinHash(myId, pinInput1);
       setStoredPin(hash);
       setSessionUnlocked(true);
-      hapticSuccess(); // ✅ Haptic on PIN setup success
+      hapticSuccess();
       const targetId = pinSetupConvo.id;
       setPinSetupConvo(null);
       setPinInput1('');
@@ -668,7 +732,6 @@ export default function ChatsScreen() {
     setPinModalVisible(true);
   }
 
-  // ✅ Compares against hashed stored PIN
   async function confirmPinVerify() {
     if (!storedPin) {
       hapticSuccess();
@@ -685,14 +748,14 @@ export default function ChatsScreen() {
     try {
       const inputHash = await hashPin(pinVerifyInput);
       if (inputHash === storedPin) {
-        hapticSuccess(); // ✅ PIN correct
+        hapticSuccess();
         setSessionUnlocked(true);
         setPinModalVisible(false);
         setPinVerifyInput('');
         setPinVerifyError('');
         setTimeout(() => setLockedViewOpen(true), 220);
       } else {
-        hapticError(); // ✅ PIN incorrect
+        hapticError();
         setPinVerifyError('Incorrect PIN');
       }
     } catch {
@@ -709,7 +772,7 @@ export default function ChatsScreen() {
       setBlockConfirmConvo(null);
       return;
     }
-    hapticHeavy(); // ✅ Haptic on block
+    hapticHeavy();
     setBlockConfirmConvo(null);
     try {
       await supabase
@@ -731,6 +794,10 @@ export default function ChatsScreen() {
       const next = conversations.filter((c) => c.id !== convo.id);
       setConversations(next);
       updateCache(next);
+
+      // ✅ PHASE 2: delete from SQLite
+      await dbDeleteConversation(convo.id);
+
       Alert.alert('Blocked', `@${convo.other_profile?.username} has been blocked.`);
     } catch (err) {
       console.warn('Block failed:', err);
@@ -776,7 +843,6 @@ export default function ChatsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 🔒 Locked chats row — WhatsApp style */}
       {!loading && lockedConversations.length > 0 && (
         <TouchableOpacity
           style={styles.lockedRow}
@@ -842,7 +908,7 @@ export default function ChatsScreen() {
         />
       )}
 
-      {/* ========== ACTION MENU ========== */}
+      {/* ACTION MENU */}
       <Modal
         visible={!!actionSheetConvo}
         transparent
@@ -937,7 +1003,7 @@ export default function ChatsScreen() {
         </BlurView>
       </Modal>
 
-      {/* ========== DELETE CONFIRM ========== */}
+      {/* DELETE CONFIRM */}
       <Modal
         visible={!!deleteConfirmConvo}
         transparent
@@ -1000,7 +1066,7 @@ export default function ChatsScreen() {
         </BlurView>
       </Modal>
 
-      {/* ========== BLOCK CONFIRM ========== */}
+      {/* BLOCK CONFIRM */}
       <Modal
         visible={!!blockConfirmConvo}
         transparent
@@ -1059,7 +1125,7 @@ export default function ChatsScreen() {
         </BlurView>
       </Modal>
 
-      {/* ========== PIN SETUP ========== */}
+      {/* PIN SETUP */}
       <Modal
         visible={!!pinSetupConvo}
         transparent
@@ -1149,7 +1215,7 @@ export default function ChatsScreen() {
         </BlurView>
       </Modal>
 
-      {/* ========== PIN VERIFY ========== */}
+      {/* PIN VERIFY */}
       <Modal
         visible={pinModalVisible}
         transparent
@@ -1227,7 +1293,7 @@ export default function ChatsScreen() {
         </BlurView>
       </Modal>
 
-      {/* ========== LOCKED CHATS VIEW ========== */}
+      {/* LOCKED CHATS VIEW */}
       <Modal
         visible={lockedViewOpen}
         transparent={false}
@@ -1325,7 +1391,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ---------- Locked chats row (WhatsApp style) ----------
   lockedRow: {
     flexDirection: 'row',
     alignItems: 'center',
