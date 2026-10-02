@@ -612,7 +612,7 @@ export default function ChatScreen() {
         return;
       }
 
-      const older = [...data].reverse() as Message;
+      const older = [...data].reverse() as Message[];
       await persistMessages(older);
 
       const olderIds = older.map((m) => m.id);
