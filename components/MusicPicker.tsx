@@ -12,6 +12,8 @@ import {
   ActivityIndicator,
   Pressable,
   PanResponder,
+  Keyboard,
+  Dimensions,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -38,11 +40,21 @@ type Props = {
 
 export default function MusicPicker({ visible, onClose, onSelect }: Props) {
   const insets = useSafeAreaInsets();
-  const { height: screenHeight } = useWindowDimensions();
+  const { height: winH } = useWindowDimensions();
   const [stage, setStage] = useState<'search' | 'trim'>('search');
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
 
-  const sheetHeight = screenHeight * SHEET_HEIGHT_RATIO;
+  // Keyboard khulne pe window height chhoti ho sakti hai (adjustResize).
+  // Isliye hum sabse badi height yaad rakhte hain, taaki sheet ka size/position
+  // kabhi na badle.
+  const maxHeightRef = useRef(
+    Math.max(winH, Dimensions.get('window').height)
+  );
+  if (winH > maxHeightRef.current) maxHeightRef.current = winH;
+
+  const fullH = maxHeightRef.current;
+  const sheetHeight = fullH * SHEET_HEIGHT_RATIO;
+  const sheetTop = fullH - sheetHeight; // top se anchored => keyboard se hilega nahi
 
   useEffect(() => {
     if (visible) {
@@ -67,11 +79,12 @@ export default function MusicPicker({ visible, onClose, onSelect }: Props) {
       {/* Tap outside to close */}
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
-      {/* Sheet — stays fixed at bottom, keyboard overlays on top */}
+      {/* Sheet — top se fixed, keyboard neeche se overlay hota hai */}
       <View
         style={[
           styles.sheet,
           {
+            top: sheetTop,
             height: sheetHeight,
             paddingBottom: insets.bottom + 8,
           },
@@ -116,9 +129,22 @@ function SearchStage({
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [loading, setLoading] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [kb, setKb] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const preview = useAudioPlayer(null);
+
+  // Keyboard height track karo taaki list / empty-state keyboard ke peeche na chhupe
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (e) =>
+      setKb(e.endCoordinates.height)
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKb(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -181,6 +207,9 @@ function SearchStage({
     onPick(track);
   }
 
+  // Keyboard ke upar ka visible area center karne ke liye
+  const centerStyle = [styles.centerBox, { paddingBottom: kb }];
+
   return (
     <View style={{ flex: 1 }}>
       <View style={styles.searchHeader}>
@@ -215,20 +244,20 @@ function SearchStage({
       </View>
 
       {loading && (
-        <View style={styles.centerBox}>
+        <View style={centerStyle}>
           <ActivityIndicator color={COLORS.violet} />
         </View>
       )}
 
       {!loading && query.length > 0 && tracks.length === 0 && (
-        <View style={styles.centerBox}>
+        <View style={centerStyle}>
           <Ionicons name="musical-notes-outline" size={36} color={COLORS.mist} />
           <Text style={styles.emptyText}>No results. Try another name.</Text>
         </View>
       )}
 
       {!loading && query.length === 0 && (
-        <View style={styles.centerBox}>
+        <View style={centerStyle}>
           <Ionicons name="search" size={36} color={COLORS.mist} />
           <Text style={styles.emptyText}>Search for a song to add</Text>
         </View>
@@ -238,7 +267,10 @@ function SearchStage({
         <FlatList
           data={tracks}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: kb + 12 },
+          ]}
           keyboardShouldPersistTaps="handled"
           initialNumToRender={10}
           maxToRenderPerBatch={8}
@@ -549,11 +581,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.3)',
   },
 
+  // NOTE: bottom: 0 hata diya — sheet ab top + height se fixed hai
   sheet: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 0,
     backgroundColor: '#0F1119',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
