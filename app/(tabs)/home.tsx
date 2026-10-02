@@ -1,5 +1,5 @@
 // app/(tabs)/home.tsx
-// Home screen — welcome + news feed + AsyncStorage cache
+// Home screen — category chips + featured carousel + Top Stories + AsyncStorage cache
 
 import { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react';
 import {
@@ -10,27 +10,17 @@ import {
   TouchableOpacity,
   RefreshControl,
   ScrollView,
+  Dimensions,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, {
-  Defs,
-  LinearGradient as SvgGradient,
-  Stop,
-  Path,
-  Circle,
-} from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  COLORS,
-  FONTS,
-  RADII,
-  SPACING,
-  SHADOWS,
-} from '../../constants/theme';
+import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 
 type NewsArticle = {
@@ -48,7 +38,18 @@ type NewsArticle = {
   created_at: string;
 };
 
+type IconName = keyof typeof Ionicons.glyphMap;
+
 const CATEGORIES = ['For you', 'World', 'India', 'Business', 'Education', 'Awareness'];
+
+const CATEGORY_ICONS: Record<string, IconName> = {
+  'For you': 'home',
+  World: 'globe-outline',
+  India: 'flag-outline',
+  Business: 'bar-chart',
+  Education: 'school',
+  Awareness: 'megaphone-outline',
+};
 
 const CATEGORY_GRADIENTS: Record<string, [string, string]> = {
   World: ['#4F8DFF', '#2F6BFF'],
@@ -57,6 +58,16 @@ const CATEGORY_GRADIENTS: Record<string, [string, string]> = {
   Education: ['#22D3B8', '#16A98C'],
   Awareness: ['#F4607A', '#D66BE0'],
 };
+
+const DEFAULT_GRADIENT: [string, string] = ['#7C5CFF', '#5B3FE0'];
+
+const BG = COLORS.ink900;
+const SIDE = 18;
+const GAP = 12;
+const SCREEN_W = Dimensions.get('window').width;
+const CARD_W = SCREEN_W - SIDE * 2;
+const SNAP = CARD_W + GAP;
+const TOP_LIMIT = 6;
 
 const NEWS_CACHE_KEY = 'airalance:news:feed';
 const NEWS_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
@@ -86,7 +97,64 @@ async function writeNewsCache(articles: NewsArticle[]) {
   } catch {}
 }
 
-// ---------- Memoized article row ----------
+// ---------- Helpers ----------
+function timeAgo(iso: string): string {
+  const ts = new Date(iso).getTime();
+  if (!ts) return '';
+  const s = Math.max(0, (Date.now() - ts) / 1000);
+  const m = Math.floor(s / 60);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hr ago`;
+  const d = Math.floor(h / 24);
+  return `${d} d ago`;
+}
+
+function initials(name: string): string {
+  const letters = (name ?? '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase())
+    .join('');
+  return letters.slice(0, 3) || 'N';
+}
+
+// ---------- Article image (photo or gradient fallback) ----------
+function ArticleImage({
+  article,
+  style,
+  emojiSize,
+}: {
+  article: NewsArticle;
+  style: any;
+  emojiSize: number;
+}) {
+  if (article.image_url) {
+    return (
+      <Image
+        source={{ uri: article.image_url }}
+        style={style}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        transition={120}
+        recyclingKey={article.id}
+      />
+    );
+  }
+  return (
+    <LinearGradient
+      colors={CATEGORY_GRADIENTS[article.category] ?? DEFAULT_GRADIENT}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[style, styles.center]}
+    >
+      <Text style={{ fontSize: emojiSize, opacity: 0.9 }}>{article.emoji ?? '📰'}</Text>
+    </LinearGradient>
+  );
+}
+
+// ---------- Top Stories row ----------
 const ArticleRow = memo(
   function ArticleRow({
     article,
@@ -99,38 +167,15 @@ const ArticleRow = memo(
       <TouchableOpacity
         style={styles.articleRow}
         onPress={() => onPress(article.id)}
-        activeOpacity={0.75}
+        activeOpacity={0.8}
       >
-        {article.image_url ? (
-          <Image
-            source={{ uri: article.image_url }}
-            style={styles.articleThumb}
-            contentFit="cover"
-            cachePolicy="memory-disk"
-            transition={120}
-            recyclingKey={article.id}
-          />
-        ) : (
-          <LinearGradient
-            colors={CATEGORY_GRADIENTS[article.category] ?? ['#7C5CFF', '#5B3FE0']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.articleThumb}
-          >
-            <Text style={styles.articleEmoji}>{article.emoji ?? '📰'}</Text>
-          </LinearGradient>
-        )}
-
-        <View style={styles.articleInfo}>
-          <Text style={styles.articleCategory}>
-            {article.category?.toUpperCase()}
-          </Text>
-          <Text style={styles.articleTitle} numberOfLines={3}>
-            {article.title}
-          </Text>
-          <Text style={styles.articleMeta}>
-            {article.source} · {article.read_time}
-          </Text>
+        <ArticleImage article={article} style={styles.articleThumb} emojiSize={30} />
+        <Text style={styles.articleTitle} numberOfLines={3}>
+          {article.title}
+        </Text>
+        <View style={styles.articleRight}>
+          <Text style={styles.articleTime}>{timeAgo(article.created_at)}</Text>
+          <Ionicons name="ellipsis-vertical" size={16} color={COLORS.mist} />
         </View>
       </TouchableOpacity>
     );
@@ -162,53 +207,33 @@ function SkeletonBlock({
 
 function HomeSkeleton() {
   return (
-    <View>
+    <View style={{ paddingHorizontal: SIDE }}>
       <SkeletonBlock
         width="100%"
-        height={160}
-        borderRadius={RADII.xl}
+        height={250}
+        borderRadius={RADII.xxl}
+        style={{ marginBottom: SPACING.xl }}
+      />
+      <SkeletonBlock
+        width={160}
+        height={18}
+        borderRadius={6}
         style={{ marginBottom: SPACING.md }}
       />
-      <View style={{ marginBottom: SPACING.md }}>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: SPACING.sm,
-            paddingHorizontal: 4,
-          }}
-        >
-          <SkeletonBlock width={8} height={8} borderRadius={4} />
-          <SkeletonBlock width={40} height={14} borderRadius={6} />
-        </View>
-        <SkeletonBlock width="100%" height={140} borderRadius={RADII.xl} />
-      </View>
-      {[0, 1, 2, 3].map((i) => (
-        <View
+      {[0, 1, 2].map((i) => (
+        <SkeletonBlock
           key={i}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: SPACING.sm,
-            paddingVertical: SPACING.sm,
-            paddingHorizontal: 4,
-          }}
-        >
-          <SkeletonBlock width={64} height={64} borderRadius={RADII.lg} />
-          <View style={{ flex: 1, gap: 6 }}>
-            <SkeletonBlock width={50} height={10} borderRadius={4} />
-            <SkeletonBlock width="90%" height={13} borderRadius={5} />
-            <SkeletonBlock width="70%" height={13} borderRadius={5} />
-            <SkeletonBlock width={100} height={10} borderRadius={4} />
-          </View>
-        </View>
+          width="100%"
+          height={84}
+          borderRadius={RADII.lg}
+          style={{ marginBottom: 10 }}
+        />
       ))}
     </View>
   );
 }
 
-// ---------- Memoized category pill ----------
+// ---------- Category chip ----------
 const CategoryPill = memo(function CategoryPill({
   label,
   isActive,
@@ -218,218 +243,223 @@ const CategoryPill = memo(function CategoryPill({
   isActive: boolean;
   onPress: (label: string) => void;
 }) {
+  const icon = CATEGORY_ICONS[label] ?? 'newspaper-outline';
   return (
     <TouchableOpacity
       onPress={() => onPress(label)}
       activeOpacity={0.8}
-      style={styles.categoryWrap}
+      style={isActive ? styles.pillGlow : undefined}
     >
       {isActive ? (
         <LinearGradient
-          colors={['#9C82FF', '#7C5CFF']}
+          colors={['#8A6BFF', '#6B4CF0']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.categoryPill}
+          style={styles.pill}
         >
-          <Text style={styles.categoryTextActive}>{label}</Text>
+          <Ionicons name={icon} size={18} color="#FFFFFF" />
+          <Text style={styles.pillTextActive}>{label}</Text>
         </LinearGradient>
       ) : (
-        <View style={styles.categoryPillInactive}>
-          <Text style={styles.categoryTextInactive}>{label}</Text>
+        <View style={[styles.pill, styles.pillInactive]}>
+          <Ionicons name={icon} size={18} color={COLORS.mistLight} />
+          <Text style={styles.pillTextInactive}>{label}</Text>
         </View>
       )}
     </TouchableOpacity>
   );
 });
 
-// ---------- Airalance logo (drawn in code, no image file) ----------
-function AiralanceLogo({ width = 108 }: { width?: number }) {
-  const height = (width * 270) / 440;
+// ---------- Featured card ----------
+const FeaturedCard = memo(function FeaturedCard({
+  article,
+  onOpen,
+}: {
+  article: NewsArticle;
+  onOpen: (id: string) => void;
+}) {
+  const description = article.body?.[0] ?? '';
   return (
-    <Svg width={width} height={height} viewBox="60 80 440 270">
-      <Defs>
-        <SvgGradient
-          id="alLoop"
-          gradientUnits="userSpaceOnUse"
-          x1="81"
-          y1="0"
-          x2="477"
-          y2="0"
-        >
-          <Stop offset="0" stopColor="#FFB300" />
-          <Stop offset="0.5" stopColor="#FF3D6E" />
-          <Stop offset="1" stopColor="#E600A8" />
-        </SvgGradient>
-        <SvgGradient id="alHeadL" x1="0" y1="0" x2="1" y2="1">
-          <Stop offset="0" stopColor="#FFB300" />
-          <Stop offset="1" stopColor="#FF7A1A" />
-        </SvgGradient>
-        <SvgGradient id="alHeadR" x1="0" y1="0" x2="1" y2="1">
-          <Stop offset="0" stopColor="#FF2E7E" />
-          <Stop offset="1" stopColor="#E600A8" />
-        </SvgGradient>
-      </Defs>
-      <Path
-        d="M 279 250 C 320 205 350 190 385 190 C 430 190 455 220 455 255 C 455 295 425 320 385 320 C 350 320 320 300 279 250 C 238 200 208 190 173 190 C 128 190 103 220 103 255 C 103 295 133 320 173 320 C 208 320 238 300 279 250 Z"
-        fill="none"
-        stroke="url(#alLoop)"
-        strokeWidth={44}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Circle cx={172} cy={125} r={34} fill="url(#alHeadL)" />
-      <Circle cx={388} cy={123} r={36} fill="url(#alHeadR)" />
-    </Svg>
-  );
-}
+    <TouchableOpacity
+      style={styles.featuredCard}
+      onPress={() => onOpen(article.id)}
+      activeOpacity={0.92}
+    >
+      <ArticleImage article={article} style={styles.featuredImage} emojiSize={60} />
 
-// ---------- List header component ----------
+      <LinearGradient
+        colors={['rgba(10,12,18,0)', 'rgba(10,12,18,0.7)', 'rgba(10,12,18,0.96)']}
+        locations={[0, 0.5, 1]}
+        style={styles.featuredOverlay}
+      />
+
+      <View style={styles.featuredBadge}>
+        <Ionicons name="star" size={12} color="#FFFFFF" />
+        <Text style={styles.featuredBadgeText}>Featured</Text>
+      </View>
+      <View style={styles.featuredTime}>
+        <Text style={styles.featuredTimeText}>{timeAgo(article.created_at)}</Text>
+      </View>
+
+      <View style={styles.featuredContent}>
+        <Text style={styles.featuredTitle} numberOfLines={3}>
+          {article.title}
+        </Text>
+        {description ? (
+          <Text style={styles.featuredDesc} numberOfLines={2}>
+            {description}
+          </Text>
+        ) : null}
+
+        <View style={styles.featuredFooter}>
+          <View style={styles.sourceAvatar}>
+            <Text style={styles.sourceAvatarText}>{initials(article.source)}</Text>
+          </View>
+          <Text style={styles.sourceName} numberOfLines={1}>
+            {article.source}
+          </Text>
+          <Ionicons name="checkmark-circle" size={16} color={COLORS.violetLight} />
+          <View style={styles.readTime}>
+            <Ionicons name="document-text" size={14} color={COLORS.mist} />
+            <Text style={styles.readTimeText} numberOfLines={1}>
+              {article.read_time}
+            </Text>
+          </View>
+          <View style={{ flex: 1 }} />
+          <View style={styles.readMoreBtn}>
+            <Text style={styles.readMoreText}>Read more</Text>
+            <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
+// ---------- Featured carousel ----------
+const FeaturedCarousel = memo(function FeaturedCarousel({
+  items,
+  onOpen,
+}: {
+  items: NewsArticle[];
+  onOpen: (id: string) => void;
+}) {
+  const [index, setIndex] = useState(0);
+
+  const onScrollEnd = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const i = Math.round(e.nativeEvent.contentOffset.x / SNAP);
+      setIndex(Math.max(0, Math.min(items.length - 1, i)));
+    },
+    [items.length]
+  );
+
+  return (
+    <View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        snapToInterval={SNAP}
+        decelerationRate="fast"
+        onMomentumScrollEnd={onScrollEnd}
+        contentContainerStyle={{ paddingHorizontal: SIDE, gap: GAP }}
+      >
+        {items.map((item) => (
+          <FeaturedCard key={item.id} article={item} onOpen={onOpen} />
+        ))}
+      </ScrollView>
+
+      {items.length > 1 && (
+        <View style={styles.dotsRow}>
+          {items.map((item, i) => (
+            <View key={item.id} style={[styles.dot, i === index && styles.dotActive]} />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+});
+
+// ---------- List header ----------
 type HeaderProps = {
   loading: boolean;
   selectedCategory: string;
   onSelectCategory: (cat: string) => void;
-  onStartConversation: () => void;
-  featured: NewsArticle | null;
+  featuredList: NewsArticle[];
   onOpenArticle: (id: string) => void;
   filteredLength: number;
+  restLength: number;
+  showAll: boolean;
+  onToggleAll: () => void;
 };
 
 const ListHeader = memo(function ListHeader({
   loading,
   selectedCategory,
   onSelectCategory,
-  onStartConversation,
-  featured,
+  featuredList,
   onOpenArticle,
   filteredLength,
+  restLength,
+  showAll,
+  onToggleAll,
 }: HeaderProps) {
   return (
     <>
-      <View style={styles.welcomeCard}>
-        <View style={styles.welcomeLogoWrap}>
-          <AiralanceLogo width={60} />
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.categoriesRow}
+      >
+        {CATEGORIES.map((cat) => (
+          <CategoryPill
+            key={cat}
+            label={cat}
+            isActive={selectedCategory === cat}
+            onPress={onSelectCategory}
+          />
+        ))}
+      </ScrollView>
+
+      {loading ? (
+        <HomeSkeleton />
+      ) : filteredLength === 0 ? (
+        <View style={styles.emptyWrap}>
+          <Ionicons name="newspaper-outline" size={40} color={COLORS.mist} />
+          <Text style={styles.emptyText}>
+            No {selectedCategory === 'For you' ? 'news' : selectedCategory} articles yet.
+          </Text>
+          <Text style={styles.emptySubtext}>Check back soon.</Text>
         </View>
-        <Text style={styles.welcomeTitle}>Welcome to Airalance!</Text>
-        <Text style={styles.welcomeSubtitle}>
-          Let's connect. Real conversations, real time.
-        </Text>
-        <TouchableOpacity
-          style={styles.welcomeBtn}
-          onPress={onStartConversation}
-          activeOpacity={0.85}
-        >
-          <LinearGradient
-            colors={['#9C82FF', '#7C5CFF']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.welcomeBtnGradient}
-          >
-            <Text style={styles.welcomeBtnText}>Start a conversation</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
+      ) : (
+        <>
+          <FeaturedCarousel
+            key={selectedCategory}
+            items={featuredList}
+            onOpen={onOpenArticle}
+          />
 
-      <View style={styles.newsSection}>
-        <View style={styles.newsHeader}>
-          <Text style={styles.newsTitle}>News for you</Text>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoriesRow}
-        >
-          {CATEGORIES.map((cat) => (
-            <CategoryPill
-              key={cat}
-              label={cat}
-              isActive={selectedCategory === cat}
-              onPress={onSelectCategory}
-            />
-          ))}
-        </ScrollView>
-
-        {loading ? (
-          <HomeSkeleton />
-        ) : filteredLength === 0 ? (
-          <View style={styles.emptyWrap}>
-            <Ionicons name="newspaper-outline" size={40} color={COLORS.mist} />
-            <Text style={styles.emptyText}>
-              No {selectedCategory === 'For you' ? 'news' : selectedCategory} articles yet.
-            </Text>
-            <Text style={styles.emptySubtext}>Check back soon.</Text>
-          </View>
-        ) : (
-          <>
-            {featured && (
-              <TouchableOpacity
-                style={styles.featuredCard}
-                onPress={() => onOpenArticle(featured.id)}
-                activeOpacity={0.9}
-              >
-                {featured.image_url ? (
-                  <Image
-                    source={{ uri: featured.image_url }}
-                    style={styles.featuredImage}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    transition={120}
-                    recyclingKey={featured.id}
+          {restLength > 0 && (
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Top Stories for You</Text>
+              {restLength > TOP_LIMIT && (
+                <TouchableOpacity
+                  onPress={onToggleAll}
+                  activeOpacity={0.7}
+                  style={styles.seeAll}
+                >
+                  <Text style={styles.seeAllText}>{showAll ? 'Show less' : 'See all'}</Text>
+                  <Ionicons
+                    name={showAll ? 'arrow-up' : 'arrow-forward'}
+                    size={16}
+                    color={COLORS.violetLight}
                   />
-                ) : (
-                  <LinearGradient
-                    colors={
-                      CATEGORY_GRADIENTS[featured.category] ?? ['#7C5CFF', '#5B3FE0']
-                    }
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.featuredImage}
-                  >
-                    <Text style={styles.featuredEmoji}>
-                      {featured.emoji ?? '📰'}
-                    </Text>
-                  </LinearGradient>
-                )}
-
-                <LinearGradient
-                  colors={['transparent', 'rgba(10,12,18,0.95)']}
-                  style={styles.featuredOverlay}
-                />
-
-                <View style={styles.featuredContent}>
-                  <View style={styles.featuredBadge}>
-                    <Text style={styles.featuredBadgeText}>
-                      FEATURED · {featured.category}
-                    </Text>
-                  </View>
-                  <Text style={styles.featuredTitle} numberOfLines={2}>
-                    {featured.title}
-                  </Text>
-                  <View style={styles.featuredMeta}>
-                    <Text style={styles.featuredMetaText}>
-                      {featured.source} · {featured.read_time}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            )}
-
-            <View style={styles.liveSection}>
-              <View style={styles.liveHeader}>
-                <View style={styles.livePulse} />
-                <View style={styles.livePulseInner} />
-                <Text style={styles.liveTitle}>Live</Text>
-              </View>
-              <View style={styles.liveBox}>
-                <Ionicons name="radio-outline" size={38} color={COLORS.mist} />
-                <Text style={styles.liveText}>
-                  Live stream will appear here
-                </Text>
-              </View>
+                </TouchableOpacity>
+              )}
             </View>
-          </>
-        )}
-      </View>
+          )}
+        </>
+      )}
     </>
   );
 });
@@ -442,10 +472,11 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('For you');
   const [notifCount, setNotifCount] = useState(0);
+  const [showAll, setShowAll] = useState(false);
 
   const cacheShownRef = useRef(false);
 
-  // ✅ Cache-first: show cached news instantly
+  // Cache-first: show cached news instantly
   useEffect(() => {
     if (cacheShownRef.current) return;
     (async () => {
@@ -468,11 +499,10 @@ export default function HomeScreen() {
 
       if (error) {
         console.warn('News fetch error:', error.message);
-        // don't wipe cache — keep showing stale
+        // keep showing stale cache
       } else {
         const list = (data ?? []) as NewsArticle[];
         setArticles(list);
-        // ✅ Save fresh to cache
         await writeNewsCache(list);
       }
     } catch (err) {
@@ -484,7 +514,9 @@ export default function HomeScreen() {
   }, []);
 
   const fetchNotificationCount = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session?.user) return;
     const { count } = await supabase
       .from('app_notifications')
@@ -510,14 +542,20 @@ export default function HomeScreen() {
     return articles.filter((a) => a.category?.toLowerCase() === lower);
   }, [articles, selectedCategory]);
 
-  const featured = useMemo(
-    () => filteredArticles.find((a) => a.is_featured) ?? filteredArticles[0] ?? null,
-    [filteredArticles]
-  );
+  // Carousel: featured articles (max 5), else latest 3
+  const featuredList = useMemo(() => {
+    const feat = filteredArticles.filter((a) => a.is_featured).slice(0, 5);
+    return feat.length > 0 ? feat : filteredArticles.slice(0, 3);
+  }, [filteredArticles]);
 
-  const rest = useMemo(
-    () => filteredArticles.filter((a) => a.id !== featured?.id),
-    [filteredArticles, featured]
+  const rest = useMemo(() => {
+    const ids = new Set(featuredList.map((a) => a.id));
+    return filteredArticles.filter((a) => !ids.has(a.id));
+  }, [filteredArticles, featuredList]);
+
+  const visibleRest = useMemo(
+    () => (showAll ? rest : rest.slice(0, TOP_LIMIT)),
+    [rest, showAll]
   );
 
   const openArticle = useCallback(
@@ -525,27 +563,22 @@ export default function HomeScreen() {
     [router]
   );
 
-  const onSelectCategory = useCallback(
-    (cat: string) => setSelectedCategory(cat),
-    []
-  );
+  const onSelectCategory = useCallback((cat: string) => {
+    setSelectedCategory(cat);
+    setShowAll(false);
+  }, []);
 
-  const onStartConversation = useCallback(
-    () => router.push('/(tabs)/search'),
-    [router]
-  );
+  const onToggleAll = useCallback(() => setShowAll((v) => !v), []);
 
   const renderItem = useCallback(
-    ({ item, index }: { item: NewsArticle; index: number }) => (
-      <>
-        <ArticleRow article={item} onPress={openArticle} />
-        {index < rest.length - 1 && <View style={styles.articleDivider} />}
-      </>
+    ({ item }: { item: NewsArticle }) => (
+      <ArticleRow article={item} onPress={openArticle} />
     ),
-    [openArticle, rest.length]
+    [openArticle]
   );
 
   const keyExtractor = useCallback((item: NewsArticle) => item.id, []);
+  const renderSeparator = useCallback(() => <View style={{ height: 10 }} />, []);
 
   const listHeader = useMemo(
     () => (
@@ -553,20 +586,24 @@ export default function HomeScreen() {
         loading={loading}
         selectedCategory={selectedCategory}
         onSelectCategory={onSelectCategory}
-        onStartConversation={onStartConversation}
-        featured={featured}
+        featuredList={featuredList}
         onOpenArticle={openArticle}
         filteredLength={filteredArticles.length}
+        restLength={rest.length}
+        showAll={showAll}
+        onToggleAll={onToggleAll}
       />
     ),
     [
       loading,
       selectedCategory,
       onSelectCategory,
-      onStartConversation,
-      featured,
+      featuredList,
       openArticle,
       filteredArticles.length,
+      rest.length,
+      showAll,
+      onToggleAll,
     ]
   );
 
@@ -582,18 +619,17 @@ export default function HomeScreen() {
           <Ionicons name="notifications-outline" size={19} color="#FFFFFF" />
           {notifCount > 0 && (
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {notifCount > 9 ? '9+' : notifCount}
-              </Text>
+              <Text style={styles.badgeText}>{notifCount > 9 ? '9+' : notifCount}</Text>
             </View>
           )}
         </TouchableOpacity>
       </View>
 
       <FlatList
-        data={loading && articles.length === 0 ? [] : rest}
+        data={loading && articles.length === 0 ? [] : visibleRest}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
+        ItemSeparatorComponent={renderSeparator}
         ListHeaderComponent={listHeader}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -615,16 +651,18 @@ export default function HomeScreen() {
   );
 }
 
-// ---------- Styles (unchanged) ----------
+// ---------- Styles ----------
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#000000' },
+  safe: { flex: 1, backgroundColor: BG },
   scroll: { paddingBottom: 40 },
+  center: { alignItems: 'center', justifyContent: 'center' },
 
+  // Top bar
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
+    paddingHorizontal: SIDE,
     paddingTop: 8,
     paddingBottom: 8,
   },
@@ -641,7 +679,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'relative',
   },
   badge: {
     position: 'absolute',
@@ -650,12 +687,12 @@ const styles = StyleSheet.create({
     minWidth: 15,
     height: 15,
     borderRadius: 8,
-    backgroundColor: '#EF4444',
+    backgroundColor: COLORS.danger,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,
     borderWidth: 2,
-    borderColor: '#000000',
+    borderColor: BG,
   },
   badgeText: {
     color: '#FFFFFF',
@@ -664,91 +701,45 @@ const styles = StyleSheet.create({
     lineHeight: 10,
   },
 
-  welcomeCard: {
-    alignItems: 'center',
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.sm,
-    paddingBottom: SPACING.md,
+  // Category chips
+  categoriesRow: {
+    paddingHorizontal: SIDE,
+    paddingTop: 6,
+    paddingBottom: 16,
+    gap: 10,
   },
-  welcomeLogoWrap: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    backgroundColor: 'rgba(156,130,255,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: SPACING.sm,
-  },
-  welcomeTitle: {
-    fontSize: 19,
-    fontFamily: FONTS.displayBold,
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  welcomeSubtitle: {
-    marginTop: 4,
-    fontSize: 12.5,
-    fontFamily: FONTS.body,
-    color: COLORS.mist,
-    textAlign: 'center',
-    paddingHorizontal: 16,
-    lineHeight: 17,
-  },
-  welcomeBtn: {
-    marginTop: SPACING.md,
+  pillGlow: {
     borderRadius: RADII.full,
-    overflow: 'hidden',
-    ...SHADOWS.buttonViolet,
+    shadowColor: COLORS.violet,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.55,
+    shadowRadius: 12,
   },
-  welcomeBtnGradient: { paddingVertical: 9, paddingHorizontal: 20 },
-  welcomeBtnText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontFamily: FONTS.bodySemiBold,
-  },
-
-  newsSection: { paddingHorizontal: 18, marginTop: SPACING.sm },
-  newsHeader: {
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 4,
-    marginBottom: SPACING.sm,
-  },
-  newsTitle: {
-    fontSize: 16,
-    fontFamily: FONTS.displayBold,
-    color: '#FFFFFF',
-  },
-
-  categoriesRow: { gap: 6, paddingRight: SPACING.md, paddingBottom: SPACING.sm },
-  categoryWrap: { marginRight: 5 },
-  categoryPill: {
-    paddingHorizontal: 13,
-    paddingVertical: 6,
+    gap: 8,
+    paddingHorizontal: 16,
+    height: 44,
     borderRadius: RADII.full,
   },
-  categoryPillInactive: {
-    paddingHorizontal: 13,
-    paddingVertical: 6,
-    borderRadius: RADII.full,
+  pillInactive: {
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
   },
-  categoryTextActive: {
+  pillTextActive: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
-  categoryTextInactive: {
-    color: COLORS.mist,
-    fontSize: 12,
+  pillTextInactive: {
+    color: COLORS.mistLight,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
   },
 
+  // Empty
   emptyWrap: { paddingVertical: 40, alignItems: 'center', gap: 8 },
   emptyText: {
     color: COLORS.text,
@@ -758,11 +749,13 @@ const styles = StyleSheet.create({
   },
   emptySubtext: { color: COLORS.mist, fontSize: 12, fontFamily: FONTS.body },
 
+  // Featured card
   featuredCard: {
-    height: 150,
-    borderRadius: RADII.xl,
+    width: CARD_W,
+    height: 250,
+    borderRadius: RADII.xxl,
     overflow: 'hidden',
-    marginBottom: SPACING.md,
+    backgroundColor: COLORS.ink800,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
@@ -774,133 +767,189 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: '100%',
     height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  featuredEmoji: { fontSize: 40, opacity: 0.85 },
   featuredOverlay: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: '80%',
+    height: '85%',
+  },
+  featuredBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: RADII.full,
+    backgroundColor: COLORS.violet,
+  },
+  featuredBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontFamily: FONTS.bodySemiBold,
+  },
+  featuredTime: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: RADII.full,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  featuredTimeText: {
+    color: COLORS.mistLight,
+    fontSize: 11.5,
+    fontFamily: FONTS.bodyMedium,
   },
   featuredContent: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    padding: SPACING.sm + 2,
-  },
-  featuredBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: RADII.full,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    marginBottom: 5,
-  },
-  featuredBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontFamily: FONTS.bodySemiBold,
-    letterSpacing: 0.5,
+    paddingHorizontal: 14,
+    paddingBottom: 12,
   },
   featuredTitle: {
     color: '#FFFFFF',
-    fontSize: 13.5,
+    fontSize: 20,
+    lineHeight: 25,
     fontFamily: FONTS.displayBold,
-    lineHeight: 18,
   },
-  featuredMeta: { marginTop: 3 },
-  featuredMetaText: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 10.5,
+  featuredDesc: {
+    marginTop: 6,
+    color: COLORS.mistLight,
+    fontSize: 12.5,
+    lineHeight: 17,
     fontFamily: FONTS.body,
   },
-
-  liveSection: { marginBottom: SPACING.md },
-  liveHeader: {
+  featuredFooter: {
+    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: SPACING.sm,
-    paddingHorizontal: 4,
-  },
-  livePulse: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: COLORS.danger,
-    opacity: 0.3,
-    position: 'absolute',
-  },
-  livePulseInner: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: COLORS.danger,
-  },
-  liveTitle: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontFamily: FONTS.displayBold,
-  },
-  liveBox: {
-    height: 130,
-    borderRadius: RADII.xl,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
     gap: 6,
   },
-  liveText: {
-    color: COLORS.mist,
+  sourceAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sourceAvatarText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontFamily: FONTS.displayBold,
+  },
+  sourceName: {
+    color: '#FFFFFF',
     fontSize: 12,
+    fontFamily: FONTS.bodySemiBold,
+    maxWidth: 90,
+  },
+  readTime: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 6,
+  },
+  readTimeText: {
+    color: COLORS.mist,
+    fontSize: 11,
     fontFamily: FONTS.body,
+    maxWidth: 70,
+  },
+  readMoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: RADII.full,
+    borderWidth: 1,
+    borderColor: COLORS.violet,
+    backgroundColor: 'rgba(124,92,255,0.12)',
+  },
+  readMoreText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontFamily: FONTS.bodySemiBold,
   },
 
+  // Carousel dots
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 14,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  dotActive: { backgroundColor: COLORS.violet },
+
+  // Section header
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SIDE,
+    marginTop: 22,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontFamily: FONTS.displayBold,
+  },
+  seeAll: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  seeAllText: {
+    color: COLORS.violetLight,
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+  },
+
+  // Top Stories row
   articleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: 4,
+    marginHorizontal: SIDE,
+    height: 88,
     borderRadius: RADII.lg,
-    marginHorizontal: 18,
-  },
-  articleDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    marginHorizontal: 22,
-    marginVertical: 2,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
   },
   articleThumb: {
-    width: 64,
-    height: 64,
-    borderRadius: RADII.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  articleEmoji: { fontSize: 24, opacity: 0.9 },
-  articleInfo: { flex: 1 },
-  articleCategory: {
-    color: COLORS.teal,
-    fontSize: 9.5,
-    fontFamily: FONTS.bodySemiBold,
-    letterSpacing: 0.6,
-    marginBottom: 2,
+    width: 104,
+    height: '100%',
   },
   articleTitle: {
+    flex: 1,
+    paddingHorizontal: 12,
     color: '#FFFFFF',
-    fontSize: 13.5,
+    fontSize: 14.5,
+    lineHeight: 19,
     fontFamily: FONTS.bodySemiBold,
-    lineHeight: 18,
   },
-  articleMeta: {
-    marginTop: 3,
+  articleRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingRight: 10,
+  },
+  articleTime: {
     color: COLORS.mist,
     fontSize: 11,
     fontFamily: FONTS.body,
