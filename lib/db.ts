@@ -8,9 +8,6 @@ const DB_NAME = 'airalance.db';
 let dbInstance: SQLite.SQLiteDatabase | null = null;
 let initPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
-// ============================================================
-// Open + initialize database (singleton)
-// ============================================================
 export async function getDB(): Promise<SQLite.SQLiteDatabase> {
   if (dbInstance) return dbInstance;
   if (initPromise) return initPromise;
@@ -20,6 +17,7 @@ export async function getDB(): Promise<SQLite.SQLiteDatabase> {
     await db.execAsync(`PRAGMA journal_mode = WAL;`);
     await db.execAsync(`PRAGMA foreign_keys = ON;`);
     await createTables(db);
+    await runMigrations(db);
     dbInstance = db;
     return db;
   })();
@@ -27,9 +25,6 @@ export async function getDB(): Promise<SQLite.SQLiteDatabase> {
   return initPromise;
 }
 
-// ============================================================
-// Schema — tables + indexes
-// ============================================================
 async function createTables(db: SQLite.SQLiteDatabase) {
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS conversations (
@@ -57,6 +52,7 @@ async function createTables(db: SQLite.SQLiteDatabase) {
       content TEXT,
       message_type TEXT DEFAULT 'text',
       media_url TEXT,
+      media_duration INTEGER,
       reply_to_id TEXT,
       is_deleted INTEGER DEFAULT 0,
       is_edited INTEGER DEFAULT 0,
@@ -82,9 +78,23 @@ async function createTables(db: SQLite.SQLiteDatabase) {
   `);
 }
 
-// ============================================================
-// Types
-// ============================================================
+// ✅ Safe migrations for existing installs
+async function runMigrations(db: SQLite.SQLiteDatabase) {
+  try {
+    const cols = await db.getAllAsync<{ name: string }>(
+      `PRAGMA table_info(messages)`
+    );
+    const names = new Set(cols.map((c) => c.name));
+    if (!names.has('media_duration')) {
+      await db.execAsync(
+        `ALTER TABLE messages ADD COLUMN media_duration INTEGER`
+      );
+    }
+  } catch (err) {
+    console.warn('[db] migration failed:', err);
+  }
+}
+
 export type DBConversation = {
   id: string;
   is_group: number;
@@ -110,6 +120,7 @@ export type DBMessage = {
   content: string | null;
   message_type: string;
   media_url: string | null;
+  media_duration: number | null;
   reply_to_id: string | null;
   is_deleted: number;
   is_edited: number;
@@ -132,7 +143,9 @@ export async function dbGetConversations(): Promise<DBConversation[]> {
   );
 }
 
-export async function dbUpsertConversation(c: Partial<DBConversation> & { id: string }) {
+export async function dbUpsertConversation(
+  c: Partial<DBConversation> & { id: string }
+) {
   const db = await getDB();
   const existing = await db.getFirstAsync<DBConversation>(
     `SELECT * FROM conversations WHERE id = ?`,
@@ -242,12 +255,14 @@ export async function dbGetMessages(
   );
 }
 
-export async function dbUpsertMessage(m: Partial<DBMessage> & {
-  id: string;
-  conversation_id: string;
-  sender_id: string;
-  created_at: string;
-}) {
+export async function dbUpsertMessage(
+  m: Partial<DBMessage> & {
+    id: string;
+    conversation_id: string;
+    sender_id: string;
+    created_at: string;
+  }
+) {
   const db = await getDB();
   const existing = await db.getFirstAsync<DBMessage>(
     `SELECT * FROM messages WHERE id = ?`,
@@ -260,6 +275,7 @@ export async function dbUpsertMessage(m: Partial<DBMessage> & {
         content = COALESCE(?, content),
         message_type = COALESCE(?, message_type),
         media_url = COALESCE(?, media_url),
+        media_duration = COALESCE(?, media_duration),
         reply_to_id = COALESCE(?, reply_to_id),
         is_deleted = COALESCE(?, is_deleted),
         is_edited = COALESCE(?, is_edited),
@@ -274,6 +290,7 @@ export async function dbUpsertMessage(m: Partial<DBMessage> & {
         m.content ?? null,
         m.message_type ?? null,
         m.media_url ?? null,
+        m.media_duration ?? null,
         m.reply_to_id ?? null,
         m.is_deleted ?? null,
         m.is_edited ?? null,
@@ -290,9 +307,10 @@ export async function dbUpsertMessage(m: Partial<DBMessage> & {
     await db.runAsync(
       `INSERT INTO messages (
         id, conversation_id, sender_id, content, message_type,
-        media_url, reply_to_id, is_deleted, is_edited, is_pinned,
-        reaction, read_at, delivered_at, created_at, local_status, synced_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        media_url, media_duration, reply_to_id, is_deleted, is_edited,
+        is_pinned, reaction, read_at, delivered_at, created_at,
+        local_status, synced_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         m.id,
         m.conversation_id,
@@ -300,6 +318,7 @@ export async function dbUpsertMessage(m: Partial<DBMessage> & {
         m.content ?? null,
         m.message_type ?? 'text',
         m.media_url ?? null,
+        m.media_duration ?? null,
         m.reply_to_id ?? null,
         m.is_deleted ?? 0,
         m.is_edited ?? 0,
@@ -333,7 +352,6 @@ export async function dbGetPendingMessages(): Promise<DBMessage[]> {
 export async function dbMarkMessageSent(id: string, serverId?: string) {
   const db = await getDB();
   if (serverId && serverId !== id) {
-    // Server ne naya id diya — delete old, insert new
     await db.runAsync(`DELETE FROM messages WHERE id = ?`, [id]);
   }
   await db.runAsync(
@@ -370,9 +388,6 @@ export async function dbGetMeta(key: string): Promise<string | null> {
   return row?.value ?? null;
 }
 
-// ============================================================
-// Danger — clear everything (logout ke liye)
-// ============================================================
 export async function dbWipeAll() {
   const db = await getDB();
   await db.execAsync(`
