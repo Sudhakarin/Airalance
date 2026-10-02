@@ -1,5 +1,5 @@
 // app/_layout.tsx
-// Root layout — fonts, auth, theme, navigation stack, push notifications, sounds, SQLite init
+// Root layout — fonts, auth, theme, navigation stack, push notifications, sounds, SQLite init, network tracker
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Stack } from 'expo-router';
@@ -28,6 +28,7 @@ import { supabase } from '../lib/supabase';
 import { setSessionUnlocked } from '../lib/pin';
 import { initSounds } from '../lib/sounds';
 import { getDB } from '../lib/db';
+import { initNetwork } from '../lib/network';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -72,6 +73,16 @@ export default function RootLayout() {
         console.warn('[db] SQLite init failed:', err);
       }
     })();
+  }, []);
+
+  // ---------- Init network tracker (once on mount) ----------
+  useEffect(() => {
+    try {
+      initNetwork();
+      console.log('[net] Network tracker ready');
+    } catch (err) {
+      console.warn('[net] Network init failed:', err);
+    }
   }, []);
 
   // ---------- Web-only: hide scrollbars ----------
@@ -217,7 +228,6 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, authReady]);
 
-  // While not ready, keep returning null → splash stays visible
   if (!fontsLoaded || !authReady) {
     return null;
   }
