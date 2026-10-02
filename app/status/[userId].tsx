@@ -1,5 +1,5 @@
 // app/status/[userId].tsx
-// Full-screen status viewer — Instagram-style music in header
+// Full-screen status viewer — offline cache + network auto-reload + Instagram music header
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
@@ -25,6 +25,8 @@ import { useAudioPlayer } from 'expo-audio';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII, SPACING, GRADIENTS } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { getCurrentUserId } from '../../lib/auth';
+import { subscribeNetwork, isOnline } from '../../lib/network';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import {
@@ -272,7 +274,7 @@ function StatusMusicPlayer({
 }
 
 // ============================================================
-// Music Marquee — Instagram style scrolling text
+// Music Marquee
 // ============================================================
 function MusicMarquee({ text }: { text: string }) {
   const [containerWidth, setContainerWidth] = useState(0);
@@ -282,12 +284,11 @@ function MusicMarquee({ text }: { text: string }) {
   useEffect(() => {
     if (containerWidth === 0 || textWidth === 0) return;
     if (textWidth <= containerWidth) {
-      // No need to scroll
       translateX.setValue(0);
       return;
     }
     const overflow = textWidth - containerWidth;
-    const duration = overflow * 40; // speed
+    const duration = overflow * 40;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.delay(1000),
@@ -325,9 +326,6 @@ function MusicMarquee({ text }: { text: string }) {
   );
 }
 
-// ============================================================
-// Constants
-// ============================================================
 const VIEWER_ROW_HEIGHT = 62;
 const VIEWERS_HEADER_HEIGHT = 70;
 const VIEWERS_MAX_RATIO = 0.7;
@@ -354,6 +352,7 @@ export default function StatusViewerScreen() {
   const [sendingRequest, setSendingRequest] = useState(false);
 
   const [paused, setPaused] = useState(false);
+  const [online, setOnline] = useState(isOnline());
 
   const [viewersCount, setViewersCount] = useState(0);
   const [showViewers, setShowViewers] = useState(false);
@@ -364,6 +363,14 @@ export default function StatusViewerScreen() {
   const elapsedRef = useRef(0);
   const frameStartRef = useRef(0);
   const rafRef = useRef<number | null>(null);
+  const cacheShownRef = useRef(false);
+
+  // ✅ Network
+  useEffect(() => {
+    setOnline(isOnline());
+    const unsub = subscribeNetwork(setOnline);
+    return unsub;
+  }, []);
 
   const viewersSheetHeight = useMemo(() => {
     const rowCount = viewersLoading ? 5 : viewers.length;
@@ -377,31 +384,43 @@ export default function StatusViewerScreen() {
     return Math.max(minHeight, Math.min(contentHeight, maxHeight));
   }, [viewers.length, viewersLoading, insets.bottom, screenHeight]);
 
-  // Load statuses
+  // ✅ Load statuses — cache-first + skip network if offline
   useEffect(() => {
     let mounted = true;
     async function load() {
-      const { data: authData } = await supabase.auth.getUser();
-      if (mounted) {
-        setMyId(authData.user?.id ?? null);
-        if (authData.user) {
+      // ✅ getCurrentUserId works offline
+      const uid = await getCurrentUserId();
+      if (mounted && uid) {
+        setMyId(uid);
+        // Try local profile name from cache — else skip network call if offline
+        if (isOnline()) {
           const { data: me } = await supabase
             .from('profiles')
             .select('display_name')
-            .eq('id', authData.user.id)
+            .eq('id', uid)
             .single();
-          if (me?.display_name) setMyDisplayName(me.display_name);
+          if (me?.display_name && mounted) setMyDisplayName(me.display_name);
         }
       }
 
-      const cache = await readStatusesCache(userId);
-      if (cache?.statuses?.length && mounted) {
-        const now = new Date().toISOString();
-        const fresh = cache.statuses.filter((s) => s.expires_at > now);
-        if (fresh.length > 0) {
-          setStatuses(fresh);
-          setLoading(false);
+      // ✅ Show cache instantly
+      if (!cacheShownRef.current) {
+        const cache = await readStatusesCache(userId);
+        if (cache?.statuses?.length && mounted) {
+          const now = new Date().toISOString();
+          const fresh = cache.statuses.filter((s) => s.expires_at > now);
+          if (fresh.length > 0) {
+            setStatuses(fresh);
+            setLoading(false);
+          }
         }
+        cacheShownRef.current = true;
+      }
+
+      // ✅ Skip network if offline
+      if (!isOnline()) {
+        if (mounted) setLoading(false);
+        return;
       }
 
       const { data, error } = await supabase
@@ -414,7 +433,7 @@ export default function StatusViewerScreen() {
       if (!mounted) return;
       if (error) {
         console.warn('Load status error:', error);
-        if (!cache?.statuses?.length) setStatuses([]);
+        if (!cacheShownRef.current) setStatuses([]);
       } else {
         const list = (data ?? []) as Status[];
         setStatuses(list);
@@ -428,9 +447,33 @@ export default function StatusViewerScreen() {
     };
   }, [userId]);
 
+  // ✅ Auto-reload when back online
+  useEffect(() => {
+    if (!online) return;
+    if (!userId) return;
+    (async () => {
+      const { data } = await supabase
+        .from('statuses')
+        .select('*, profile:profiles(*)')
+        .eq('user_id', userId)
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: true });
+      if (data) {
+        const list = data as Status[];
+        setStatuses(list);
+        await writeStatusesCache(userId, list);
+      }
+    })();
+  }, [online, userId]);
+
+  // Connection / follow check — skip if offline
   useEffect(() => {
     if (!myId || !userId || myId === userId) {
       setIsFollowing(false);
+      setConnectionStatus('none');
+      return;
+    }
+    if (!online) {
       setConnectionStatus('none');
       return;
     }
@@ -474,11 +517,12 @@ export default function StatusViewerScreen() {
     return () => {
       cancelled = true;
     };
-  }, [myId, userId]);
+  }, [myId, userId, online]);
 
   const markViewed = useCallback(
     async (statusId: string) => {
       if (!myId) return;
+      if (!isOnline()) return;
       try {
         await supabase
           .from('status_views')
@@ -494,6 +538,7 @@ export default function StatusViewerScreen() {
   const checkLiked = useCallback(
     async (statusId: string) => {
       if (!myId) return;
+      if (!isOnline()) return;
       try {
         const { data } = await supabase
           .from('status_likes')
@@ -511,6 +556,10 @@ export default function StatusViewerScreen() {
 
   async function toggleLike() {
     if (!myId || likeLoading) return;
+    if (!isOnline()) {
+      hapticError();
+      return;
+    }
     const current = statuses[index];
     if (!current) return;
 
@@ -541,6 +590,10 @@ export default function StatusViewerScreen() {
 
   async function toggleFollow() {
     if (!myId || followLoading || myId === userId) return;
+    if (!isOnline()) {
+      hapticError();
+      return;
+    }
     setFollowLoading(true);
     const was = isFollowing;
     setIsFollowing(!was);
@@ -582,6 +635,10 @@ export default function StatusViewerScreen() {
 
   function handleConnectTap() {
     if (!myId || myId === userId) return;
+    if (!isOnline()) {
+      hapticError();
+      return;
+    }
     hapticLight();
     if (connectionStatus === 'pending') setConnectPopup('pending');
     else if (connectionStatus === 'declined') setConnectPopup('declined');
@@ -590,6 +647,10 @@ export default function StatusViewerScreen() {
 
   async function sendConnectionRequest() {
     if (!myId || myId === userId || sendingRequest) return;
+    if (!isOnline()) {
+      hapticError();
+      return;
+    }
     setSendingRequest(true);
     try {
       const { data: existing } = await supabase
@@ -695,6 +756,8 @@ export default function StatusViewerScreen() {
         setViewersCount(cached.count ?? cached.viewers?.length ?? 0);
       }
 
+      if (!isOnline()) return;
+
       try {
         const { count } = await supabase
           .from('status_views')
@@ -717,6 +780,7 @@ export default function StatusViewerScreen() {
     const current = statuses[index];
     if (!current || !myId) return;
     if (current.user_id !== myId) return;
+    if (!online) return;
 
     const statusId = current.id;
 
@@ -805,7 +869,7 @@ export default function StatusViewerScreen() {
         supabase.removeChannel(channel);
       } catch {}
     };
-  }, [index, statuses, myId]);
+  }, [index, statuses, myId, online]);
 
   useEffect(() => {
     const current = statuses[index];
@@ -826,6 +890,10 @@ export default function StatusViewerScreen() {
   }, [viewers, showViewers, viewersLoading, index, statuses, myId]);
 
   async function fetchViewers(statusId: string, silent: boolean) {
+    if (!isOnline()) {
+      if (!silent) setViewersLoading(false);
+      return;
+    }
     try {
       const [viewsRes, likesRes] = await Promise.all([
         supabase.from('status_views').select('*').eq('status_id', statusId),
@@ -1016,6 +1084,12 @@ export default function StatusViewerScreen() {
       )}
 
       <View style={[styles.headerBlock, { paddingTop: insets.top + 6 }]}>
+        {!online && (
+          <View style={styles.offlineBanner}>
+            <Ionicons name="cloud-offline-outline" size={12} color="#FFFFFF" />
+            <Text style={styles.offlineBannerText}>Offline</Text>
+          </View>
+        )}
         <View style={styles.progressRow}>
           {statuses.map((s, i) => (
             <View key={s.id} style={styles.progressSegment}>
@@ -1040,7 +1114,6 @@ export default function StatusViewerScreen() {
             size={38}
           />
           <View style={styles.headerInfo}>
-            {/* Row 1: Name + verified + time */}
             <View style={styles.headerNameRow}>
               <Text style={styles.headerName} numberOfLines={1}>
                 {profile?.display_name ?? 'Unknown'}
@@ -1051,7 +1124,6 @@ export default function StatusViewerScreen() {
               </Text>
             </View>
 
-            {/* ✅ Row 2: Music marquee (Instagram style) */}
             {hasMusic && (
               <View style={styles.musicHeaderRow}>
                 <Ionicons
@@ -1069,6 +1141,7 @@ export default function StatusViewerScreen() {
             <TouchableOpacity
               style={styles.headerIconBtn}
               onPress={async () => {
+                if (!isOnline()) return;
                 try {
                   await supabase
                     .from('statuses')
@@ -1450,9 +1523,6 @@ export default function StatusViewerScreen() {
   );
 }
 
-// ============================================================
-// Skeleton loader
-// ============================================================
 function ViewerSkeleton() {
   const opacity = useRef(new Animated.Value(0.35)).current;
 
@@ -1519,6 +1589,19 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 4,
+  },
+  offlineBannerText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 11,
+    fontFamily: FONTS.bodyMedium,
+  },
+
   headerBlock: {
     backgroundColor: '#0A0C12',
     paddingBottom: SPACING.sm,
@@ -1550,7 +1633,6 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
 
-  // ✅ Music in header (Instagram style)
   musicHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
