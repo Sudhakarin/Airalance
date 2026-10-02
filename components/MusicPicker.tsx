@@ -1,7 +1,7 @@
 // components/MusicPicker.tsx
-// Instagram-style music picker — bottom sheet + blur backdrop + trim
+// Instagram-style music picker — safe version (fixes instant crash)
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,8 +13,6 @@ import {
   ActivityIndicator,
   Pressable,
   PanResponder,
-  Animated,
-  Easing,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -26,9 +24,6 @@ import { useAudioPlayer } from 'expo-audio';
 import { COLORS, FONTS, GRADIENTS } from '../constants/theme';
 import { hapticLight, hapticSuccess } from '../lib/haptics';
 import { searchMusic, MusicTrack } from '../lib/music';
-
-const SHEET_SEARCH_RATIO = 0.9;
-const SHEET_TRIM_RATIO = 0.58;
 
 type Props = {
   visible: boolean;
@@ -42,160 +37,80 @@ type Props = {
 
 export default function MusicPicker({ visible, onClose, onSelect }: Props) {
   const insets = useSafeAreaInsets();
-  const { height: screenHeight } = useWindowDimensions();
-
-  const [mounted, setMounted] = useState(visible);
   const [stage, setStage] = useState<'search' | 'trim'>('search');
   const [selectedTrack, setSelectedTrack] = useState<MusicTrack | null>(null);
 
-  const sheetY = useRef(new Animated.Value(screenHeight)).current;
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const sheetHeight = useRef(
-    new Animated.Value(screenHeight * SHEET_SEARCH_RATIO)
-  ).current;
-
-  // Open
   useEffect(() => {
     if (visible) {
-      setMounted(true);
       setStage('search');
       setSelectedTrack(null);
-      sheetY.setValue(screenHeight);
-      backdropOpacity.setValue(0);
-      sheetHeight.setValue(screenHeight * SHEET_SEARCH_RATIO);
-      requestAnimationFrame(() => {
-        Animated.parallel([
-          Animated.timing(sheetY, {
-            toValue: 0,
-            duration: 340,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          Animated.timing(backdropOpacity, {
-            toValue: 1,
-            duration: 260,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
-
-  // Resize sheet when stage changes
-  useEffect(() => {
-    if (!mounted) return;
-    const targetH =
-      screenHeight * (stage === 'trim' ? SHEET_TRIM_RATIO : SHEET_SEARCH_RATIO);
-    Animated.timing(sheetHeight, {
-      toValue: targetH,
-      duration: 300,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [stage, mounted, screenHeight, sheetHeight]);
-
-  const handleClose = useCallback(() => {
-    Animated.parallel([
-      Animated.timing(sheetY, {
-        toValue: screenHeight,
-        duration: 280,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: 240,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setMounted(false);
-      onClose();
-    });
-  }, [screenHeight, onClose, sheetY, backdropOpacity]);
-
-  if (!mounted) return null;
 
   return (
     <Modal
-      visible
+      visible={visible}
       transparent
-      animationType="none"
-      onRequestClose={handleClose}
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
     >
-      {/* Blur backdrop */}
-      <Animated.View
-        style={[StyleSheet.absoluteFill, { opacity: backdropOpacity }]}
-        pointerEvents="none"
-      >
+      <View style={styles.backdropWrap}>
         <BlurView
-          intensity={45}
+          intensity={40}
           tint="dark"
           experimentalBlurMethod="dimezisBlurView"
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.backdropTint} />
-      </Animated.View>
 
-      {/* Tap outside to close */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={handleClose} />
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
-      {/* Bottom sheet */}
-      <Animated.View
-        style={[
-          styles.sheet,
-          {
-            height: sheetHeight,
-            transform: [{ translateY: sheetY }],
-          },
-        ]}
-      >
-        <View style={styles.handle} />
-
-        {stage === 'search' ? (
-          <SearchStage
-            bottomPad={insets.bottom + 8}
-            onClose={handleClose}
-            onPick={(t) => {
-              setSelectedTrack(t);
-              setStage('trim');
-            }}
-          />
-        ) : selectedTrack ? (
-          <TrimStage
-            bottomPad={insets.bottom + 8}
-            track={selectedTrack}
-            onBack={() => setStage('search')}
-            onConfirm={(start, dur) => {
-              hapticSuccess();
-              onSelect(selectedTrack, start, dur);
-              handleClose();
-            }}
-          />
-        ) : null}
-      </Animated.View>
+        <View style={[styles.sheet, { paddingBottom: insets.bottom + 8 }]}>
+          <View style={styles.handle} />
+          {stage === 'search' ? (
+            <SearchStage
+              onClose={onClose}
+              onPick={(t) => {
+                setSelectedTrack(t);
+                setStage('trim');
+              }}
+            />
+          ) : selectedTrack ? (
+            <TrimStage
+              track={selectedTrack}
+              onBack={() => setStage('search')}
+              onConfirm={(start, dur) => {
+                hapticSuccess();
+                onSelect(selectedTrack, start, dur);
+                onClose();
+              }}
+            />
+          ) : null}
+        </View>
+      </View>
     </Modal>
   );
 }
 
 // ============================================================
-// Search Stage — NO KeyboardAvoidingView
+// Search Stage
 // ============================================================
 function SearchStage({
   onClose,
   onPick,
-  bottomPad,
 }: {
   onClose: () => void;
   onPick: (t: MusicTrack) => void;
-  bottomPad: number;
 }) {
   const [query, setQuery] = useState('');
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [loading, setLoading] = useState(false);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const preview = useAudioPlayer();
+
+  // ✅ SAFE: pass null explicitly (empty useAudioPlayer() crashes on some Android)
+  const preview = useAudioPlayer(null);
 
   useEffect(() => {
     return () => {
@@ -214,9 +129,15 @@ function SearchStage({
     }
     setLoading(true);
     debounceRef.current = setTimeout(async () => {
-      const list = await searchMusic(query);
-      setTracks(list);
-      setLoading(false);
+      try {
+        const list = await searchMusic(query);
+        setTracks(list);
+      } catch (err) {
+        console.warn('search error', err);
+        setTracks([]);
+      } finally {
+        setLoading(false);
+      }
     }, 400);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -224,7 +145,9 @@ function SearchStage({
   }, [query]);
 
   function togglePreview(track: MusicTrack) {
-    hapticLight();
+    try {
+      hapticLight();
+    } catch {}
     if (playingId === track.id) {
       try {
         preview.pause();
@@ -238,14 +161,13 @@ function SearchStage({
       preview.play();
       setPlayingId(track.id);
     } catch (err) {
-      console.warn('preview err', err);
+      console.warn('preview play err', err);
     }
   }
 
   function handlePick(track: MusicTrack) {
     try {
       preview.pause();
-      preview.replace('');
     } catch {}
     setPlayingId(null);
     onPick(track);
@@ -270,21 +192,15 @@ function SearchStage({
             onChangeText={setQuery}
             placeholder="Search songs, artists…"
             placeholderTextColor="rgba(255,255,255,0.35)"
-            autoFocus={false}
             autoCorrect={false}
             returnKeyType="search"
-            blurOnSubmit={false}
           />
           {query.length > 0 && (
             <TouchableOpacity
               onPress={() => setQuery('')}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons
-                name="close-circle"
-                size={16}
-                color={COLORS.mist}
-              />
+              <Ionicons name="close-circle" size={16} color={COLORS.mist} />
             </TouchableOpacity>
           )}
         </View>
@@ -298,23 +214,15 @@ function SearchStage({
 
       {!loading && query.length > 0 && tracks.length === 0 && (
         <View style={styles.centerBox}>
-          <Ionicons
-            name="musical-notes-outline"
-            size={36}
-            color={COLORS.mist}
-          />
-          <Text style={styles.emptyText}>
-            No results. Try another name.
-          </Text>
+          <Ionicons name="musical-notes-outline" size={36} color={COLORS.mist} />
+          <Text style={styles.emptyText}>No results. Try another name.</Text>
         </View>
       )}
 
       {!loading && query.length === 0 && (
         <View style={styles.centerBox}>
           <Ionicons name="search" size={36} color={COLORS.mist} />
-          <Text style={styles.emptyText}>
-            Search for a song to add
-          </Text>
+          <Text style={styles.emptyText}>Search for a song to add</Text>
         </View>
       )}
 
@@ -322,10 +230,7 @@ function SearchStage({
         <FlatList
           data={tracks}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: bottomPad + 8 },
-          ]}
+          contentContainerStyle={styles.listContent}
           keyboardShouldPersistTaps="handled"
           initialNumToRender={10}
           maxToRenderPerBatch={8}
@@ -391,18 +296,16 @@ function SearchStage({
 }
 
 // ============================================================
-// Trim Stage — Instagram-style
+// Trim Stage
 // ============================================================
 function TrimStage({
   track,
   onBack,
   onConfirm,
-  bottomPad,
 }: {
   track: MusicTrack;
   onBack: () => void;
   onConfirm: (startSec: number, durationSec: number) => void;
-  bottomPad: number;
 }) {
   const [clipLen, setClipLen] = useState<15 | 30>(15);
   const [start, setStart] = useState(0);
@@ -410,8 +313,8 @@ function TrimStage({
   const [barWidth, setBarWidth] = useState(0);
   const [audioDuration, setAudioDuration] = useState(30);
 
-  // ✅ Empty init — replace() in effect below
-  const player = useAudioPlayer();
+  // ✅ SAFE: useAudioPlayer(null)
+  const player = useAudioPlayer(null);
 
   const startRef = useRef(start);
   const clipRef = useRef<number>(clipLen);
@@ -425,7 +328,7 @@ function TrimStage({
   barWidthRef.current = barWidth;
   audioDurRef.current = audioDuration;
 
-  // ✅ Load track in effect with proper guards
+  // Load track safely
   useEffect(() => {
     let cancelled = false;
     try {
@@ -471,7 +374,9 @@ function TrimStage({
   }, [isPlaying, player]);
 
   function togglePlay() {
-    hapticLight();
+    try {
+      hapticLight();
+    } catch {}
     if (isPlaying) {
       try {
         player.pause();
@@ -501,6 +406,9 @@ function TrimStage({
     }
   }
 
+  const seekToXRef = useRef(seekToX);
+  seekToXRef.current = seekToX;
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -510,20 +418,16 @@ function TrimStage({
     })
   ).current;
 
-  const seekToXRef = useRef(seekToX);
-  seekToXRef.current = seekToX;
-
   useEffect(() => {
     setStart((s) => Math.min(s, Math.max(0, audioDuration - clipLen)));
   }, [clipLen, audioDuration]);
 
   const windowPct =
     audioDuration > 0 ? Math.min(100, (clipLen / audioDuration) * 100) : 0;
-  const leftPct =
-    audioDuration > 0 ? (start / audioDuration) * 100 : 0;
+  const leftPct = audioDuration > 0 ? (start / audioDuration) * 100 : 0;
 
   return (
-    <View style={[styles.trimWrap, { paddingBottom: bottomPad }]}>
+    <View style={styles.trimWrap}>
       <View style={styles.trimHeader}>
         <TouchableOpacity
           onPress={onBack}
@@ -601,13 +505,12 @@ function TrimStage({
             <TouchableOpacity
               key={len}
               onPress={() => {
-                hapticLight();
+                try {
+                  hapticLight();
+                } catch {}
                 setClipLen(len as 15 | 30);
               }}
-              style={[
-                styles.clipBtn,
-                clipLen === len && styles.clipBtnActive,
-              ]}
+              style={[styles.clipBtn, clipLen === len && styles.clipBtnActive]}
               activeOpacity={0.85}
             >
               <Text
@@ -637,20 +540,23 @@ function formatSec(s: number) {
 // STYLES
 // ============================================================
 const styles = StyleSheet.create({
+  backdropWrap: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
   backdropTint: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.25)',
   },
 
   sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+    maxHeight: '90%',
+    minHeight: 320,
     backgroundColor: '#0F1119',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
-    overflow: 'hidden',
+    paddingTop: 10,
+    paddingHorizontal: 8,
     borderTopWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
   },
@@ -660,7 +566,6 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: 'rgba(255,255,255,0.25)',
     alignSelf: 'center',
-    marginTop: 10,
     marginBottom: 6,
   },
 
@@ -668,7 +573,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 14,
+    paddingHorizontal: 6,
     paddingTop: 6,
     paddingBottom: 12,
   },
@@ -702,6 +607,7 @@ const styles = StyleSheet.create({
 
   centerBox: {
     flex: 1,
+    minHeight: 220,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 30,
@@ -715,8 +621,9 @@ const styles = StyleSheet.create({
   },
 
   listContent: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 4,
     paddingTop: 4,
+    paddingBottom: 12,
   },
   row: {
     flexDirection: 'row',
@@ -762,12 +669,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  trimWrap: { flex: 1 },
+  trimWrap: { flex: 1, minHeight: 340 },
   trimHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
+    paddingHorizontal: 6,
     paddingTop: 4,
     paddingBottom: 12,
   },
@@ -791,7 +698,7 @@ const styles = StyleSheet.create({
   trimBody: {
     flex: 1,
     alignItems: 'center',
-    paddingHorizontal: 22,
+    paddingHorizontal: 14,
   },
   trimArt: {
     width: 100,
@@ -874,6 +781,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginTop: 22,
+    marginBottom: 8,
   },
   clipBtn: {
     paddingHorizontal: 24,
