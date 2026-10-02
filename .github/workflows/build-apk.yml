@@ -30,17 +30,21 @@ jobs:
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
           echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
-          echo "SDK location: $ANDROID_HOME"
-          ls $ANDROID_HOME
+
+      - name: Create .env file
+        run: |
+          cat > .env << ENVEOF
+          EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          ENVEOF
+          echo "=== .env created ==="
+          cat .env
 
       - name: Install dependencies
         run: npm install
 
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
-        env:
-          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
-          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
 
       - name: Build APK
         run: |
