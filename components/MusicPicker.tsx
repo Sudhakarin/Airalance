@@ -1,12 +1,11 @@
 // components/MusicPicker.tsx
-// Instagram-style music picker — fixed 88% height sheet
+// Instagram-style music picker — absolute overlay (no Modal, no keyboard jump)
 
 import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  Modal,
   TextInput,
   TouchableOpacity,
   FlatList,
@@ -52,57 +51,54 @@ export default function MusicPicker({ visible, onClose, onSelect }: Props) {
     }
   }, [visible]);
 
+  if (!visible) return null;
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-      statusBarTranslucent
-    >
-      <View style={styles.backdropWrap}>
-        <BlurView
-          intensity={40}
-          tint="dark"
-          experimentalBlurMethod="dimezisBlurView"
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={styles.backdropTint} />
+    <View style={StyleSheet.absoluteFill} pointerEvents="auto">
+      {/* Blur backdrop (blurs editor behind) */}
+      <BlurView
+        intensity={40}
+        tint="dark"
+        experimentalBlurMethod="dimezisBlurView"
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.backdropTint} />
 
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      {/* Tap outside to close */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
-        <View
-          style={[
-            styles.sheet,
-            {
-              height: sheetHeight,
-              paddingBottom: insets.bottom + 8,
-            },
-          ]}
-        >
-          <View style={styles.handle} />
-          {stage === 'search' ? (
-            <SearchStage
-              onClose={onClose}
-              onPick={(t) => {
-                setSelectedTrack(t);
-                setStage('trim');
-              }}
-            />
-          ) : selectedTrack ? (
-            <TrimStage
-              track={selectedTrack}
-              onBack={() => setStage('search')}
-              onConfirm={(start, dur) => {
-                hapticSuccess();
-                onSelect(selectedTrack, start, dur);
-                onClose();
-              }}
-            />
-          ) : null}
-        </View>
+      {/* Sheet — stays fixed at bottom, keyboard overlays on top */}
+      <View
+        style={[
+          styles.sheet,
+          {
+            height: sheetHeight,
+            paddingBottom: insets.bottom + 8,
+          },
+        ]}
+      >
+        <View style={styles.handle} />
+        {stage === 'search' ? (
+          <SearchStage
+            onClose={onClose}
+            onPick={(t) => {
+              setSelectedTrack(t);
+              setStage('trim');
+            }}
+          />
+        ) : selectedTrack ? (
+          <TrimStage
+            track={selectedTrack}
+            onBack={() => setStage('search')}
+            onConfirm={(start, dur) => {
+              hapticSuccess();
+              onSelect(selectedTrack, start, dur);
+              onClose();
+            }}
+          />
+        ) : null}
       </View>
-    </Modal>
+    </View>
   );
 }
 
@@ -548,16 +544,16 @@ function formatSec(s: number) {
 // STYLES
 // ============================================================
 const styles = StyleSheet.create({
-  backdropWrap: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
   backdropTint: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.3)',
   },
 
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: '#0F1119',
     borderTopLeftRadius: 26,
     borderTopRightRadius: 26,
