@@ -49,6 +49,7 @@ type Props = {
   onLongPress?: (msg: Message) => void;
   onDoubleTap?: (msg: Message) => void;
   onSwipeReply?: (msg: Message) => void;
+  onImagePress?: (msg: Message) => void;
   replyMessage?: Message | null;
   reactions?: Reaction[];
   animate?: boolean;
@@ -256,6 +257,7 @@ function MessageBubbleBase({
   onLongPress,
   onDoubleTap,
   onSwipeReply,
+  onImagePress,
   replyMessage,
   reactions,
   animate = false,
@@ -384,24 +386,53 @@ function MessageBubbleBase({
   }, [isDeleted, onSwipeReply, message]);
 
   const lastTapRef = useRef<number>(0);
+  const imageTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearImageTapTimer = useCallback(() => {
+    if (imageTapTimerRef.current) {
+      clearTimeout(imageTapTimerRef.current);
+      imageTapTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearImageTapTimer, [clearImageTapTimer]);
 
   const handlePress = useCallback(() => {
     if (isDeleted) return;
     const now = Date.now();
     if (now - lastTapRef.current < DOUBLE_TAP_MS) {
+      // double tap → heart reaction (cancel the pending image open)
       lastTapRef.current = 0;
+      clearImageTapTimer();
       hapticMedium();
       onDoubleTap?.(message);
     } else {
       lastTapRef.current = now;
+      // single tap on a photo → open full-screen viewer (after double-tap window)
+      if (isImage && onImagePress) {
+        clearImageTapTimer();
+        imageTapTimerRef.current = setTimeout(() => {
+          imageTapTimerRef.current = null;
+          lastTapRef.current = 0;
+          onImagePress(message);
+        }, DOUBLE_TAP_MS);
+      }
     }
-  }, [isDeleted, onDoubleTap, message]);
+  }, [
+    isDeleted,
+    isImage,
+    onDoubleTap,
+    onImagePress,
+    message,
+    clearImageTapTimer,
+  ]);
 
   const handleLongPress = useCallback(() => {
     lastTapRef.current = 0;
+    clearImageTapTimer();
     hapticMedium();
     onLongPress?.(message);
-  }, [onLongPress, message]);
+  }, [onLongPress, message, clearImageTapTimer]);
 
   const groupedReactions = useMemo(() => {
     if (!reactions || reactions.length === 0) return [];
