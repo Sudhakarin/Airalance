@@ -1,8 +1,11 @@
 // components/StatusRing.tsx
 // Instagram-style gradient ring around avatars with status
 // ✅ Constant size regardless of hasStatus (no layout shift)
-// ✅ FIX: ring is drawn with SVG (full gradient disk) and covered by the inner circle,
-//    so Android no longer breaks the ring into arcs / shows a square box.
+// ✅ Ring is drawn with SVG (full gradient disk) and covered by the inner circle.
+// ✅ FIX: the SVG no longer uses width/height="100%". Those percentages were resolved
+//    against the wrap's padded inner box, so the disk came out smaller and stuck to the
+//    top-left → only a crescent was visible. Now the SVG simply fills the wrap
+//    (absoluteFill), so the disk is exactly avatar + gap + ring and perfectly centered.
 
 import { View, StyleSheet } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Circle } from 'react-native-svg';
@@ -34,9 +37,8 @@ export default function StatusRing({
       {hasStatus && (
         <Svg
           style={StyleSheet.absoluteFill}
-          width="100%"
-          height="100%"
           viewBox="0 0 100 100"
+          pointerEvents="none"
         >
           <Defs>
             <LinearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
