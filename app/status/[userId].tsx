@@ -1185,11 +1185,27 @@ export default function StatusViewerScreen() {
             onComplete={() => advance(1)}
           />
         ) : (
-          <Image
-            source={{ uri: current.media_url! }}
-            style={styles.mediaFull}
-            resizeMode="cover"
-          />
+          <>
+            {/* blurred fill behind, so non-full-screen photos look clean */}
+            <Image
+              source={{ uri: current.media_url! }}
+              style={styles.mediaFull}
+              resizeMode="cover"
+              blurRadius={40}
+            />
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                { backgroundColor: 'rgba(0,0,0,0.35)' },
+              ]}
+            />
+            {/* the photo itself — fitted fully, never zoomed/cropped */}
+            <Image
+              source={{ uri: current.media_url! }}
+              style={styles.mediaFull}
+              resizeMode="contain"
+            />
+          </>
         )}
 
         <Pressable
