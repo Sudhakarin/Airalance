@@ -116,7 +116,6 @@ function DeliveryTicks({ message }: { message: Message }) {
   const isDelivered = !!message.delivered_at || isRead;
 
   if (isRead) {
-    // ✓✓ blue — read
     return (
       <Ionicons
         name="checkmark-done"
@@ -128,7 +127,6 @@ function DeliveryTicks({ message }: { message: Message }) {
   }
 
   if (isDelivered) {
-    // ✓✓ grey — delivered
     return (
       <Ionicons
         name="checkmark-done"
@@ -139,7 +137,6 @@ function DeliveryTicks({ message }: { message: Message }) {
     );
   }
 
-  // ✓ grey — sent only
   return (
     <Ionicons
       name="checkmark"
@@ -615,9 +612,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
 
+  // ✅ FIX: swipe arrow properly vertical-centered
   swipeLeftAction: {
-    justifyContent: 'center',
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-start',
     paddingLeft: 16,
     paddingRight: 8,
   },
@@ -772,16 +772,19 @@ const styles = StyleSheet.create({
   voicePlayBtnMine: { backgroundColor: 'rgba(255,255,255,0.22)' },
   voicePlayBtnOther: { backgroundColor: 'rgba(124,92,255,0.15)' },
 
+  // ✅ FIX: waveform bars shrink to fit, no overlap with duration
   waveWrap: {
     flex: 1,
-    minWidth: 120,
+    minWidth: 100,
     height: 24,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
+    overflow: 'hidden',
   },
   waveBar: {
-    width: 2.5,
+    flex: 1,
+    minWidth: 1,
     borderRadius: 1.5,
   },
 
