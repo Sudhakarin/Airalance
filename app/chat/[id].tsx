@@ -52,6 +52,8 @@ import {
   dbUpsertMessage,
   dbDeleteMessage,
   dbGetPendingMessages,
+  dbGetConversation,
+  dbUpsertConversation,
   getDB,
   DBMessage,
 } from '../../lib/db';
@@ -373,6 +375,24 @@ export default function ChatScreen() {
       setStoredPinHash(pinHash);
       setMyId(uid);
 
+      // ✅ FIX: Load conversation metadata from SQLite (works OFFLINE)
+      try {
+        const cachedConvo = await dbGetConversation(convoId);
+        if (cachedConvo?.other_user_id && mounted) {
+          setOther({
+            id: cachedConvo.other_user_id,
+            username: cachedConvo.other_username ?? '',
+            display_name: cachedConvo.other_display_name ?? '',
+            avatar_color: cachedConvo.other_avatar_color ?? COLORS.violet,
+            avatar_url: cachedConvo.other_avatar_url,
+            verified: cachedConvo.other_verified === 1,
+            last_seen: null,
+          });
+        }
+      } catch (err) {
+        console.warn('[chat] convo SQLite read error:', err);
+      }
+
       // If offline → skip network, just stop loading (SQLite cache already shown)
       if (!isOnline()) {
         setLockChecked(true);
@@ -436,8 +456,24 @@ export default function ChatScreen() {
         }
 
         if (profileRes.data?.display_name) setMyName(profileRes.data.display_name);
-        if (otherRes.data?.[0])
-          setOther((otherRes.data[0] as any).profiles as OtherProfile);
+        if (otherRes.data?.[0]) {
+          const p = (otherRes.data[0] as any).profiles as OtherProfile;
+          setOther(p);
+          // ✅ FIX: Persist to SQLite for OFFLINE use next time
+          try {
+            await dbUpsertConversation({
+              id: convoId,
+              other_user_id: p.id,
+              other_username: p.username,
+              other_display_name: p.display_name,
+              other_avatar_color: p.avatar_color,
+              other_avatar_url: p.avatar_url,
+              other_verified: p.verified ? 1 : 0,
+            });
+          } catch (err) {
+            console.warn('[chat] convo SQLite write error:', err);
+          }
+        }
 
         const msgs = msgRes.data;
         if (msgs) {
@@ -545,7 +581,11 @@ export default function ChatScreen() {
           }
         } catch (err) {
           console.warn('[chat] retry pending failed:', err);
-          await patchMessageInDb(p.id, { local_status: 'failed' });
+          // ✅ FIX: keep as pending if connection lost, else mark failed
+          const stillOnline = isOnline();
+          await patchMessageInDb(p.id, {
+            local_status: stillOnline ? 'failed' : 'pending',
+          });
         }
       }
     } catch (err) {
@@ -1213,6 +1253,16 @@ export default function ChatScreen() {
       console.warn('[chat] SQLite pending save failed:', err);
     }
 
+    // ✅ FIX: If OFFLINE, keep message queued (don't attempt network)
+    if (!isOnline()) {
+      hapticLight();
+      setSending(false);
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      });
+      return;
+    }
+
     try {
       const { data: inserted, error } = await supabase
         .from('messages')
@@ -1255,24 +1305,32 @@ export default function ChatScreen() {
     } catch (err) {
       console.warn('Send failed:', err);
 
+      // ✅ FIX: Distinguish network loss vs real failure
+      const stillOnline = isOnline();
+      const newStatus: 'pending' | 'failed' = stillOnline ? 'failed' : 'pending';
+
       try {
-        await patchMessageInDb(tempId, { local_status: 'failed' });
+        await patchMessageInDb(tempId, { local_status: newStatus });
       } catch {}
 
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === tempId ? { ...m, local_status: 'failed' } : m
+          m.id === tempId ? { ...m, local_status: newStatus } : m
         )
       );
 
-      setInput(content);
-      setReplyingTo(replyTarget);
-      hapticError();
-      if (isOnline()) {
+      if (stillOnline) {
+        // Real failure while online → restore input + show alert
+        setInput(content);
+        setReplyingTo(replyTarget);
+        hapticError();
         Alert.alert(
           'Failed to send',
           'Message saved. Will retry automatically.'
         );
+      } else {
+        // Lost connection mid-send → keep queued silently, auto-retry on reconnect
+        hapticLight();
       }
     } finally {
       setSending(false);
