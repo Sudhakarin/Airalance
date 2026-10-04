@@ -1941,34 +1941,36 @@ export default function ChatScreen() {
               </TouchableOpacity>
             </>
           ) : (
-            <View style={styles.composerPill}>
-              <TouchableOpacity
-                style={styles.composerIconBtn}
-                onPress={pickImage}
-                disabled={uploading}
-                activeOpacity={0.7}
-              >
-                {uploading ? (
-                  <ActivityIndicator size="small" color={COLORS.mist} />
-                ) : (
-                  <Ionicons name="image-outline" size={24} color={COLORS.mist} />
-                )}
-              </TouchableOpacity>
+            <>
+              <View style={styles.composerPill}>
+                <TouchableOpacity
+                  style={styles.composerIconBtn}
+                  onPress={pickImage}
+                  disabled={uploading}
+                  activeOpacity={0.7}
+                >
+                  {uploading ? (
+                    <ActivityIndicator size="small" color={COLORS.mist} />
+                  ) : (
+                    <Ionicons name="image-outline" size={22} color={COLORS.mist} />
+                  )}
+                </TouchableOpacity>
 
-              <TextInput
-                ref={inputRef}
-                style={styles.composerInput}
-                {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
-                value={input}
-                onChangeText={onInputChange}
-                placeholder="Message"
-                placeholderTextColor="rgba(139,143,163,0.7)"
-                multiline
-                maxLength={2000}
-                textAlignVertical="center"
-                underlineColorAndroid="transparent"
-                selectionColor={COLORS.violet}
-              />
+                <TextInput
+                  ref={inputRef}
+                  style={styles.composerInput}
+                  {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
+                  value={input}
+                  onChangeText={onInputChange}
+                  placeholder="Message"
+                  placeholderTextColor="rgba(139,143,163,0.7)"
+                  multiline
+                  maxLength={2000}
+                  textAlignVertical="center"
+                  underlineColorAndroid="transparent"
+                  selectionColor={COLORS.violet}
+                />
+              </View>
 
               {input.trim().length > 0 ? (
                 <TouchableOpacity
@@ -1992,14 +1994,21 @@ export default function ChatScreen() {
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  style={styles.composerIconBtn}
+                  style={styles.composerSendBtn}
                   onPress={startRecording}
-                  activeOpacity={0.7}
+                  activeOpacity={0.85}
                 >
-                  <Ionicons name="mic-outline" size={24} color={COLORS.mist} />
+                  <LinearGradient
+                    colors={GRADIENTS.violet}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.composerSendBtnInner}
+                  >
+                    <Ionicons name="mic" size={22} color="#FFFFFF" />
+                  </LinearGradient>
                 </TouchableOpacity>
               )}
-            </View>
+            </>
           )}
         </View>
       </KeyboardAvoidingView>
@@ -2464,42 +2473,40 @@ const styles = StyleSheet.create({
 
   inputBar: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 12 : 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'flex-end', // buttons stay at the bottom when the input grows (WhatsApp)
+    paddingHorizontal: 8,
+    paddingTop: 6,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 6,
     backgroundColor: '#0B0D14',
   },
   composerPill: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     backgroundColor: '#171A24',
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 28,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-    minHeight: 54,
+    borderRadius: 22,
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+    minHeight: 44,
   },
   composerIconBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   composerInput: {
     flex: 1,
-    minHeight: 46,
+    minHeight: 40,
     maxHeight: 120,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingTop: 10,
     paddingBottom: 10,
-    fontSize: 17,
-    lineHeight: 22,
+    fontSize: 16,
+    lineHeight: 20,
     includeFontPadding: false,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
@@ -2517,6 +2524,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     overflow: 'hidden',
+    marginLeft: 6,
   },
   composerSendBtnInner: {
     width: 44,
@@ -2527,13 +2535,13 @@ const styles = StyleSheet.create({
 
   recordingWrap: {
     flex: 1,
-    height: 54,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 16,
     backgroundColor: 'rgba(239,68,68,0.10)',
-    borderRadius: 28,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: 'rgba(239,68,68,0.25)',
   },
