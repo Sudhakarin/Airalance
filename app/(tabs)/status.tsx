@@ -118,7 +118,7 @@ function StatusSkeleton() {
   return (
     <View style={styles.skeletonWrap}>
       <View style={styles.myStatusRow}>
-        <SkeletonBlock width={58} height={58} borderRadius={29} />
+        <SkeletonBlock width={70} height={70} borderRadius={35} />
         <View style={{ flex: 1, gap: 8 }}>
           <SkeletonBlock width="40%" height={16} borderRadius={6} />
           <SkeletonBlock width="60%" height={12} borderRadius={4} />
@@ -136,7 +136,7 @@ function StatusSkeleton() {
         />
         {[1, 2, 3].map((i) => (
           <View key={i} style={styles.statusRow}>
-            <SkeletonBlock width={58} height={58} borderRadius={29} />
+            <SkeletonBlock width={70} height={70} borderRadius={35} />
             <View style={{ flex: 1, gap: 6 }}>
               <SkeletonBlock width="50%" height={16} borderRadius={6} />
               <SkeletonBlock width="30%" height={12} borderRadius={4} />
@@ -440,14 +440,12 @@ export default function StatusScreen() {
               hasStatus={myStatuses.length > 0}
               viewed={myAllViewed}
             >
-              {myProfile && (
-                <Avatar
-                  name={myProfile.display_name}
-                  color={myProfile.avatar_color}
-                  avatarUrl={myProfile.avatar_url}
-                  size={58}
-                />
-              )}
+              <Avatar
+                name={myProfile?.display_name ?? 'You'}
+                color={myProfile?.avatar_color ?? COLORS.violet}
+                avatarUrl={myProfile?.avatar_url ?? null}
+                size={58}
+              />
             </StatusRing>
             {myStatuses.length === 0 && (
               <TouchableOpacity
