@@ -1,7 +1,7 @@
 // components/MessageBubble.tsx
 // Double-tap heart reaction + reaction pills + haptics + entrance animation + swipe-to-reply + voice waveform + delivery ticks
 
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -56,6 +56,7 @@ type Props = {
 
 const DOUBLE_TAP_MS = 300;
 const WAVE_BAR_COUNT = 32;
+const SWIPE_ICON_SIZE = 36;
 
 // ---------- Pure helpers ----------
 function formatTime(iso: string) {
@@ -343,15 +344,36 @@ function MessageBubbleBase({
 
   const swipeableRef = useRef<any>(null);
 
+  // ✅ FIX: vertical center of the BUBBLE only (not the whole row with time/reactions)
+  const [bubbleCenterY, setBubbleCenterY] = useState<number | null>(null);
+
+  const handleBubbleLayout = useCallback((e: any) => {
+    const { y, height } = e.nativeEvent.layout;
+    const center = y + height / 2;
+    setBubbleCenterY((prev) =>
+      prev !== null && Math.abs(prev - center) < 0.5 ? prev : center
+    );
+  }, []);
+
   const renderLeftActions = useCallback(
     () => (
       <View style={styles.swipeLeftAction}>
-        <View style={styles.swipeReplyIcon}>
+        <View
+          style={[
+            styles.swipeReplyIcon,
+            {
+              marginTop:
+                bubbleCenterY !== null
+                  ? Math.max(0, bubbleCenterY - SWIPE_ICON_SIZE / 2)
+                  : 0,
+            },
+          ]}
+        >
           <Ionicons name="arrow-undo" size={18} color={COLORS.violetLight} />
         </View>
       </View>
     ),
-    []
+    [bubbleCenterY]
   );
 
   const handleSwipeOpen = useCallback(() => {
@@ -406,6 +428,8 @@ function MessageBubbleBase({
         </View>
       )}
 
+      {/* ✅ row spacing now lives on the container so the swipe action area
+          matches the row height exactly (no extra top margin inside it) */}
       <Swipeable
         ref={swipeableRef}
         renderLeftActions={renderLeftActions}
@@ -414,13 +438,15 @@ function MessageBubbleBase({
         overshootLeft={false}
         friction={2}
         enabled={!isDeleted}
-        containerStyle={styles.swipeContainer}
+        containerStyle={[
+          styles.swipeContainer,
+          grouped ? styles.rowGrouped : styles.rowSpaced,
+        ]}
       >
         <Animated.View
           style={[
             styles.row,
             isMine ? styles.rowMine : styles.rowOther,
-            grouped ? styles.rowGrouped : styles.rowSpaced,
             enterStyle,
           ]}
         >
@@ -459,7 +485,10 @@ function MessageBubbleBase({
               </View>
             )}
 
-            <View style={{ position: 'relative' }}>
+            <View
+              style={{ position: 'relative' }}
+              onLayout={handleBubbleLayout}
+            >
               {isDeleted ? (
                 <View
                   style={[
@@ -612,19 +641,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
 
-  // ✅ FIX: swipe arrow properly vertical-centered
+  // ✅ FIX: arrow is top-aligned and pushed down to the bubble's own vertical center
   swipeLeftAction: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'flex-start',
     paddingLeft: 16,
     paddingRight: 8,
   },
   swipeReplyIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: SWIPE_ICON_SIZE,
+    height: SWIPE_ICON_SIZE,
+    borderRadius: SWIPE_ICON_SIZE / 2,
     backgroundColor: 'rgba(124,92,255,0.18)',
     borderWidth: 1,
     borderColor: 'rgba(124,92,255,0.35)',
