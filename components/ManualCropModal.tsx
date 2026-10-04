@@ -10,6 +10,7 @@ import {
   Modal,
   Image as RNImage,
   PanResponder,
+  ScrollView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -33,6 +34,15 @@ type Props = {
 
 const MIN_SIZE = 60;
 
+// Aspect-ratio presets (like WhatsApp)
+const RATIOS: { key: string; label: string; r: number | null }[] = [
+  { key: 'free', label: 'Free', r: null },
+  { key: '1:1', label: 'Square', r: 1 },
+  { key: '4:5', label: '4:5', r: 4 / 5 },
+  { key: '9:16', label: '9:16', r: 9 / 16 },
+  { key: '16:9', label: '16:9', r: 16 / 9 },
+];
+
 export default function ManualCropModal({
   visible,
   imageUri,
@@ -49,6 +59,8 @@ export default function ManualCropModal({
   const displayRef = useRef(displayRect);
   displayRef.current = displayRect;
   const startCropRef = useRef({ x: 0, y: 0, w: 0, h: 0 });
+  const ratioRef = useRef<number | null>(null);
+  const [ratioKey, setRatioKey] = useState('free');
 
   // Load image dimensions
   useEffect(() => {
@@ -77,6 +89,8 @@ export default function ManualCropModal({
     const dy = (containerSize.h - dh) / 2;
     setDisplayRect({ x: dx, y: dy, w: dw, h: dh });
     setCropRect({ x: 0, y: 0, w: dw, h: dh });
+    ratioRef.current = null;
+    setRatioKey('free');
   }, [containerSize, imageSize]);
 
   // Whole-frame drag
@@ -114,6 +128,39 @@ export default function ManualCropModal({
       onPanResponderMove: (_, g) => {
         const s = startCropRef.current;
         const d = displayRef.current;
+
+        // Locked aspect ratio → opposite corner stays fixed
+        const r = ratioRef.current;
+        if (r) {
+          const right = s.x + s.w;
+          const bottom = s.y + s.h;
+          let w: number;
+          let maxW: number;
+          if (corner === 'br') {
+            w = s.w + g.dx;
+            maxW = Math.min(d.w - s.x, (d.h - s.y) * r);
+          } else if (corner === 'tr') {
+            w = s.w + g.dx;
+            maxW = Math.min(d.w - s.x, bottom * r);
+          } else if (corner === 'bl') {
+            w = s.w - g.dx;
+            maxW = Math.min(right, (d.h - s.y) * r);
+          } else {
+            w = s.w - g.dx;
+            maxW = Math.min(right, bottom * r);
+          }
+          const minW = Math.max(MIN_SIZE, MIN_SIZE * r);
+          w = Math.max(minW, Math.min(maxW, w));
+          const h = w / r;
+          setCropRect({
+            x: corner === 'tl' || corner === 'bl' ? right - w : s.x,
+            y: corner === 'tl' || corner === 'tr' ? bottom - h : s.y,
+            w,
+            h,
+          });
+          return;
+        }
+
         let nx = s.x;
         let ny = s.y;
         let nw = s.w;
@@ -167,7 +214,20 @@ export default function ManualCropModal({
   const handleReset = () => {
     hapticLight();
     if (!displayRect.w) return;
+    ratioRef.current = null;
+    setRatioKey('free');
     setCropRect({ x: 0, y: 0, w: displayRect.w, h: displayRect.h });
+  };
+
+  const applyRatio = (key: string, r: number | null) => {
+    hapticLight();
+    setRatioKey(key);
+    ratioRef.current = r;
+    const d = displayRef.current;
+    if (!r || !d.w) return;
+    const w = Math.min(d.w, d.h * r);
+    const h = w / r;
+    setCropRect({ x: (d.w - w) / 2, y: (d.h - h) / 2, w, h });
   };
 
   return (
@@ -353,6 +413,33 @@ export default function ManualCropModal({
 
           {/* Bottom action */}
           <View style={styles.bottom}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.ratioRow}
+              style={styles.ratioScroll}
+            >
+              {RATIOS.map((o) => (
+                <TouchableOpacity
+                  key={o.key}
+                  onPress={() => applyRatio(o.key, o.r)}
+                  activeOpacity={0.75}
+                  style={[
+                    styles.ratioChip,
+                    ratioKey === o.key && styles.ratioChipActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.ratioText,
+                      ratioKey === o.key && styles.ratioTextActive,
+                    ]}
+                  >
+                    {o.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
             <TouchableOpacity
               style={styles.resetBtn}
               onPress={handleReset}
@@ -444,7 +531,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     alignItems: 'center',
+    gap: 12,
   },
+  ratioScroll: { flexGrow: 0 },
+  ratioRow: { gap: 8, paddingHorizontal: 2 },
+  ratioChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  ratioChipActive: {
+    backgroundColor: 'rgba(124,92,255,0.35)',
+    borderColor: 'rgba(124,92,255,0.8)',
+  },
+  ratioText: {
+    fontSize: 13,
+    fontFamily: FONTS.bodySemiBold,
+    color: 'rgba(255,255,255,0.75)',
+  },
+  ratioTextActive: { color: '#FFFFFF' },
   resetBtn: {
     flexDirection: 'row',
     alignItems: 'center',
