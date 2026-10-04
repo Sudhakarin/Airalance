@@ -40,6 +40,8 @@ const INACTIVE = '#8E91A5';
 const PILL_BG = '#14161E';
 const PILL_ACTIVE_BG = 'rgba(124,92,255,0.2)';
 const BAR_H = 56;
+const NAV_OVERLAP = 12; // bigger = thinner black strip below pill (try 0 to 16)
+const MIN_GAP = 10; // minimum gap below pill
 const RAISE = 26;
 
 // ───────────── ICONS (same as before, size now comes from the bar) ─────────────
@@ -200,11 +202,9 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   // ✅ just enough bottom gap for system nav buttons
   const bottomPad =
     Platform.OS === 'android' ? Math.max(insets.bottom, 10) : insets.bottom;
-  // floating pill: compact gap below (demo uses ~12)
-  const pillBottom =
-    Platform.OS === 'android'
-      ? Math.max(insets.bottom, 12)
-      : Math.max(insets.bottom - 12, 12);
+  // floating pill: black strip below it. Part of the system nav-bar area is reused
+  // (NAV_OVERLAP) so the strip is slim; MIN_GAP is the smallest gap we ever keep.
+  const pillBottom = Math.max(insets.bottom - NAV_OVERLAP, MIN_GAP);
 
   if (keyboardVisible) return null; // same as tabBarHideOnKeyboard
 
