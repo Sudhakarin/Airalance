@@ -1,6 +1,7 @@
 // app/(tabs)/_layout.tsx
 // Bottom tabs — custom SVG icons + violet active state + safe-area bottom padding
 // Redesigned bar (same as demo). Switch design with TAB_VARIANT: 'pill' | 'line' | 'raised'
+// ✅ 'pill' bar is now FLAT + full-width (no rounded edges, no side gaps) — same as the black strip below it
 
 import { useEffect, useState } from 'react';
 import { Tabs } from 'expo-router';
@@ -42,7 +43,7 @@ const PILL_ACTIVE_BG = 'rgba(124,92,255,0.2)';
 const BAR_H = 56;
 const NAV_OVERLAP = 16; // bigger = thinner black strip below pill
 const MIN_GAP = 4; // minimum gap below pill
-const PILL_H = 50; // grey pill height (tabs inside stay 42)
+const PILL_H = 50; // grey bar height (tabs inside stay 42)
 const RAISE = 26;
 
 // ───────────── ICONS (same as before, size now comes from the bar) ─────────────
@@ -203,7 +204,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   // ✅ just enough bottom gap for system nav buttons
   const bottomPad =
     Platform.OS === 'android' ? Math.max(insets.bottom, 10) : insets.bottom;
-  // floating pill: black strip below it. Part of the system nav-bar area is reused
+  // flat bar: black strip below it. Part of the system nav-bar area is reused
   // (NAV_OVERLAP) so the strip is slim; MIN_GAP is the smallest gap we ever keep.
   const pillBottom = Math.max(insets.bottom - NAV_OVERLAP, MIN_GAP);
 
@@ -247,10 +248,10 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     };
   });
 
-  // ── 1. FLOATING PILL ──
+  // ── 1. FLAT FULL-WIDTH BAR ──
   if (TAB_VARIANT === 'pill') {
     return (
-      <View style={[styles.pillWrap, { paddingTop: pillBottom, paddingBottom: pillBottom }]}>
+      <View style={[styles.pillWrap, { paddingTop: 0, paddingBottom: pillBottom }]}>
         <View style={styles.pill}>
           {items.map((it) => (
             <Pressable
@@ -429,22 +430,22 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // pill
+  // flat bar (was floating pill)
   pillWrap: {
     backgroundColor: '#000000',
-    paddingHorizontal: 12,
+    paddingHorizontal: 0, // ✅ no side gap — bar touches both screen edges
     paddingTop: 0,
   },
   pill: {
     height: PILL_H,
-    borderRadius: PILL_H / 2,
+    borderRadius: 0, // ✅ flat edges, no rounded corners
     backgroundColor: PILL_BG,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.09)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.09)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    paddingHorizontal: 6,
+    paddingHorizontal: 12,
   },
   pillItem: {
     height: 42,
