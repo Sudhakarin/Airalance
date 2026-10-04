@@ -1,22 +1,25 @@
 // app/(tabs)/chats.tsx
 // Chats list — SQLite-backed (offline-first) + offline auth + network auto-reload
+// Locked chats: hidden above the list, pull down to reveal (WhatsApp style),
+// keep pulling + release to open PIN prompt (react-native-gesture-handler)
 
-import { useEffect, useState, useCallback, useRef, memo } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  RefreshControl,
   Modal,
   Pressable,
   TextInput,
   Alert,
   Platform,
   KeyboardAvoidingView,
+  useWindowDimensions,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -76,6 +79,8 @@ type ChatSetting = {
 };
 
 const ROW_HEIGHT = 78;
+const LOCKED_H = 56; // height of the "Locked chats" header row
+const PULL_OPEN_DISTANCE = 70; // extra pull (px) after row is fully revealed to open PIN prompt
 
 function formatTime(iso: string) {
   if (!iso) return '';
@@ -319,9 +324,9 @@ const ChatRow = memo(
 // ---------- Screen ----------
 export default function ChatsScreen() {
   const router = useRouter();
+  const { height: winH } = useWindowDimensions();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [myId, setMyId] = useState<string | null>(null);
 
   // ✅ Network tracking
@@ -349,6 +354,13 @@ export default function ChatsScreen() {
   const realtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingRef = useRef(false);
   const cacheShownRef = useRef(false);
+
+  // 🔒 Locked-row pull-down refs
+  const listRef = useRef<FlatList<Conversation>>(null);
+  const didHideRef = useRef(false); // list already scrolled to hide locked row
+  const scrollYRef = useRef(0); // current list scroll offset
+  const startYRef = useRef(0); // scroll offset when the pull gesture began
+  const nativeGesture = useMemo(() => Gesture.Native(), []);
 
   // ✅ OFFLINE FIX: use getCurrentUserId() (reads from local session)
   useEffect(() => {
@@ -513,7 +525,6 @@ export default function ChatsScreen() {
     } finally {
       isLoadingRef.current = false;
       setLoading(false);
-      setRefreshing(false);
     }
   }, [myId]);
 
@@ -575,11 +586,31 @@ export default function ChatsScreen() {
 
   const unlockedConversations = conversations.filter((c) => !c.is_locked);
   const lockedConversations = conversations.filter((c) => c.is_locked);
+  const hasLocked = lockedConversations.length > 0;
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadConversations();
-  }, [loadConversations]);
+  // 🔒 Reset "already hidden" flag when there are no locked chats left
+  useEffect(() => {
+    if (!hasLocked) didHideRef.current = false;
+  }, [hasLocked]);
+
+  // 🔒 Scroll list so the locked row is tucked away above the first chat
+  const hideLockedRow = useCallback((animated = true) => {
+    listRef.current?.scrollToOffset({ offset: LOCKED_H, animated });
+  }, []);
+
+  // 🔒 If row is only half visible, snap fully open or fully closed
+  const snapLocked = useCallback(
+    (y: number) => {
+      if (!hasLocked) return;
+      if (y > 0 && y < LOCKED_H) {
+        listRef.current?.scrollToOffset({
+          offset: y < LOCKED_H / 2 ? 0 : LOCKED_H,
+          animated: true,
+        });
+      }
+    },
+    [hasLocked]
+  );
 
   const openChat = useCallback(
     (convoId: string) => {
@@ -756,6 +787,7 @@ export default function ChatsScreen() {
       hapticSuccess();
       setSessionUnlocked(true);
       setPinModalVisible(false);
+      hideLockedRow(); // 🔒 tuck the row away again (like WhatsApp)
       setTimeout(() => setLockedViewOpen(true), 220);
       return;
     }
@@ -772,6 +804,7 @@ export default function ChatsScreen() {
         setPinModalVisible(false);
         setPinVerifyInput('');
         setPinVerifyError('');
+        hideLockedRow(); // 🔒 tuck the row away again (like WhatsApp)
         setTimeout(() => setLockedViewOpen(true), 220);
       } else {
         hapticError();
@@ -839,14 +872,39 @@ export default function ChatsScreen() {
 
   const keyExtractor = useCallback((item: Conversation) => item.id, []);
 
+  // 🔒 header (locked row) height must be part of the offset
   const getItemLayout = useCallback(
     (_: any, index: number) => ({
       length: ROW_HEIGHT,
-      offset: ROW_HEIGHT * index,
+      offset: ROW_HEIGHT * index + (hasLocked ? LOCKED_H : 0),
       index,
     }),
-    []
+    [hasLocked]
   );
+
+  // 🔒 Pull gesture: row fully revealed + keep pulling down + release => PIN prompt
+  const pullGesture = Gesture.Pan()
+    .runOnJS(true)
+    .activeOffsetY([-1000, 15]) // only react to downward drags
+    .failOffsetX([-25, 25]) // ignore horizontal swipes
+    .onBegin(() => {
+      startYRef.current = scrollYRef.current;
+    })
+    .onEnd((e) => {
+      if (!hasLocked) return;
+      // gesture must have started with the locked row hidden or already revealed
+      if (startYRef.current > LOCKED_H + 1) return;
+      // list must now be sitting at the very top (row fully revealed)
+      if (scrollYRef.current > 1) return;
+      // distance pulled beyond what was needed to reveal the row
+      const overPull = e.translationY - startYRef.current;
+      if (overPull > PULL_OPEN_DISTANCE) {
+        hapticMedium();
+        openLockedSection();
+      }
+    });
+
+  const listGesture = Gesture.Simultaneous(pullGesture, nativeGesture);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -871,69 +929,95 @@ export default function ChatsScreen() {
         </View>
       )}
 
-      {!loading && lockedConversations.length > 0 && (
-        <TouchableOpacity
-          style={styles.lockedRow}
-          onPress={openLockedSection}
-          activeOpacity={0.7}
-        >
-          <View style={styles.lockedRowIconWrap}>
-            <Ionicons name="lock-closed-outline" size={24} color="#FFFFFF" />
-          </View>
-          <Text style={styles.lockedRowText}>Locked chats</Text>
-          <Text style={styles.lockedRowCount}>
-            {lockedConversations.length}
-          </Text>
-          <Ionicons name="chevron-forward" size={18} color={COLORS.mist} />
-        </TouchableOpacity>
-      )}
-
       {loading && conversations.length === 0 ? (
         <ChatListSkeleton />
       ) : (
-        <FlatList
-          data={unlockedConversations}
-          keyExtractor={keyExtractor}
-          renderItem={renderItem}
-          getItemLayout={getItemLayout}
-          contentContainerStyle={styles.listContent}
-          initialNumToRender={12}
-          maxToRenderPerBatch={10}
-          windowSize={7}
-          updateCellsBatchingPeriod={50}
-          removeClippedSubviews={true}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={COLORS.violet}
-              colors={[COLORS.violet]}
-            />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <View style={styles.emptyIconWrap}>
-                <Ionicons
-                  name="chatbubbles-outline"
-                  size={44}
-                  color={COLORS.mist}
-                />
+        <GestureDetector gesture={listGesture}>
+          <FlatList
+            ref={listRef}
+            data={unlockedConversations}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
+            getItemLayout={getItemLayout}
+            contentContainerStyle={[
+              styles.listContent,
+              // keep list scrollable even with few chats so the row can be pulled in
+              hasLocked && { minHeight: winH },
+            ]}
+            initialNumToRender={12}
+            maxToRenderPerBatch={10}
+            windowSize={7}
+            updateCellsBatchingPeriod={50}
+            removeClippedSubviews={true}
+            keyboardShouldPersistTaps="handled"
+            scrollEventThrottle={16}
+            onScroll={(e) => {
+              scrollYRef.current = e.nativeEvent.contentOffset.y;
+            }}
+            onScrollEndDrag={(e) => {
+              const v = e.nativeEvent.velocity?.y ?? 0;
+              if (Math.abs(v) < 0.1) snapLocked(e.nativeEvent.contentOffset.y);
+            }}
+            onMomentumScrollEnd={(e) =>
+              snapLocked(e.nativeEvent.contentOffset.y)
+            }
+            onContentSizeChange={() => {
+              // first time the locked row exists: start with it hidden
+              if (hasLocked && !didHideRef.current) {
+                didHideRef.current = true;
+                if (scrollYRef.current < LOCKED_H) hideLockedRow(false);
+              }
+            }}
+            ListHeaderComponent={
+              hasLocked ? (
+                <TouchableOpacity
+                  style={styles.lockedRow}
+                  onPress={openLockedSection}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.lockedRowIconWrap}>
+                    <Ionicons
+                      name="lock-closed-outline"
+                      size={24}
+                      color="#FFFFFF"
+                    />
+                  </View>
+                  <Text style={styles.lockedRowText}>Locked chats</Text>
+                  <Text style={styles.lockedRowCount}>
+                    {lockedConversations.length}
+                  </Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={COLORS.mist}
+                  />
+                </TouchableOpacity>
+              ) : null
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyWrap}>
+                <View style={styles.emptyIconWrap}>
+                  <Ionicons
+                    name="chatbubbles-outline"
+                    size={44}
+                    color={COLORS.mist}
+                  />
+                </View>
+                <Text style={styles.emptyTitle}>No conversations yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Tap Search to find people and start chatting
+                </Text>
+                <TouchableOpacity
+                  style={styles.emptyBtn}
+                  onPress={() => router.push('/(tabs)/search')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.emptyBtnText}>Find people</Text>
+                </TouchableOpacity>
               </View>
-              <Text style={styles.emptyTitle}>No conversations yet</Text>
-              <Text style={styles.emptySubtitle}>
-                Tap Search to find people and start chatting
-              </Text>
-              <TouchableOpacity
-                style={styles.emptyBtn}
-                onPress={() => router.push('/(tabs)/search')}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.emptyBtnText}>Find people</Text>
-              </TouchableOpacity>
-            </View>
-          }
-        />
+            }
+          />
+        </GestureDetector>
       )}
 
       {/* ACTION MENU */}
@@ -1437,11 +1521,11 @@ const styles = StyleSheet.create({
   },
 
   lockedRow: {
+    height: LOCKED_H, // must match LOCKED_H (used for scroll offset math)
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingHorizontal: SPACING.sm * 2,
-    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.05)',
   },
