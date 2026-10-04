@@ -46,6 +46,7 @@ import { supabase } from '../../lib/supabase';
 import { getCurrentUserId } from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
 import Avatar from '../../components/Avatar';
+import AvatarPreviewHost from '../../components/AvatarPreviewHost';
 import MessageBubble from '../../components/MessageBubble';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import TypingDots from '../../components/TypingDots';
@@ -2221,6 +2222,9 @@ export default function ChatScreen() {
           </SafeAreaView>
         </View>
       </Modal>
+
+      {/* ✅ DP hold-to-peek overlay (draws on top of this whole screen) */}
+      <AvatarPreviewHost />
     </SafeAreaView>
   );
 }
