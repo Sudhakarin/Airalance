@@ -1,5 +1,6 @@
 // components/StatusRing.tsx
 // Instagram-style gradient ring around avatars with status
+// ✅ FIX: constant size regardless of hasStatus (no layout shift)
 
 import { View, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,25 +17,27 @@ export default function StatusRing({
   viewed,
   children,
 }: StatusRingProps) {
-  // No status — just return the child
-  if (!hasStatus) {
-    return <>{children}</>;
-  }
-
-  // Viewed vs unviewed gradient
-  const gradient = viewed
-    ? GRADIENTS.statusRingViewed
-    : GRADIENTS.statusRing;
+  // ✅ Always use same wrapper structure → constant size
+  const gradientColors = !hasStatus
+    ? (['rgba(0,0,0,0)', 'rgba(0,0,0,0)'] as const)
+    : ((viewed ? GRADIENTS.statusRingViewed : GRADIENTS.statusRing) as any);
 
   return (
     <View style={styles.wrap}>
       <LinearGradient
-        colors={gradient as any}
+        colors={gradientColors as any}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.gradient}
       >
-        <View style={styles.innerBg}>{children}</View>
+        <View
+          style={[
+            styles.innerBg,
+            !hasStatus && styles.innerBgTransparent,
+          ]}
+        >
+          {children}
+        </View>
       </LinearGradient>
     </View>
   );
@@ -52,5 +55,8 @@ const styles = StyleSheet.create({
     padding: 2.5,
     borderRadius: 999,
     backgroundColor: COLORS.ink900,
+  },
+  innerBgTransparent: {
+    backgroundColor: 'transparent',
   },
 });
