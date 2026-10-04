@@ -167,6 +167,28 @@ export default function CreateStatusScreen() {
 
   const isVideo = asset?.type === 'video';
 
+  // ✅ Fit-to-screen (WhatsApp style): size the editor box to the photo's own aspect
+  const [areaSize, setAreaSize] = useState({ w: 0, h: 0 });
+  const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    if (!asset || asset.type !== 'image') {
+      setImgSize({ w: 0, h: 0 });
+      return;
+    }
+    let cancelled = false;
+    RNImage.getSize(
+      asset.uri,
+      (w, h) => {
+        if (!cancelled) setImgSize({ w, h });
+      },
+      () => {}
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [asset?.uri, asset?.type]);
+
   // ============================================================
   // Handle mode from param
   // ============================================================
@@ -791,6 +813,24 @@ export default function CreateStatusScreen() {
   }
 
   // ---- EDITOR MODE ----
+  const quarterTurn = rotation % 180 !== 0;
+  let boxW = areaSize.w;
+  let boxH = areaSize.h;
+  if (!isVideo && imgSize.w > 0 && areaSize.w > 0 && areaSize.h > 0) {
+    const imgAspect = quarterTurn ? imgSize.h / imgSize.w : imgSize.w / imgSize.h;
+    const areaAspect = areaSize.w / areaSize.h;
+    if (imgAspect > areaAspect) {
+      boxW = areaSize.w;
+      boxH = areaSize.w / imgAspect;
+    } else {
+      boxH = areaSize.h;
+      boxW = areaSize.h * imgAspect;
+    }
+  }
+  const fitted = !isVideo && imgSize.w > 0 && boxW > 0 && boxH > 0;
+  const imgW = quarterTurn ? boxH : boxW;
+  const imgH = quarterTurn ? boxW : boxH;
+
   return (
     <View style={styles.editorSafe}>
       <SafeAreaView style={styles.editorTopSafe} edges={['top']}>
@@ -930,17 +970,46 @@ export default function CreateStatusScreen() {
         )}
       </SafeAreaView>
 
-      <View ref={editorRef} style={styles.captureArea} collapsable={false}>
+      <View
+        style={styles.captureArea}
+        onLayout={(e) =>
+          setAreaSize({
+            w: e.nativeEvent.layout.width,
+            h: e.nativeEvent.layout.height,
+          })
+        }
+      >
+      <View
+        ref={editorRef}
+        collapsable={false}
+        style={[
+          styles.editorBox,
+          fitted
+            ? { width: boxW, height: boxH }
+            : { width: '100%', height: '100%' },
+        ]}
+      >
         <View style={styles.editorMediaWrap}>
           {asset?.type === 'video' ? (
             <VideoPreview uri={asset.uri} />
           ) : (
             <Image
               source={{ uri: asset?.uri }}
-              style={[
-                styles.editorMedia,
-                { transform: [{ rotate: `${rotation}deg` }] },
-              ]}
+              style={
+                fitted
+                  ? {
+                      position: 'absolute',
+                      width: imgW,
+                      height: imgH,
+                      left: (boxW - imgW) / 2,
+                      top: (boxH - imgH) / 2,
+                      transform: [{ rotate: `${rotation}deg` }],
+                    }
+                  : [
+                      styles.editorMedia,
+                      { transform: [{ rotate: `${rotation}deg` }] },
+                    ]
+              }
               contentFit="cover"
               cachePolicy="memory-disk"
             />
@@ -1016,6 +1085,7 @@ export default function CreateStatusScreen() {
             </View>
           </View>
         )}
+      </View>
       </View>
 
       <SafeAreaView style={styles.editorBottomSafe} edges={['bottom']}>
@@ -1470,6 +1540,13 @@ const styles = StyleSheet.create({
 
   captureArea: {
     flex: 1,
+    backgroundColor: '#000',
+    position: 'relative',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editorBox: {
     backgroundColor: '#000',
     position: 'relative',
     overflow: 'hidden',
