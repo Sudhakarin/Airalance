@@ -40,8 +40,9 @@ const INACTIVE = '#8E91A5';
 const PILL_BG = '#14161E';
 const PILL_ACTIVE_BG = 'rgba(124,92,255,0.2)';
 const BAR_H = 56;
-const NAV_OVERLAP = 12; // bigger = thinner black strip below pill (try 0 to 16)
-const MIN_GAP = 10; // minimum gap below pill
+const NAV_OVERLAP = 16; // bigger = thinner black strip below pill
+const MIN_GAP = 4; // minimum gap below pill
+const PILL_H = 50; // grey pill height (tabs inside stay 42)
 const RAISE = 26;
 
 // ───────────── ICONS (same as before, size now comes from the bar) ─────────────
@@ -249,7 +250,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   // ── 1. FLOATING PILL ──
   if (TAB_VARIANT === 'pill') {
     return (
-      <View style={[styles.pillWrap, { paddingBottom: pillBottom }]}>
+      <View style={[styles.pillWrap, { paddingTop: pillBottom, paddingBottom: pillBottom }]}>
         <View style={styles.pill}>
           {items.map((it) => (
             <Pressable
@@ -435,8 +436,8 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   pill: {
-    height: 58,
-    borderRadius: 29,
+    height: PILL_H,
+    borderRadius: PILL_H / 2,
     backgroundColor: PILL_BG,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.09)',
