@@ -1714,6 +1714,8 @@ export default function ChatScreen() {
               color={other?.avatar_color ?? COLORS.violet}
               avatarUrl={other?.avatar_url ?? null}
               size={42}
+              previewOnHold
+              onPress={() => other && router.push(`/profile/${other.id}`)}
             />
             <View style={{ marginLeft: 12, flex: 1 }}>
               <View style={styles.headerNameRow}>
