@@ -19,6 +19,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS } from '../../constants/theme';
 import TabIcon from '../../components/TabIcon';
 import { hapticSelection } from '../../lib/haptics';
+import { supabase } from '../../lib/supabase';
+import { getCurrentUserId } from '../../lib/auth';
+import { subscribeNetwork, isOnline } from '../../lib/network';
+import { dbGetConversations } from '../../lib/db';
 
 if (
   Platform.OS === 'android' &&
@@ -30,11 +34,6 @@ if (
 // ───────────── CONFIG ─────────────
 type TabVariant = 'pill' | 'line' | 'raised';
 const TAB_VARIANT: TabVariant = 'pill';
-
-// Unread badge per tab (route name -> count). Wire "chats" to your unread count.
-const BADGES: Record<string, number> = {
-  chats: 0,
-};
 
 const ACTIVE = COLORS.violetLight;
 const INACTIVE = '#8E91A5';
@@ -85,14 +84,127 @@ function Badge({ count, style }: { count: number; style?: any }) {
   );
 }
 
+// Unread count for the Chats tab (cache first, then network + realtime)
+function useUnreadCount() {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    let mounted = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let channel: any = null;
+    let unsubNet: (() => void) | null = null;
+    let myId: string | null = null;
+
+    const fromCache = async () => {
+      try {
+        const rows = await dbGetConversations();
+        if (!mounted) return;
+        setCount(
+          rows.reduce(
+            (sum, r) => sum + (r.is_muted === 1 ? 0 : r.unread_count ?? 0),
+            0
+          )
+        );
+      } catch {}
+    };
+
+    const fromNetwork = async () => {
+      if (!myId || !isOnline()) return;
+      try {
+        const { data: parts } = await supabase
+          .from('conversation_participants')
+          .select('conversation_id')
+          .eq('user_id', myId);
+        const ids = (parts ?? []).map((p: any) => p.conversation_id);
+        if (ids.length === 0) {
+          if (mounted) setCount(0);
+          return;
+        }
+        const [unreadRes, settingsRes] = await Promise.all([
+          supabase
+            .from('messages')
+            .select('conversation_id')
+            .in('conversation_id', ids)
+            .neq('sender_id', myId)
+            .is('read_at', null),
+          supabase
+            .from('chat_settings')
+            .select('conversation_id, is_muted')
+            .eq('user_id', myId)
+            .in('conversation_id', ids),
+        ]);
+        const muted = new Set(
+          (settingsRes.data ?? [])
+            .filter((s: any) => s.is_muted)
+            .map((s: any) => s.conversation_id)
+        );
+        const total = (unreadRes.data ?? []).filter(
+          (m: any) => !muted.has(m.conversation_id)
+        ).length;
+        if (mounted) setCount(total);
+      } catch (err) {
+        console.warn('[tabs] unread count error:', err);
+      }
+    };
+
+    const schedule = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(fromNetwork, 500);
+    };
+
+    (async () => {
+      await fromCache();
+      myId = await getCurrentUserId();
+      if (!mounted || !myId) return;
+      fromNetwork();
+      channel = supabase
+        .channel('tabs-unread-realtime')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messages' },
+          schedule
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'messages' },
+          schedule
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'chat_settings' },
+          schedule
+        )
+        .subscribe();
+      unsubNet = subscribeNetwork((on: boolean) => {
+        if (on) schedule();
+      });
+    })();
+
+    return () => {
+      mounted = false;
+      if (timer) clearTimeout(timer);
+      if (channel) supabase.removeChannel(channel);
+      if (unsubNet) unsubNet();
+    };
+  }, []);
+
+  return count;
+}
+
 // ───────────── TAB BAR ─────────────
 function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardVisible();
+  const unreadCount = useUnreadCount();
 
   // ✅ just enough bottom gap for system nav buttons
   const bottomPad =
     Platform.OS === 'android' ? Math.max(insets.bottom, 10) : insets.bottom;
+  // floating pill: compact gap below (demo uses ~12)
+  const pillBottom =
+    Platform.OS === 'android'
+      ? Math.max(insets.bottom, 12)
+      : Math.max(insets.bottom - 12, 12);
 
   if (keyboardVisible) return null; // same as tabBarHideOnKeyboard
 
@@ -128,7 +240,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
       focused,
       label,
       icon,
-      badge: BADGES[route.name] ?? 0,
+      badge: route.name === 'chats' ? unreadCount : 0,
       onPress,
       onLongPress,
     };
@@ -137,7 +249,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   // ── 1. FLOATING PILL ──
   if (TAB_VARIANT === 'pill') {
     return (
-      <View style={[styles.pillWrap, { paddingBottom: Math.max(bottomPad, 8) }]}>
+      <View style={[styles.pillWrap, { paddingBottom: pillBottom }]}>
         <View style={styles.pill}>
           {items.map((it) => (
             <Pressable
@@ -320,13 +432,13 @@ const styles = StyleSheet.create({
   pillWrap: {
     backgroundColor: '#000000',
     paddingHorizontal: 12,
-    paddingTop: 6,
+    paddingTop: 0,
   },
   pill: {
     height: 58,
     borderRadius: 29,
     backgroundColor: PILL_BG,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(255,255,255,0.09)',
     flexDirection: 'row',
     alignItems: 'center',
@@ -349,14 +461,14 @@ const styles = StyleSheet.create({
   pillLabel: {
     color: ACTIVE,
     fontSize: 13,
-    fontFamily: FONTS.bodySemiBold,
+    fontFamily: FONTS.bodyMedium,
   },
 
   // line
   lineBar: {
     flexDirection: 'row',
     backgroundColor: '#000000',
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.08)',
   },
   lineItem: {
@@ -387,7 +499,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: '#000000',
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.08)',
   },
   raisedRow: {
