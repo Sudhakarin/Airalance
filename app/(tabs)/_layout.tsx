@@ -1,56 +1,275 @@
 // app/(tabs)/_layout.tsx
 // Bottom tabs — custom SVG icons + violet active state + safe-area bottom padding
+// Redesigned bar (same as demo). Switch design with TAB_VARIANT: 'pill' | 'line' | 'raised'
 
+import { useEffect, useState } from 'react';
 import { Tabs } from 'expo-router';
-import { StyleSheet, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  Platform,
+  Keyboard,
+  LayoutAnimation,
+  UIManager,
+} from 'react-native';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, FONTS } from '../../constants/theme';
 import TabIcon from '../../components/TabIcon';
+import { hapticSelection } from '../../lib/haptics';
 
-const homeIcon = ({ color, focused }: { color: string; focused: boolean }) => (
-  <TabIcon tab="home" active={focused} color={color} size={22} />
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+// ───────────── CONFIG ─────────────
+type TabVariant = 'pill' | 'line' | 'raised';
+const TAB_VARIANT: TabVariant = 'pill';
+
+// Unread badge per tab (route name -> count). Wire "chats" to your unread count.
+const BADGES: Record<string, number> = {
+  chats: 0,
+};
+
+const ACTIVE = COLORS.violetLight;
+const INACTIVE = '#8E91A5';
+const PILL_BG = '#14161E';
+const PILL_ACTIVE_BG = 'rgba(124,92,255,0.2)';
+const BAR_H = 56;
+const RAISE = 26;
+
+// ───────────── ICONS (same as before, size now comes from the bar) ─────────────
+const homeIcon = ({ color, focused, size }: { color: string; focused: boolean; size?: number }) => (
+  <TabIcon tab="home" active={focused} color={color} size={size ?? 22} />
 );
-const statusIcon = ({ color, focused }: { color: string; focused: boolean }) => (
-  <TabIcon tab="status" active={focused} color={color} size={22} />
+const statusIcon = ({ color, focused, size }: { color: string; focused: boolean; size?: number }) => (
+  <TabIcon tab="status" active={focused} color={color} size={size ?? 22} />
 );
-const chatsIcon = ({ color, focused }: { color: string; focused: boolean }) => (
-  <TabIcon tab="chats" active={focused} color={color} size={22} />
+const chatsIcon = ({ color, focused, size }: { color: string; focused: boolean; size?: number }) => (
+  <TabIcon tab="chats" active={focused} color={color} size={size ?? 22} />
 );
-const searchIcon = ({ color, focused }: { color: string; focused: boolean }) => (
-  <TabIcon tab="search" active={focused} color={color} size={22} />
+const searchIcon = ({ color, focused, size }: { color: string; focused: boolean; size?: number }) => (
+  <TabIcon tab="search" active={focused} color={color} size={size ?? 22} />
 );
-const profileIcon = ({ color, focused }: { color: string; focused: boolean }) => (
-  <TabIcon tab="profile" active={focused} color={color} size={22} />
+const profileIcon = ({ color, focused, size }: { color: string; focused: boolean; size?: number }) => (
+  <TabIcon tab="profile" active={focused} color={color} size={size ?? 22} />
 );
 
-export default function TabsLayout() {
+// ───────────── HELPERS ─────────────
+function useKeyboardVisible() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const a = Keyboard.addListener(showEvt, () => setVisible(true));
+    const b = Keyboard.addListener(hideEvt, () => setVisible(false));
+    return () => {
+      a.remove();
+      b.remove();
+    };
+  }, []);
+  return visible;
+}
+
+function Badge({ count, style }: { count: number; style?: any }) {
+  if (!count) return null;
+  return (
+    <View style={[styles.badge, style]}>
+      <Text style={styles.badgeText}>{count > 99 ? '99+' : count}</Text>
+    </View>
+  );
+}
+
+// ───────────── TAB BAR ─────────────
+function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const keyboardVisible = useKeyboardVisible();
 
-  // ✅ Thinner tab bar with just enough bottom gap for system nav buttons
+  // ✅ just enough bottom gap for system nav buttons
   const bottomPad =
-    Platform.OS === 'android'
-      ? Math.max(insets.bottom, 10)
-      : insets.bottom;
+    Platform.OS === 'android' ? Math.max(insets.bottom, 10) : insets.bottom;
 
+  if (keyboardVisible) return null; // same as tabBarHideOnKeyboard
+
+  const items = state.routes.map((route, index) => {
+    const focused = state.index === index;
+    const { options } = descriptors[route.key];
+    const label = typeof options.title === 'string' ? options.title : route.name;
+
+    const icon = (color: string, size: number) =>
+      options.tabBarIcon?.({ focused, color, size }) ?? null;
+
+    const onPress = () => {
+      const event = navigation.emit({
+        type: 'tabPress',
+        target: route.key,
+        canPreventDefault: true,
+      });
+      if (!focused && !event.defaultPrevented) {
+        hapticSelection();
+        if (TAB_VARIANT === 'pill') {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        }
+        navigation.navigate(route.name, route.params);
+      }
+    };
+
+    const onLongPress = () => {
+      navigation.emit({ type: 'tabLongPress', target: route.key });
+    };
+
+    return {
+      route,
+      focused,
+      label,
+      icon,
+      badge: BADGES[route.name] ?? 0,
+      onPress,
+      onLongPress,
+    };
+  });
+
+  // ── 1. FLOATING PILL ──
+  if (TAB_VARIANT === 'pill') {
+    return (
+      <View style={[styles.pillWrap, { paddingBottom: Math.max(bottomPad, 8) }]}>
+        <View style={styles.pill}>
+          {items.map((it) => (
+            <Pressable
+              key={it.route.key}
+              onPress={it.onPress}
+              onLongPress={it.onLongPress}
+              accessibilityRole="button"
+              accessibilityLabel={it.label}
+              accessibilityState={{ selected: it.focused }}
+              style={[styles.pillItem, it.focused && styles.pillItemActive]}
+            >
+              <View>
+                {it.icon(it.focused ? ACTIVE : INACTIVE, 22)}
+                <Badge count={it.badge} style={{ top: -6, right: -9 }} />
+              </View>
+              {it.focused && <Text style={styles.pillLabel}>{it.label}</Text>}
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    );
+  }
+
+  // ── 2. CLEAN LINE ──
+  if (TAB_VARIANT === 'line') {
+    return (
+      <View
+        style={[
+          styles.lineBar,
+          { height: BAR_H + bottomPad, paddingBottom: bottomPad },
+        ]}
+      >
+        {items.map((it) => (
+          <Pressable
+            key={it.route.key}
+            onPress={it.onPress}
+            onLongPress={it.onLongPress}
+            accessibilityRole="button"
+            accessibilityLabel={it.label}
+            accessibilityState={{ selected: it.focused }}
+            style={styles.lineItem}
+          >
+            {it.focused && <View style={styles.lineIndicator} />}
+            <View>
+              {it.icon(it.focused ? ACTIVE : INACTIVE, 22)}
+              <Badge count={it.badge} style={{ top: -6, right: -10 }} />
+            </View>
+            <Text
+              style={[
+                styles.lineLabel,
+                { color: it.focused ? ACTIVE : INACTIVE },
+              ]}
+            >
+              {it.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    );
+  }
+
+  // ── 3. RAISED CHATS ──
+  return (
+    <View style={{ height: RAISE + BAR_H + bottomPad }}>
+      <View style={[styles.raisedStrip, { height: BAR_H + bottomPad }]} />
+      <View style={[styles.raisedRow, { paddingBottom: bottomPad }]}>
+        {items.map((it) =>
+          it.route.name === 'chats' ? (
+            <Pressable
+              key={it.route.key}
+              onPress={it.onPress}
+              onLongPress={it.onLongPress}
+              accessibilityRole="button"
+              accessibilityLabel={it.label}
+              accessibilityState={{ selected: it.focused }}
+              style={styles.raisedCenterItem}
+            >
+              <View
+                style={[
+                  styles.raisedCircle,
+                  it.focused && styles.raisedCircleActive,
+                ]}
+              >
+                {it.icon('#FFFFFF', 24)}
+                <Badge count={it.badge} style={styles.raisedBadge} />
+              </View>
+              <Text
+                style={[
+                  styles.lineLabel,
+                  { color: it.focused ? ACTIVE : INACTIVE, marginTop: 2 },
+                ]}
+              >
+                {it.label}
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              key={it.route.key}
+              onPress={it.onPress}
+              onLongPress={it.onLongPress}
+              accessibilityRole="button"
+              accessibilityLabel={it.label}
+              accessibilityState={{ selected: it.focused }}
+              style={styles.raisedItem}
+            >
+              <View>
+                {it.icon(it.focused ? ACTIVE : INACTIVE, 22)}
+                <Badge count={it.badge} style={{ top: -6, right: -10 }} />
+              </View>
+              <Text
+                style={[
+                  styles.lineLabel,
+                  { color: it.focused ? ACTIVE : INACTIVE },
+                ]}
+              >
+                {it.label}
+              </Text>
+            </Pressable>
+          )
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ───────────── LAYOUT ─────────────
+export default function TabsLayout() {
   return (
     <Tabs
+      tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarShowLabel: true,
-        tabBarActiveTintColor: COLORS.violetLight,
-        tabBarInactiveTintColor: '#FFFFFF',
-        tabBarStyle: [
-          styles.tabBar,
-          {
-            // Height = compact content (46) + safe-area bottom
-            height: 46 + bottomPad,
-            paddingBottom: bottomPad,
-          },
-        ],
-        tabBarLabelStyle: styles.tabLabel,
-        tabBarItemStyle: styles.tabItem,
-        tabBarAllowFontScaling: false,
-        tabBarHideOnKeyboard: true,
         sceneStyle: { backgroundColor: '#000000' },
       }}
     >
@@ -78,27 +297,141 @@ export default function TabsLayout() {
   );
 }
 
+// ───────────── STYLES ─────────────
 const styles = StyleSheet.create({
-  tabBar: {
-    backgroundColor: '#000000',
-    borderTopWidth: 0,
-    borderTopColor: 'transparent',
-    shadowColor: 'transparent',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    elevation: 0,
-    paddingTop: 2,
-  },
-  tabItem: {
-    paddingVertical: 0,
-    justifyContent: 'center',
+  badge: {
+    position: 'absolute',
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: COLORS.teal,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  tabLabel: {
+  badgeText: {
+    color: '#0A0C12',
+    fontSize: 10,
+    lineHeight: 12,
+    fontFamily: FONTS.bodySemiBold,
+  },
+
+  // pill
+  pillWrap: {
+    backgroundColor: '#000000',
+    paddingHorizontal: 12,
+    paddingTop: 6,
+  },
+  pill: {
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: PILL_BG,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingHorizontal: 6,
+  },
+  pillItem: {
+    height: 42,
+    borderRadius: 21,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  pillItemActive: {
+    backgroundColor: PILL_ACTIVE_BG,
+    paddingHorizontal: 14,
+  },
+  pillLabel: {
+    color: ACTIVE,
+    fontSize: 13,
+    fontFamily: FONTS.bodySemiBold,
+  },
+
+  // line
+  lineBar: {
+    flexDirection: 'row',
+    backgroundColor: '#000000',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  lineItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  lineIndicator: {
+    position: 'absolute',
+    top: 0,
+    width: 24,
+    height: 3,
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+    backgroundColor: COLORS.violet,
+  },
+  lineLabel: {
     fontSize: 10.5,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
-    marginTop: 1,
+  },
+
+  // raised
+  raisedStrip: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#000000',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  raisedRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  raisedItem: {
+    flex: 1,
+    height: BAR_H,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+  },
+  raisedCenterItem: {
+    flex: 1,
+    height: RAISE + BAR_H,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  raisedCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: COLORS.violet,
+    borderWidth: 4,
+    borderColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  raisedCircleActive: {
+    transform: [{ scale: 1.08 }],
+  },
+  raisedBadge: {
+    top: -4,
+    right: -4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#000000',
   },
 });
