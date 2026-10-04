@@ -78,7 +78,6 @@ async function createTables(db: SQLite.SQLiteDatabase) {
   `);
 }
 
-// ✅ Safe migrations for existing installs
 async function runMigrations(db: SQLite.SQLiteDatabase) {
   try {
     const cols = await db.getAllAsync<{ name: string }>(
@@ -141,6 +140,18 @@ export async function dbGetConversations(): Promise<DBConversation[]> {
   return await db.getAllAsync<DBConversation>(
     `SELECT * FROM conversations ORDER BY last_at DESC`
   );
+}
+
+// ✅ NEW: Get single conversation by id (for offline metadata)
+export async function dbGetConversation(
+  id: string
+): Promise<DBConversation | null> {
+  const db = await getDB();
+  const row = await db.getFirstAsync<DBConversation>(
+    `SELECT * FROM conversations WHERE id = ?`,
+    [id]
+  );
+  return row ?? null;
 }
 
 export async function dbUpsertConversation(
@@ -344,8 +355,9 @@ export async function dbDeleteMessage(id: string) {
 // ============================================================
 export async function dbGetPendingMessages(): Promise<DBMessage[]> {
   const db = await getDB();
+  // ✅ FIX: include both pending AND failed (failed = network error, needs retry)
   return await db.getAllAsync<DBMessage>(
-    `SELECT * FROM messages WHERE local_status = 'pending' ORDER BY created_at ASC`
+    `SELECT * FROM messages WHERE local_status IN ('pending', 'failed') ORDER BY created_at ASC`
   );
 }
 
