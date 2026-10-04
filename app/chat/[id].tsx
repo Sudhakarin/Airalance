@@ -16,6 +16,8 @@ import {
   Modal,
   Pressable,
   Animated,
+  ScrollView,
+  useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
@@ -200,6 +202,7 @@ const MessageRow = memo(function MessageRow({
   onLongPress,
   onDoubleTap,
   onSwipeReply,
+  onImagePress,
   replyMessage,
   reactions,
   animate,
@@ -212,6 +215,7 @@ const MessageRow = memo(function MessageRow({
   onLongPress: (msg: Message) => void;
   onDoubleTap: (msg: Message) => void;
   onSwipeReply: (msg: Message) => void;
+  onImagePress: (msg: Message) => void;
   replyMessage?: Message | null;
   reactions: Reaction[];
   animate?: boolean;
@@ -226,6 +230,7 @@ const MessageRow = memo(function MessageRow({
       onLongPress={onLongPress}
       onDoubleTap={onDoubleTap}
       onSwipeReply={onSwipeReply}
+      onImagePress={onImagePress}
       replyMessage={replyMessage}
       reactions={reactions}
       animate={animate}
@@ -258,6 +263,13 @@ export default function ChatScreen() {
   const [lockChecked, setLockChecked] = useState(false);
 
   const [isMutedForConvo, setIsMutedForConvo] = useState(false);
+
+  // ✅ Full-screen photo viewer (tap a photo in chat)
+  const [viewerImage, setViewerImage] = useState<Message | null>(null);
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  const handleImagePress = useCallback((msg: Message) => {
+    if (msg.media_url && !msg.is_deleted) setViewerImage(msg);
+  }, []);
 
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -1564,6 +1576,7 @@ export default function ChatScreen() {
           onLongPress={handleMessageLongPress}
           onDoubleTap={handleDoubleTap}
           onSwipeReply={handleReply}
+          onImagePress={handleImagePress}
           replyMessage={replyMsg}
           reactions={reactionsByMsg[item.id] ?? []}
           animate={animatingIds.has(item.id)}
@@ -1577,6 +1590,7 @@ export default function ChatScreen() {
       handleMessageLongPress,
       handleDoubleTap,
       handleReply,
+      handleImagePress,
       reactionsByMsg,
       animatingIds,
     ]
@@ -2149,6 +2163,64 @@ export default function ChatScreen() {
           </Pressable>
         </BlurView>
       </Modal>
+
+      {/* ✅ Full-screen photo viewer */}
+      <Modal
+        visible={!!viewerImage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewerImage(null)}
+        statusBarTranslucent
+      >
+        <View style={styles.viewerWrap}>
+          {viewerImage?.media_url && (
+            <ScrollView
+              style={{ width: screenW, height: screenH }}
+              contentContainerStyle={styles.viewerScrollContent}
+              maximumZoomScale={4}
+              minimumZoomScale={1}
+              bouncesZoom
+              centerContent
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+            >
+              <Image
+                source={{ uri: viewerImage.media_url }}
+                style={{ width: screenW, height: screenH }}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                transition={120}
+              />
+            </ScrollView>
+          )}
+
+          <SafeAreaView edges={['top']} style={styles.viewerTopBar}>
+            <TouchableOpacity
+              style={styles.viewerClose}
+              onPress={() => setViewerImage(null)}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="close" size={28} color="#FFFFFF" />
+            </TouchableOpacity>
+            <View style={{ flex: 1, marginLeft: 6 }}>
+              <Text style={styles.viewerTitle} numberOfLines={1}>
+                {getSenderName(viewerImage)}
+              </Text>
+              {!!viewerImage && (
+                <Text style={styles.viewerSub} numberOfLines={1}>
+                  {new Date(viewerImage.created_at).toLocaleString([], {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </Text>
+              )}
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2669,5 +2741,35 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
+  },
+  // ✅ Full-screen photo viewer
+  viewerWrap: { flex: 1, backgroundColor: '#000' },
+  viewerScrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingBottom: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  viewerClose: { padding: 4 },
+  viewerTitle: {
+    fontSize: 16,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+  },
+  viewerSub: {
+    fontSize: 12,
+    fontFamily: FONTS.body,
+    color: 'rgba(255,255,255,0.7)',
+    marginTop: 1,
   },
 });
