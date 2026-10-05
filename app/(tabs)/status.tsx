@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
@@ -55,7 +55,7 @@ type UserStatusGroup = {
 };
 
 // ✅ Status cache (short TTL, tiny payload)
-const STATUS_CACHE_KEY = 'airalance:status-tab:v1';
+const STATUS_CACHE_KEY = 'airalance:status-tab:v2'; // v2: only followed users' statuses
 const STATUS_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24h
 
 type StatusCache = {
@@ -203,17 +203,31 @@ export default function StatusScreen() {
     }
 
     try {
-      const { data: statusData, error } = await supabase
-        .from('statuses')
-        .select('*, profile:profiles(*)')
-        .gt('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: true });
+      // ✅ Statuses are only visible to people who FOLLOW the poster.
+      // Load my follows together with the statuses and keep only followed users.
+      const [statusRes, followRes] = await Promise.all([
+        supabase
+          .from('statuses')
+          .select('*, profile:profiles(*)')
+          .gt('expires_at', new Date().toISOString())
+          .order('created_at', { ascending: true }),
+        supabase.from('follows').select('followed_id').eq('follower_id', myId),
+      ]);
 
+      const { data: statusData, error } = statusRes;
       if (error) throw error;
+      // if the follow list failed, keep what is on screen (never fall back to "show all")
+      if (followRes.error) throw followRes.error;
+
+      const followedIds = new Set<string>(
+        (followRes.data ?? []).map((r: any) => r.followed_id)
+      );
 
       const all = (statusData ?? []) as Status[];
       const mine = all.filter((s) => s.user_id === myId);
-      const others = all.filter((s) => s.user_id !== myId);
+      const others = all.filter(
+        (s) => s.user_id !== myId && followedIds.has(s.user_id)
+      );
 
       const grouped: Record<string, UserStatusGroup> = {};
       others.forEach((s) => {
@@ -260,6 +274,20 @@ export default function StatusScreen() {
     loadStatuses();
   }, [loadStatuses]);
 
+  // ✅ Re-check when the tab comes back into focus (e.g. after following someone)
+  const loadStatusesRef = useRef(loadStatuses);
+  loadStatusesRef.current = loadStatuses;
+  const focusedOnceRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!focusedOnceRef.current) {
+        focusedOnceRef.current = true; // first focus is covered by the effect above
+        return;
+      }
+      loadStatusesRef.current();
+    }, [])
+  );
+
   // ✅ Load my profile (needs online; cached version shown in step above)
   useEffect(() => {
     if (!myId) return;
@@ -300,6 +328,21 @@ export default function StatusScreen() {
             event: 'INSERT',
             schema: 'public',
             table: 'statuses',
+          },
+          () => {
+            if (debounceTimer) clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+              loadStatuses();
+            }, 500);
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'follows',
+            filter: `follower_id=eq.${myId}`,
           },
           () => {
             if (debounceTimer) clearTimeout(debounceTimer);
@@ -589,7 +632,7 @@ export default function StatusScreen() {
               </View>
               <Text style={styles.emptyTitle}>No status updates</Text>
               <Text style={styles.emptySubtitle}>
-                When your connections post a status, it will appear here.
+                Statuses from people you follow will appear here.
               </Text>
               <TouchableOpacity
                 style={styles.emptyBtn}
