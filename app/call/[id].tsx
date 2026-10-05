@@ -1,5 +1,6 @@
 // app/call/[id].tsx
 // Voice/Video call screen — wired to CallContext (real WebRTC)
+// ✅ Web-safe: RTCView is native-only (loaded conditionally)
 
 import { useEffect, useState, useRef } from 'react';
 import {
@@ -8,16 +9,26 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { RTCView } from 'react-native-webrtc';
 import { useCall } from '../../contexts/CallContext';
 import Avatar from '../../components/Avatar';
 import { COLORS, FONTS, SPACING } from '../../constants/theme';
 import { hapticMedium, hapticSuccess, hapticError } from '../../lib/haptics';
+
+// ✅ Web-safe: RTCView is native-only
+let RTCView: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    RTCView = require('react-native-webrtc').RTCView;
+  } catch (err) {
+    console.warn('[call] RTCView not available:', err);
+  }
+}
 
 export default function CallScreen() {
   const router = useRouter();
@@ -105,8 +116,8 @@ export default function CallScreen() {
 
   const showVideo =
     isVideoCall && (callState === 'active' || callState === 'connecting');
-  const showRemoteVideo = showVideo && !!remoteStream;
-  const showLocalVideo = showVideo && !!localStream && isVideoEnabled;
+  const showRemoteVideo = showVideo && !!remoteStream && !!RTCView;
+  const showLocalVideo = showVideo && !!localStream && isVideoEnabled && !!RTCView;
 
   function handleMute() {
     hapticMedium();
@@ -136,7 +147,7 @@ export default function CallScreen() {
   return (
     <View style={styles.container}>
       {/* Remote video background (video calls) */}
-      {showRemoteVideo ? (
+      {showRemoteVideo && RTCView ? (
         <RTCView
           streamURL={(remoteStream as any).toURL()}
           style={StyleSheet.absoluteFill}
@@ -198,7 +209,7 @@ export default function CallScreen() {
         )}
 
         {/* Local video PiP (top-right) */}
-        {showLocalVideo && (
+        {showLocalVideo && RTCView && (
           <View style={styles.localPip}>
             <RTCView
               streamURL={(localStream as any).toURL()}
