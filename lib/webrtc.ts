@@ -1,13 +1,27 @@
 // lib/webrtc.ts
 // WebRTC core helpers — peer connection, media streams, ICE servers
+// ✅ Web-safe: react-native-webrtc is native-only (loaded conditionally)
 
-import {
-  RTCPeerConnection,
-  RTCIceCandidate,
-  RTCSessionDescription,
-  mediaDevices,
-  MediaStream,
-} from 'react-native-webrtc';
+import { Platform } from 'react-native';
+
+// ============================================================
+// Platform-safe WebRTC module loader
+// ============================================================
+
+let RNWebRTC: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    RNWebRTC = require('react-native-webrtc');
+  } catch (err) {
+    console.warn('[webrtc] react-native-webrtc not available:', err);
+  }
+}
+
+const RTCPeerConnection = RNWebRTC?.RTCPeerConnection;
+const RTCIceCandidate = RNWebRTC?.RTCIceCandidate;
+const RTCSessionDescription = RNWebRTC?.RTCSessionDescription;
+const mediaDevices = RNWebRTC?.mediaDevices;
+const MediaStream: any = RNWebRTC?.MediaStream;
 
 // ============================================================
 // ICE Servers — STUN (public) + TURN (free relay for NAT)
@@ -52,9 +66,10 @@ export const peerConstraints = {
 // Media stream helpers
 // ============================================================
 
-export async function getLocalStream(
-  video: boolean
-): Promise<MediaStream> {
+export async function getLocalStream(video: boolean): Promise<any> {
+  if (!mediaDevices) {
+    throw new Error('WebRTC not supported on this platform');
+  }
   const stream = await mediaDevices.getUserMedia({
     audio: true,
     video: video
@@ -64,13 +79,13 @@ export async function getLocalStream(
         }
       : false,
   });
-  return stream as MediaStream;
+  return stream;
 }
 
-export function stopStream(stream: MediaStream | null) {
+export function stopStream(stream: any) {
   if (!stream) return;
   try {
-    stream.getTracks().forEach((track) => {
+    stream.getTracks().forEach((track: any) => {
       track.stop();
     });
   } catch (err) {
@@ -82,9 +97,12 @@ export function stopStream(stream: MediaStream | null) {
 // Peer connection factory
 // ============================================================
 
-export function createPeerConnection(): RTCPeerConnection {
+export function createPeerConnection(): any {
+  if (!RTCPeerConnection) {
+    throw new Error('WebRTC not supported on this platform');
+  }
   const pc = new RTCPeerConnection(peerConstraints);
-  return pc as RTCPeerConnection;
+  return pc;
 }
 
 // ============================================================
@@ -92,7 +110,7 @@ export function createPeerConnection(): RTCPeerConnection {
 // ============================================================
 
 export function serializeSdp(
-  sdp: RTCSessionDescription | null
+  sdp: any
 ): { type: string; sdp: string } | null {
   if (!sdp) return null;
   return { type: sdp.type, sdp: sdp.sdp ?? '' };
@@ -101,16 +119,17 @@ export function serializeSdp(
 export function deserializeSdp(data: {
   type: string;
   sdp: string;
-}): RTCSessionDescription {
+}): any {
+  if (!RTCSessionDescription) {
+    throw new Error('WebRTC not supported on this platform');
+  }
   return new RTCSessionDescription({
     type: data.type as 'offer' | 'answer',
     sdp: data.sdp,
   });
 }
 
-export function serializeIce(
-  candidate: RTCIceCandidate | null
-): Record<string, any> | null {
+export function serializeIce(candidate: any): Record<string, any> | null {
   if (!candidate) return null;
   return {
     candidate: candidate.candidate,
@@ -119,7 +138,10 @@ export function serializeIce(
   };
 }
 
-export function deserializeIce(data: Record<string, any>): RTCIceCandidate {
+export function deserializeIce(data: Record<string, any>): any {
+  if (!RTCIceCandidate) {
+    throw new Error('WebRTC not supported on this platform');
+  }
   return new RTCIceCandidate({
     candidate: data.candidate,
     sdpMid: data.sdpMid,
