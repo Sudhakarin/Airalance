@@ -32,6 +32,7 @@ import VerifiedBadge from '../../components/VerifiedBadge';
 import {
   dbGetConversations,
   dbUpsertConversation,
+  dbUpsertConversations,
   dbDeleteConversation,
   dbClearAllConversations,
   DBConversation,
@@ -141,9 +142,7 @@ function conversationToDbRow(c: Conversation) {
 
 async function persistConversations(list: Conversation[]) {
   try {
-    for (const c of list) {
-      await dbUpsertConversation(conversationToDbRow(c));
-    }
+    await dbUpsertConversations(list.map(conversationToDbRow));
   } catch (err) {
     console.warn('[chats] persistConversations error:', err);
   }
