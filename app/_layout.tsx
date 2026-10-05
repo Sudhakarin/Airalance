@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Platform, AppState } from 'react-native';
+import { StyleSheet, Platform, AppState, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
@@ -53,6 +53,42 @@ const FONT_MAP = {
   Poppins_700Bold,
   JetBrainsMono_400Regular,
 };
+
+// ============================================================
+// App loading skeleton (chat list shape) — shown while auth loads
+// ============================================================
+function AppLoadingSkeleton() {
+  return (
+    <View style={styles.skeletonRoot}>
+      {/* Header */}
+      <View style={styles.skHeader}>
+        <View style={styles.skTitle} />
+        <View style={styles.skHeaderIcon} />
+      </View>
+
+      {/* Chat rows */}
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <View key={i} style={styles.skRow}>
+          <View style={styles.skAvatar} />
+          <View style={styles.skRowContent}>
+            <View
+              style={[
+                styles.skLine,
+                { width: `${45 + ((i * 13) % 25)}%` },
+              ]}
+            />
+            <View
+              style={[
+                styles.skLineSmall,
+                { width: `${55 + ((i * 17) % 30)}%` },
+              ]}
+            />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function RootLayout() {
   const [fontsLoaded, setFontsLoaded] = useState(false);
@@ -243,17 +279,31 @@ export default function RootLayout() {
     };
   }, [authReady, userId]);
 
-  // ---------- Hide splash AFTER first native layout (no blank frame) ----------
+  // ---------- Hide splash when fonts ready (skeleton takes over during auth) ----------
   const onLayoutRootView = useCallback(async () => {
-    if (fontsLoaded && authReady) {
+    if (fontsLoaded) {
       await SplashScreen.hideAsync().catch(() => {});
     }
-  }, [fontsLoaded, authReady]);
+  }, [fontsLoaded]);
 
-  if (!fontsLoaded || !authReady) {
+  // Fonts not ready → keep splash (return null, splash still showing)
+  if (!fontsLoaded) {
     return null;
   }
 
+  // Fonts ready but auth pending → show skeleton
+  if (!authReady) {
+    return (
+      <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
+        <SafeAreaProvider>
+          <StatusBar style="light" />
+          <AppLoadingSkeleton />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
+
+  // Everything ready → real app
   return (
     <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
       <SafeAreaProvider>
@@ -262,7 +312,7 @@ export default function RootLayout() {
           <Stack
             screenOptions={{
               headerShown: false,
-              contentStyle: { backgroundColor: '#000000' },
+              contentStyle: { backgroundColor: '#0A0C12' },
               animation: 'slide_from_right',
               animationDuration: 220,
             }}
@@ -320,5 +370,57 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#000000' },
+  root: { flex: 1, backgroundColor: '#0A0C12' },
+
+  // ---------- Skeleton styles ----------
+  skeletonRoot: {
+    flex: 1,
+    backgroundColor: '#0A0C12',
+    paddingHorizontal: 16,
+    paddingTop: 60,
+  },
+  skHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  skTitle: {
+    width: 120,
+    height: 26,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  skHeaderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  skRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    gap: 12,
+  },
+  skAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  skRowContent: {
+    flex: 1,
+    gap: 8,
+  },
+  skLine: {
+    height: 14,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  skLineSmall: {
+    height: 12,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
 });
