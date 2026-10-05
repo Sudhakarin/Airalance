@@ -388,6 +388,31 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCurrentCall(call);
         setIsVideoEnabled(callType === 'video');
 
+        // ✅ Send push notification to receiver (Phase 1 — background call alert)
+        try {
+          const { data: myProfile } = await supabase
+            .from('profiles')
+            .select('display_name')
+            .eq('id', myId)
+            .single();
+
+          await supabase.functions.invoke('send-push', {
+            body: {
+              userId: receiverId,
+              title: myProfile?.display_name ?? 'Airalance',
+              body: `Incoming ${callType} call`,
+              data: {
+                screen: 'call',
+                callId: call.id,
+                callerId: myId,
+                callType,
+              },
+            },
+          });
+        } catch (err) {
+          console.warn('[call] push send failed:', err);
+        }
+
         // Subscribe to call updates (accepted/rejected/ended)
         unsubCallRef.current = subscribeToCall(call.id, async (updated) => {
           if (updated.status === 'accepted' && updated.answer) {
