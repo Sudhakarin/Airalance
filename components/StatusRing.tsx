@@ -1,28 +1,33 @@
 // components/StatusRing.tsx
 // Instagram-style gradient ring around avatars with status
 // ✅ Constant size regardless of hasStatus (no layout shift)
-// ✅ Ring is drawn with SVG (full gradient disk) and covered by the inner circle.
-// ✅ FIX: the SVG no longer uses width/height="100%". Those percentages were resolved
-//    against the wrap's padded inner box, so the disk came out smaller and stuck to the
-//    top-left → only a crescent was visible. Now the SVG simply fills the wrap
-//    (absoluteFill), so the disk is exactly avatar + gap + ring and perfectly centered.
+// ✅ FIX (ring was a crescent): no more "gradient disk + cover" trick and no
+//    padding-dependent absolute positioning. The ring is a plain SVG STROKE circle with
+//    explicit pixel size, placed at (0,0) of a root view that has NO padding, so it is
+//    always a perfect, centered circle on Android and iOS.
+//    Pass `size` (the avatar size) for a correct very first frame; without it the ring
+//    size is measured with onLayout.
 
-import { View, StyleSheet } from 'react-native';
+import { useCallback, useState } from 'react';
+import { View, StyleSheet, LayoutChangeEvent } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Circle } from 'react-native-svg';
-import { COLORS, GRADIENTS } from '../constants/theme';
+import { GRADIENTS } from '../constants/theme';
 
 type StatusRingProps = {
   hasStatus: boolean;
   viewed: boolean;
+  /** Avatar size in px (recommended) */
+  size?: number;
   children: React.ReactNode;
 };
 
 const RING = 3.5; // visible gradient thickness
-const GAP = 2.5; // dark gap between ring and avatar
+const GAP = 2.5; // empty gap between ring and avatar
 
 export default function StatusRing({
   hasStatus,
   viewed,
+  size,
   children,
 }: StatusRingProps) {
   const colors: string[] = (
@@ -31,17 +36,38 @@ export default function StatusRing({
 
   const gradId = viewed ? 'statusRingViewed' : 'statusRingActive';
 
+  const [measured, setMeasured] = useState({ w: 0, h: 0 });
+  const fixed = size ? size + 2 * (RING + GAP) : 0;
+  const w = fixed || measured.w;
+  const h = fixed || measured.h;
+  const d = Math.min(w, h);
+
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setMeasured((prev) =>
+      prev.w === width && prev.h === height ? prev : { w: width, h: height }
+    );
+  }, []);
+
   return (
-    <View style={styles.wrap}>
-      {/* gradient disk — only when there is a status. Same size either way. */}
-      {hasStatus && (
+    <View style={styles.root} onLayout={fixed ? undefined : onLayout}>
+      {/* ring — only when there is a status. Space is reserved either way. */}
+      {hasStatus && d > 0 && (
         <Svg
-          style={StyleSheet.absoluteFill}
-          viewBox="0 0 100 100"
+          width={w}
+          height={h}
+          style={styles.svg}
           pointerEvents="none"
         >
           <Defs>
-            <LinearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
+            <LinearGradient
+              id={gradId}
+              gradientUnits="userSpaceOnUse"
+              x1="0"
+              y1="0"
+              x2={w}
+              y2={h}
+            >
               {colors.map((c, i) => (
                 <Stop
                   key={i}
@@ -53,30 +79,39 @@ export default function StatusRing({
               ))}
             </LinearGradient>
           </Defs>
-          <Circle cx="50" cy="50" r="50" fill={`url(#${gradId})`} />
+          <Circle
+            cx={w / 2}
+            cy={h / 2}
+            r={(d - RING) / 2}
+            stroke={`url(#${gradId})`}
+            strokeWidth={RING}
+            fill="none"
+          />
         </Svg>
       )}
 
-      {/* inner circle covers the middle of the disk → leaves a perfect ring */}
-      <View style={[styles.gap, !hasStatus && styles.gapTransparent]}>
-        <View style={styles.clip}>{children}</View>
+      <View style={styles.pad}>
+        <View style={styles.gap}>
+          <View style={styles.clip}>{children}</View>
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
+  // NO padding here, so the absolute SVG at (0,0) always matches the full box
+  root: {},
+  svg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+  },
+  pad: {
     padding: RING,
-    borderRadius: 999,
   },
   gap: {
     padding: GAP,
-    borderRadius: 999,
-    backgroundColor: COLORS.ink900,
-  },
-  gapTransparent: {
-    backgroundColor: 'transparent',
   },
   clip: {
     borderRadius: 999,
