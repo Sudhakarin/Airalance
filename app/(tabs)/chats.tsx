@@ -486,6 +486,37 @@ export default function ChatsScreen() {
         }
       }
 
+      // ✅ FIX (wrong preview): the shared query above only returns the newest
+      // ~40 messages across ALL chats. A very active chat can push every other
+      // chat's last message out of that batch → they wrongly showed
+      // "Say hello 👋" and sank to the bottom. Fetch the real last message for
+      // just those chats (usually 0–3 extra tiny queries).
+      const missingIds = convos
+        .map((c) => c.id)
+        .filter((id) => !lastPerConvo.has(id));
+      if (missingIds.length > 0) {
+        const extra = await Promise.all(
+          missingIds.map(async (id) => {
+            try {
+              const { data } = await supabase
+                .from('messages')
+                .select(
+                  'conversation_id, content, message_type, created_at, is_deleted'
+                )
+                .eq('conversation_id', id)
+                .order('created_at', { ascending: false })
+                .limit(1);
+              return (data?.[0] as any) ?? null;
+            } catch {
+              return null;
+            }
+          })
+        );
+        for (const m of extra) {
+          if (m) lastPerConvo.set(m.conversation_id, m);
+        }
+      }
+
       const rows: Conversation[] = convos.map((c) => {
         const other = (otherParticipants as any[]).find(
           (p) => p.conversation_id === c.id
