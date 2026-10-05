@@ -45,6 +45,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { getCurrentUserId } from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
+import { useCall } from '../../contexts/CallContext';
 import Avatar from '../../components/Avatar';
 import AvatarPreviewHost from '../../components/AvatarPreviewHost';
 import MessageBubble from '../../components/MessageBubble';
@@ -242,6 +243,9 @@ export default function ChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string }>();
   const convoId = params.id;
+
+  // ✅ Call hooks
+  const { startCall, callState } = useCall();
 
   const [myId, setMyId] = useState<string | null>(null);
   const [myName, setMyName] = useState<string>('');
@@ -593,7 +597,6 @@ export default function ChatScreen() {
           }
         } catch (err) {
           console.warn('[chat] retry pending failed:', err);
-          // ✅ FIX: keep as pending if connection lost, else mark failed
           const stillOnline = isOnline();
           await patchMessageInDb(p.id, {
             local_status: stillOnline ? 'failed' : 'pending',
@@ -613,7 +616,6 @@ export default function ChatScreen() {
     retryPendingMessages();
   }, [myId, convoId, lockRequired, retryPendingMessages]);
 
-  // ✅ Auto-retry when network comes back online
   useEffect(() => {
     if (online) {
       retryPendingMessages();
@@ -695,7 +697,6 @@ export default function ChatScreen() {
     }
   }, [myId, convoId, hasMore, messages, lockRequired]);
 
-  // ✅ Realtime — only subscribe when online
   useEffect(() => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
@@ -1265,7 +1266,6 @@ export default function ChatScreen() {
       console.warn('[chat] SQLite pending save failed:', err);
     }
 
-    // ✅ FIX: If OFFLINE, keep message queued (don't attempt network)
     if (!isOnline()) {
       hapticLight();
       setSending(false);
@@ -1317,7 +1317,6 @@ export default function ChatScreen() {
     } catch (err) {
       console.warn('Send failed:', err);
 
-      // ✅ FIX: Distinguish network loss vs real failure
       const stillOnline = isOnline();
       const newStatus: 'pending' | 'failed' = stillOnline ? 'failed' : 'pending';
 
@@ -1332,7 +1331,6 @@ export default function ChatScreen() {
       );
 
       if (stillOnline) {
-        // Real failure while online → restore input + show alert
         setInput(content);
         setReplyingTo(replyTarget);
         hapticError();
@@ -1341,7 +1339,6 @@ export default function ChatScreen() {
           'Message saved. Will retry automatically.'
         );
       } else {
-        // Lost connection mid-send → keep queued silently, auto-retry on reconnect
         hapticLight();
       }
     } finally {
@@ -1769,16 +1766,36 @@ export default function ChatScreen() {
             </View>
           </TouchableOpacity>
 
+          {/* ✅ Voice call */}
           <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => other && router.push(`/profile/${other.id}`)}
+            style={styles.headerActionBtn}
+            onPress={() => {
+              if (!other || callState !== 'idle') return;
+              hapticMedium();
+              startCall(other.id, 'audio', {
+                name: other.display_name,
+                avatar: other.avatar_url,
+              });
+            }}
             activeOpacity={0.7}
           >
-            <Ionicons
-              name="information-circle-outline"
-              size={26}
-              color={COLORS.text}
-            />
+            <Ionicons name="call-outline" size={22} color={COLORS.text} />
+          </TouchableOpacity>
+
+          {/* ✅ Video call */}
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={() => {
+              if (!other || callState !== 'idle') return;
+              hapticMedium();
+              startCall(other.id, 'video', {
+                name: other.display_name,
+                avatar: other.avatar_url,
+              });
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="videocam-outline" size={24} color={COLORS.text} />
           </TouchableOpacity>
         </View>
 
@@ -2364,16 +2381,23 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
     backgroundColor: 'rgba(10,12,18,0.95)',
   },
   backBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerActionBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2550,7 +2574,7 @@ const styles = StyleSheet.create({
 
   inputBar: {
     flexDirection: 'row',
-    alignItems: 'flex-end', // buttons stay at the bottom when the input grows (WhatsApp)
+    alignItems: 'flex-end',
     paddingHorizontal: 8,
     paddingTop: 6,
     paddingBottom: Platform.OS === 'ios' ? 10 : 6,
@@ -2745,7 +2769,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyMedium,
     color: '#FFFFFF',
   },
-  // ✅ Full-screen photo viewer
+
   viewerWrap: { flex: 1, backgroundColor: '#000' },
   viewerScrollContent: {
     flexGrow: 1,
