@@ -1,5 +1,6 @@
 // contexts/CallContext.tsx
 // Global WebRTC call state — incoming/outgoing/active call management
+// ✅ Web-safe: react-native-webrtc is native-only
 
 import React, {
   createContext,
@@ -10,8 +11,8 @@ import React, {
   useCallback,
   ReactNode,
 } from 'react';
+import { Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { RTCPeerConnection, MediaStream } from 'react-native-webrtc';
 import { supabase } from '../lib/supabase';
 import { getCurrentUserId } from '../lib/auth';
 import {
@@ -36,6 +37,17 @@ import {
 } from '../lib/webrtc';
 import { hapticMedium, hapticSuccess, hapticError } from '../lib/haptics';
 
+// ✅ Web-safe: react-native-webrtc is native-only
+let RNWebRTC: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    RNWebRTC = require('react-native-webrtc');
+  } catch (err) {
+    console.warn('[CallContext] react-native-webrtc not available:', err);
+  }
+}
+const MediaStream: any = RNWebRTC?.MediaStream;
+
 // ============================================================
 // Types
 // ============================================================
@@ -52,8 +64,8 @@ type CallContextValue = {
   // state
   callState: CallState;
   currentCall: Call | null;
-  localStream: MediaStream | null;
-  remoteStream: MediaStream | null;
+  localStream: any | null;
+  remoteStream: any | null;
   isMuted: boolean;
   isSpeakerOn: boolean;
   isVideoEnabled: boolean;
@@ -86,8 +98,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const [callState, setCallState] = useState<CallState>('idle');
   const [currentCall, setCurrentCall] = useState<Call | null>(null);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [localStream, setLocalStream] = useState<any>(null);
+  const [remoteStream, setRemoteStream] = useState<any>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
@@ -97,8 +109,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     avatar: string | null;
   } | null>(null);
 
-  const pcRef = useRef<RTCPeerConnection | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
+  const pcRef = useRef<any>(null);
+  const localStreamRef = useRef<any>(null);
   const callIdRef = useRef<string | null>(null);
   const unsubCallRef = useRef<(() => void) | null>(null);
   const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -208,6 +220,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       callType: CallType,
       initialOffer?: any
     ) => {
+      // ✅ Guard: WebRTC not available on web
+      if (Platform.OS === 'web') {
+        throw new Error('Calls are not supported on web');
+      }
+
       // create pc
       const pc = createPeerConnection();
       pcRef.current = pc;
@@ -218,7 +235,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       setLocalStream(stream);
 
       // add tracks to pc
-      stream.getTracks().forEach((track) => {
+      stream.getTracks().forEach((track: any) => {
         pc.addTrack(track, stream);
       });
 
@@ -336,6 +353,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       receiverInfo: { name: string; avatar: string | null }
     ) => {
       if (callState !== 'idle') return;
+      if (Platform.OS === 'web') {
+        hapticError();
+        console.warn('[call] Calls not supported on web');
+        return;
+      }
       const myId = myIdRef.current ?? (await getCurrentUserId());
       if (!myId) return;
       myIdRef.current = myId;
