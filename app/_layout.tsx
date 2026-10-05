@@ -30,6 +30,7 @@ import { setSessionUnlocked } from '../lib/pin';
 import { initSounds } from '../lib/sounds';
 import { getDB } from '../lib/db';
 import { initNetwork } from '../lib/network';
+import { CallProvider } from '../contexts/CallContext';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -256,61 +257,63 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
       <SafeAreaProvider>
-        <StatusBar style="light" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: '#000000' },
-            animation: 'slide_from_right',
-            animationDuration: 220,
-          }}
-        >
-          <Stack.Screen name="index" options={{ animation: 'none' }} />
-          <Stack.Screen
-            name="(auth)"
-            options={{ animation: 'fade', animationDuration: 200 }}
-          />
-          <Stack.Screen
-            name="(tabs)"
-            options={{ animation: 'fade', animationDuration: 200 }}
-          />
-          <Stack.Screen
-            name="chat/[id]"
-            options={{ animation: 'slide_from_right', animationDuration: 220 }}
-          />
-          <Stack.Screen
-            name="profile/[id]"
-            options={{ animation: 'slide_from_right', animationDuration: 220 }}
-          />
-          <Stack.Screen
-            name="status/[userId]"
-            options={{ animation: 'fade', animationDuration: 200 }}
-          />
-          <Stack.Screen
-            name="status/create"
-            options={{ animation: 'slide_from_bottom', animationDuration: 240 }}
-          />
-          <Stack.Screen
-            name="news/[id]"
-            options={{ animation: 'slide_from_right', animationDuration: 220 }}
-          />
-          <Stack.Screen
-            name="settings/index"
-            options={{ animation: 'slide_from_right', animationDuration: 220 }}
-          />
-          <Stack.Screen
-            name="notifications"
-            options={{ animation: 'slide_from_right', animationDuration: 220 }}
-          />
-          <Stack.Screen
-            name="call/[id]"
-            options={{
-              animation: 'fade',
-              animationDuration: 200,
-              presentation: 'modal',
+        <CallProvider>
+          <StatusBar style="light" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: '#000000' },
+              animation: 'slide_from_right',
+              animationDuration: 220,
             }}
-          />
-        </Stack>
+          >
+            <Stack.Screen name="index" options={{ animation: 'none' }} />
+            <Stack.Screen
+              name="(auth)"
+              options={{ animation: 'fade', animationDuration: 200 }}
+            />
+            <Stack.Screen
+              name="(tabs)"
+              options={{ animation: 'fade', animationDuration: 200 }}
+            />
+            <Stack.Screen
+              name="chat/[id]"
+              options={{ animation: 'slide_from_right', animationDuration: 220 }}
+            />
+            <Stack.Screen
+              name="profile/[id]"
+              options={{ animation: 'slide_from_right', animationDuration: 220 }}
+            />
+            <Stack.Screen
+              name="status/[userId]"
+              options={{ animation: 'fade', animationDuration: 200 }}
+            />
+            <Stack.Screen
+              name="status/create"
+              options={{ animation: 'slide_from_bottom', animationDuration: 240 }}
+            />
+            <Stack.Screen
+              name="news/[id]"
+              options={{ animation: 'slide_from_right', animationDuration: 220 }}
+            />
+            <Stack.Screen
+              name="settings/index"
+              options={{ animation: 'slide_from_right', animationDuration: 220 }}
+            />
+            <Stack.Screen
+              name="notifications"
+              options={{ animation: 'slide_from_right', animationDuration: 220 }}
+            />
+            <Stack.Screen
+              name="call/[id]"
+              options={{
+                animation: 'fade',
+                animationDuration: 200,
+                presentation: 'modal',
+              }}
+            />
+          </Stack>
+        </CallProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
