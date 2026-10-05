@@ -14,8 +14,12 @@ export async function getDB(): Promise<SQLite.SQLiteDatabase> {
 
   initPromise = (async () => {
     const db = await SQLite.openDatabaseAsync(DB_NAME);
-    await db.execAsync(`PRAGMA journal_mode = WAL;`);
-    await db.execAsync(`PRAGMA foreign_keys = ON;`);
+    // ✅ FAST: WAL + synchronous=NORMAL = far fewer disk syncs per write (still crash-safe in WAL)
+    await db.execAsync(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA foreign_keys = ON;
+    `);
     await createTables(db);
     await runMigrations(db);
     dbInstance = db;
@@ -70,6 +74,9 @@ async function createTables(db: SQLite.SQLiteDatabase) {
 
     CREATE INDEX IF NOT EXISTS idx_messages_local_status
       ON messages(local_status);
+
+    CREATE INDEX IF NOT EXISTS idx_conversations_last_at
+      ON conversations(last_at DESC);
 
     CREATE TABLE IF NOT EXISTS sync_meta (
       key TEXT PRIMARY KEY,
@@ -154,84 +161,97 @@ export async function dbGetConversation(
   return row ?? null;
 }
 
+// ✅ FAST: ONE statement (no SELECT first). Same semantics as before:
+//   new row  -> defaults applied
+//   existing -> COALESCE(new, old) per column, updated_at = now
+const UPSERT_CONVERSATION_SQL = `
+  INSERT INTO conversations (
+    id, is_group, name, other_user_id, other_username,
+    other_display_name, other_avatar_color, other_avatar_url,
+    other_verified, last_message, last_at, unread_count,
+    is_muted, is_locked, updated_at
+  ) VALUES (
+    $id, COALESCE($is_group, 0), $name, $other_user_id, $other_username,
+    $other_display_name, $other_avatar_color, $other_avatar_url,
+    COALESCE($other_verified, 0), $last_message, $last_at,
+    COALESCE($unread_count, 0), COALESCE($is_muted, 0),
+    COALESCE($is_locked, 0), $now
+  )
+  ON CONFLICT(id) DO UPDATE SET
+    is_group = COALESCE($is_group, is_group),
+    name = COALESCE($name, name),
+    other_user_id = COALESCE($other_user_id, other_user_id),
+    other_username = COALESCE($other_username, other_username),
+    other_display_name = COALESCE($other_display_name, other_display_name),
+    other_avatar_color = COALESCE($other_avatar_color, other_avatar_color),
+    other_avatar_url = COALESCE($other_avatar_url, other_avatar_url),
+    other_verified = COALESCE($other_verified, other_verified),
+    last_message = COALESCE($last_message, last_message),
+    last_at = COALESCE($last_at, last_at),
+    unread_count = COALESCE($unread_count, unread_count),
+    is_muted = COALESCE($is_muted, is_muted),
+    is_locked = COALESCE($is_locked, is_locked),
+    updated_at = $now
+`;
+
+function conversationParams(
+  c: Partial<DBConversation> & { id: string },
+  now: string
+) {
+  return {
+    $id: c.id,
+    $is_group: c.is_group ?? null,
+    $name: c.name ?? null,
+    $other_user_id: c.other_user_id ?? null,
+    $other_username: c.other_username ?? null,
+    $other_display_name: c.other_display_name ?? null,
+    $other_avatar_color: c.other_avatar_color ?? null,
+    $other_avatar_url: c.other_avatar_url ?? null,
+    $other_verified: c.other_verified ?? null,
+    $last_message: c.last_message ?? null,
+    $last_at: c.last_at ?? null,
+    $unread_count: c.unread_count ?? null,
+    $is_muted: c.is_muted ?? null,
+    $is_locked: c.is_locked ?? null,
+    $now: now,
+  };
+}
+
 export async function dbUpsertConversation(
   c: Partial<DBConversation> & { id: string }
 ) {
   const db = await getDB();
-  const existing = await db.getFirstAsync<DBConversation>(
-    `SELECT * FROM conversations WHERE id = ?`,
-    [c.id]
+  await db.runAsync(
+    UPSERT_CONVERSATION_SQL,
+    conversationParams(c, new Date().toISOString())
   );
+}
 
-  if (existing) {
-    await db.runAsync(
-      `UPDATE conversations SET
-        is_group = COALESCE(?, is_group),
-        name = COALESCE(?, name),
-        other_user_id = COALESCE(?, other_user_id),
-        other_username = COALESCE(?, other_username),
-        other_display_name = COALESCE(?, other_display_name),
-        other_avatar_color = COALESCE(?, other_avatar_color),
-        other_avatar_url = COALESCE(?, other_avatar_url),
-        other_verified = COALESCE(?, other_verified),
-        last_message = COALESCE(?, last_message),
-        last_at = COALESCE(?, last_at),
-        unread_count = COALESCE(?, unread_count),
-        is_muted = COALESCE(?, is_muted),
-        is_locked = COALESCE(?, is_locked),
-        updated_at = ?
-       WHERE id = ?`,
-      [
-        c.is_group ?? null,
-        c.name ?? null,
-        c.other_user_id ?? null,
-        c.other_username ?? null,
-        c.other_display_name ?? null,
-        c.other_avatar_color ?? null,
-        c.other_avatar_url ?? null,
-        c.other_verified ?? null,
-        c.last_message ?? null,
-        c.last_at ?? null,
-        c.unread_count ?? null,
-        c.is_muted ?? null,
-        c.is_locked ?? null,
-        new Date().toISOString(),
-        c.id,
-      ]
-    );
-  } else {
-    await db.runAsync(
-      `INSERT INTO conversations (
-        id, is_group, name, other_user_id, other_username,
-        other_display_name, other_avatar_color, other_avatar_url,
-        other_verified, last_message, last_at, unread_count,
-        is_muted, is_locked, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        c.id,
-        c.is_group ?? 0,
-        c.name ?? null,
-        c.other_user_id ?? null,
-        c.other_username ?? null,
-        c.other_display_name ?? null,
-        c.other_avatar_color ?? null,
-        c.other_avatar_url ?? null,
-        c.other_verified ?? 0,
-        c.last_message ?? null,
-        c.last_at ?? null,
-        c.unread_count ?? 0,
-        c.is_muted ?? 0,
-        c.is_locked ?? 0,
-        new Date().toISOString(),
-      ]
-    );
-  }
+// ✅ NEW: batch upsert in ONE transaction (use this instead of looping dbUpsertConversation)
+export async function dbUpsertConversations(
+  list: (Partial<DBConversation> & { id: string })[]
+) {
+  if (list.length === 0) return;
+  const db = await getDB();
+  const now = new Date().toISOString();
+  await db.withTransactionAsync(async () => {
+    const stmt = await db.prepareAsync(UPSERT_CONVERSATION_SQL);
+    try {
+      for (const c of list) {
+        await stmt.executeAsync(conversationParams(c, now));
+      }
+    } finally {
+      await stmt.finalizeAsync();
+    }
+  });
 }
 
 export async function dbDeleteConversation(id: string) {
   const db = await getDB();
-  await db.runAsync(`DELETE FROM conversations WHERE id = ?`, [id]);
-  await db.runAsync(`DELETE FROM messages WHERE conversation_id = ?`, [id]);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(`DELETE FROM conversations WHERE id = ?`, [id]);
+    await db.runAsync(`DELETE FROM messages WHERE conversation_id = ?`, [id]);
+  });
 }
 
 export async function dbClearAllConversations() {
@@ -266,83 +286,87 @@ export async function dbGetMessages(
   );
 }
 
-export async function dbUpsertMessage(
-  m: Partial<DBMessage> & {
-    id: string;
-    conversation_id: string;
-    sender_id: string;
-    created_at: string;
-  }
-) {
-  const db = await getDB();
-  const existing = await db.getFirstAsync<DBMessage>(
-    `SELECT * FROM messages WHERE id = ?`,
-    [m.id]
-  );
+// ✅ FAST: ONE statement (no SELECT first). Same semantics as before.
+const UPSERT_MESSAGE_SQL = `
+  INSERT INTO messages (
+    id, conversation_id, sender_id, content, message_type,
+    media_url, media_duration, reply_to_id, is_deleted, is_edited,
+    is_pinned, reaction, read_at, delivered_at, created_at,
+    local_status, synced_at
+  ) VALUES (
+    $id, $conversation_id, $sender_id, $content, COALESCE($message_type, 'text'),
+    $media_url, $media_duration, $reply_to_id, COALESCE($is_deleted, 0),
+    COALESCE($is_edited, 0), COALESCE($is_pinned, 0), $reaction, $read_at,
+    $delivered_at, $created_at, COALESCE($local_status, 'synced'), $now
+  )
+  ON CONFLICT(id) DO UPDATE SET
+    content = COALESCE($content, content),
+    message_type = COALESCE($message_type, message_type),
+    media_url = COALESCE($media_url, media_url),
+    media_duration = COALESCE($media_duration, media_duration),
+    reply_to_id = COALESCE($reply_to_id, reply_to_id),
+    is_deleted = COALESCE($is_deleted, is_deleted),
+    is_edited = COALESCE($is_edited, is_edited),
+    is_pinned = COALESCE($is_pinned, is_pinned),
+    reaction = COALESCE($reaction, reaction),
+    read_at = COALESCE($read_at, read_at),
+    delivered_at = COALESCE($delivered_at, delivered_at),
+    local_status = COALESCE($local_status, local_status),
+    synced_at = $now
+`;
 
-  if (existing) {
-    await db.runAsync(
-      `UPDATE messages SET
-        content = COALESCE(?, content),
-        message_type = COALESCE(?, message_type),
-        media_url = COALESCE(?, media_url),
-        media_duration = COALESCE(?, media_duration),
-        reply_to_id = COALESCE(?, reply_to_id),
-        is_deleted = COALESCE(?, is_deleted),
-        is_edited = COALESCE(?, is_edited),
-        is_pinned = COALESCE(?, is_pinned),
-        reaction = COALESCE(?, reaction),
-        read_at = COALESCE(?, read_at),
-        delivered_at = COALESCE(?, delivered_at),
-        local_status = COALESCE(?, local_status),
-        synced_at = ?
-       WHERE id = ?`,
-      [
-        m.content ?? null,
-        m.message_type ?? null,
-        m.media_url ?? null,
-        m.media_duration ?? null,
-        m.reply_to_id ?? null,
-        m.is_deleted ?? null,
-        m.is_edited ?? null,
-        m.is_pinned ?? null,
-        m.reaction ?? null,
-        m.read_at ?? null,
-        m.delivered_at ?? null,
-        m.local_status ?? null,
-        new Date().toISOString(),
-        m.id,
-      ]
-    );
-  } else {
-    await db.runAsync(
-      `INSERT INTO messages (
-        id, conversation_id, sender_id, content, message_type,
-        media_url, media_duration, reply_to_id, is_deleted, is_edited,
-        is_pinned, reaction, read_at, delivered_at, created_at,
-        local_status, synced_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        m.id,
-        m.conversation_id,
-        m.sender_id,
-        m.content ?? null,
-        m.message_type ?? 'text',
-        m.media_url ?? null,
-        m.media_duration ?? null,
-        m.reply_to_id ?? null,
-        m.is_deleted ?? 0,
-        m.is_edited ?? 0,
-        m.is_pinned ?? 0,
-        m.reaction ?? null,
-        m.read_at ?? null,
-        m.delivered_at ?? null,
-        m.created_at,
-        m.local_status ?? 'synced',
-        new Date().toISOString(),
-      ]
-    );
-  }
+type MessageUpsertInput = Partial<DBMessage> & {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  created_at: string;
+};
+
+function messageParams(m: MessageUpsertInput, now: string) {
+  return {
+    $id: m.id,
+    $conversation_id: m.conversation_id,
+    $sender_id: m.sender_id,
+    $content: m.content ?? null,
+    $message_type: m.message_type ?? null,
+    $media_url: m.media_url ?? null,
+    $media_duration: m.media_duration ?? null,
+    $reply_to_id: m.reply_to_id ?? null,
+    $is_deleted: m.is_deleted ?? null,
+    $is_edited: m.is_edited ?? null,
+    $is_pinned: m.is_pinned ?? null,
+    $reaction: m.reaction ?? null,
+    $read_at: m.read_at ?? null,
+    $delivered_at: m.delivered_at ?? null,
+    $created_at: m.created_at,
+    $local_status: m.local_status ?? null,
+    $now: now,
+  };
+}
+
+export async function dbUpsertMessage(m: MessageUpsertInput) {
+  const db = await getDB();
+  await db.runAsync(
+    UPSERT_MESSAGE_SQL,
+    messageParams(m, new Date().toISOString())
+  );
+}
+
+// ✅ NEW: batch upsert in ONE transaction (use this instead of looping dbUpsertMessage)
+export async function dbUpsertMessages(list: MessageUpsertInput[]) {
+  if (list.length === 0) return;
+  const db = await getDB();
+  const now = new Date().toISOString();
+  await db.withTransactionAsync(async () => {
+    const stmt = await db.prepareAsync(UPSERT_MESSAGE_SQL);
+    try {
+      for (const m of list) {
+        await stmt.executeAsync(messageParams(m, now));
+      }
+    } finally {
+      await stmt.finalizeAsync();
+    }
+  });
 }
 
 export async function dbDeleteMessage(id: string) {
@@ -363,13 +387,15 @@ export async function dbGetPendingMessages(): Promise<DBMessage[]> {
 
 export async function dbMarkMessageSent(id: string, serverId?: string) {
   const db = await getDB();
-  if (serverId && serverId !== id) {
-    await db.runAsync(`DELETE FROM messages WHERE id = ?`, [id]);
-  }
-  await db.runAsync(
-    `UPDATE messages SET local_status = 'synced', synced_at = ? WHERE id = ?`,
-    [new Date().toISOString(), serverId ?? id]
-  );
+  await db.withTransactionAsync(async () => {
+    if (serverId && serverId !== id) {
+      await db.runAsync(`DELETE FROM messages WHERE id = ?`, [id]);
+    }
+    await db.runAsync(
+      `UPDATE messages SET local_status = 'synced', synced_at = ? WHERE id = ?`,
+      [new Date().toISOString(), serverId ?? id]
+    );
+  });
 }
 
 export async function dbMarkMessageFailed(id: string) {
