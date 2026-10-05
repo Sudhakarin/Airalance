@@ -250,6 +250,8 @@ export default function ProfileScreen() {
   const [listUsers, setListUsers] = useState<Profile[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [myFollowingIds, setMyFollowingIds] = useState<Set<string>>(new Set());
+  // ✅ users (in the opened list) who follow ME — decides "Follow back" vs "Follow"
+  const [followsMeIds, setFollowsMeIds] = useState<Set<string>>(new Set());
   const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
 
   const [dialog, setDialog] = useState<CustomDialog | null>(null);
@@ -460,10 +462,72 @@ export default function ProfileScreen() {
           .eq(match, profile.id);
 
         const ids = (rows ?? []).map((r: any) => r[column]);
+        // keep the profile counters in sync with what the list really contains
+        if (tab === 'followers') setFollowersCount(ids.length);
+        else setFollowingCount(ids.length);
+
         if (ids.length === 0) {
           setListUsers([]);
           setListLoading(false);
           return;
+        }
+
+        // ✅ FIX (wrong "Follow back"): myFollowingIds was only loaded when the profile
+        // loaded (or came from cache), so a follow done elsewhere / just now was missing
+        // → people I follow showed "Follow back". Re-read the real state from the DB
+        // for exactly the users in this list (both directions).
+        try {
+          const chunks: string[][] = [];
+          for (let i = 0; i < ids.length; i += 100) {
+            chunks.push(ids.slice(i, i + 100));
+          }
+          const [iFollowRes, followMeRes] = await Promise.all([
+            Promise.all(
+              chunks.map((ch) =>
+                supabase
+                  .from('follows')
+                  .select('followed_id')
+                  .eq('follower_id', profile.id)
+                  .in('followed_id', ch)
+              )
+            ),
+            Promise.all(
+              chunks.map((ch) =>
+                supabase
+                  .from('follows')
+                  .select('follower_id')
+                  .eq('followed_id', profile.id)
+                  .in('follower_id', ch)
+              )
+            ),
+          ]);
+
+          const failed = [...iFollowRes, ...followMeRes].some((r) => r.error);
+          if (!failed) {
+            const iFollow = new Set<string>();
+            iFollowRes.forEach((r) =>
+              (r.data ?? []).forEach((x: any) => iFollow.add(x.followed_id))
+            );
+            const followMe = new Set<string>();
+            followMeRes.forEach((r) =>
+              (r.data ?? []).forEach((x: any) => followMe.add(x.follower_id))
+            );
+
+            setMyFollowingIds((prev) => {
+              const next = new Set(prev);
+              ids.forEach((id: string) => next.delete(id));
+              iFollow.forEach((id) => next.add(id));
+              return next;
+            });
+            setFollowsMeIds((prev) => {
+              const next = new Set(prev);
+              ids.forEach((id: string) => next.delete(id));
+              followMe.forEach((id) => next.add(id));
+              return next;
+            });
+          }
+        } catch (err) {
+          console.warn('Refresh follow state error:', err);
         }
 
         const { data: profiles } = await supabase
@@ -1064,11 +1128,13 @@ export default function ProfileScreen() {
               ) : (
                 <FlatList
                   data={listUsers}
+                  extraData={{ myFollowingIds, followsMeIds, toggleLoadingId }}
                   keyExtractor={(item) => item.id}
                   contentContainerStyle={styles.listContent}
                   renderItem={({ item }) => {
                     const isMe = item.id === profile.id;
                     const isFollowing = myFollowingIds.has(item.id);
+                    const followsMe = followsMeIds.has(item.id);
                     const busy = toggleLoadingId === item.id;
 
                     return (
@@ -1128,7 +1194,11 @@ export default function ProfileScreen() {
                                     styles.followBtnSmallTextFollowing,
                                 ]}
                               >
-                                {isFollowing ? 'Following' : 'Follow back'}
+                                {isFollowing
+                                  ? 'Following'
+                                  : followsMe
+                                  ? 'Follow back'
+                                  : 'Follow'}
                               </Text>
                             )}
                           </TouchableOpacity>
