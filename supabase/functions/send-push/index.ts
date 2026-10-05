@@ -1,5 +1,5 @@
 // supabase/functions/send-push/index.ts
-// Push notification bhejne wali Edge Function (locked chat support)
+// Push notification bhejne wali Edge Function (locked chat + call support)
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -19,7 +19,8 @@ serve(async (req) => {
   }
 
   try {
-    const { userId, title, body, data } = await req.json();
+    const body_json = await req.json();
+    const { userId, title, body, data } = body_json;
 
     if (!userId || !title || !body) {
       return new Response(
@@ -48,7 +49,50 @@ serve(async (req) => {
       );
     }
 
-    // ---- Check if this is a chat message AND the receiver has locked the chat ----
+    // ============================================================
+    // CALL NOTIFICATION (incoming call)
+    // ============================================================
+    if (data?.screen === 'call' && data?.callId) {
+      const payload = {
+        to: profile.expo_push_token,
+        sound: 'default',
+        title,
+        body,
+        priority: 'high',
+        channelId: 'calls', // Android high-priority channel
+        categoryId: 'incoming_call', // iOS category
+        vibrate: [0, 1000, 1000, 1000],
+        interruptionLevel: 'timeSensitive', // iOS 15+ — breaks through DND
+        ttl: 60, // call notification expires after 60 sec (matches ring timeout)
+        data: {
+          screen: 'call',
+          callId: data.callId,
+          callerId: data.callerId,
+          callType: data.callType,
+          role: 'receiver',
+        },
+      };
+
+      const response = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Accept-Encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const result = await response.json();
+      return new Response(JSON.stringify({ ...result, type: 'call' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ============================================================
+    // CHAT MESSAGE (existing logic + locked chat handling)
+    // ============================================================
     let finalTitle = title;
     let finalBody = body;
     let finalData: Record<string, unknown> = { ...(data || {}) };
@@ -65,7 +109,6 @@ serve(async (req) => {
 
       if (settings?.is_locked === true) {
         isLockedChat = true;
-        // WhatsApp-style generic notification for locked chats
         finalTitle = 'Airalance';
         finalBody = '1 new message';
         finalData = {
