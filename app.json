@@ -15,7 +15,8 @@
       "bundleIdentifier": "com.airalance.app",
       "buildNumber": "1",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Airalance needs microphone access to send voice messages."
+        "NSMicrophoneUsageDescription": "Airalance needs microphone access to send voice messages and make calls.",
+        "NSCameraUsageDescription": "Airalance needs camera access for video calls."
       }
     },
     "android": {
@@ -27,7 +28,11 @@
         "NOTIFICATIONS",
         "POST_NOTIFICATIONS",
         "VIBRATE",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "CAMERA",
+        "MODIFY_AUDIO_SETTINGS",
+        "BLUETOOTH",
+        "BLUETOOTH_CONNECT"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -66,7 +71,8 @@
         }
       ],
       "expo-video",
-      "expo-sqlite"
+      "expo-sqlite",
+      "@config-plugins/react-native-webrtc"
     ],
     "extra": {
       "router": {
