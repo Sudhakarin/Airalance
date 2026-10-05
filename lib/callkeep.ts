@@ -1,15 +1,16 @@
 // lib/callkeep.ts
 // react-native-callkeep setup + event handlers
+// ✅ Web-safe: react-native-callkeep is native-only
 
 import { Platform } from 'react-native';
-import { RNCallKeep } from 'react-native-callkeep';
 
-// ✅ Web-safe
+// ✅ Web-safe: load callkeep only on native
 let RNCallKeepModule: any = null;
 if (Platform.OS !== 'web') {
   try {
     const CallKeep = require('react-native-callkeep');
-    RNCallKeepModule = CallKeep.default ?? CallKeep;
+    // Module can be either default export or the module itself
+    RNCallKeepModule = CallKeep?.default ?? CallKeep;
   } catch (err) {
     console.warn('[callkeep] not available:', err);
   }
