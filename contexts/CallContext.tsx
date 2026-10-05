@@ -1,0 +1,599 @@
+// contexts/CallContext.tsx
+// Global WebRTC call state — incoming/outgoing/active call management
+
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  ReactNode,
+} from 'react';
+import { useRouter } from 'expo-router';
+import { RTCPeerConnection, MediaStream } from 'react-native-webrtc';
+import { supabase } from '../lib/supabase';
+import { getCurrentUserId } from '../lib/auth';
+import {
+  createCall,
+  acceptCall as apiAcceptCall,
+  rejectCall as apiRejectCall,
+  cancelCall as apiCancelCall,
+  endCall as apiEndCall,
+  subscribeToCall,
+  subscribeToIncomingCalls,
+  Call,
+  CallType,
+} from '../lib/call';
+import {
+  createPeerConnection,
+  getLocalStream,
+  stopStream,
+  serializeSdp,
+  deserializeSdp,
+  serializeIce,
+  deserializeIce,
+} from '../lib/webrtc';
+import { hapticMedium, hapticSuccess, hapticError } from '../lib/haptics';
+
+// ============================================================
+// Types
+// ============================================================
+
+export type CallState =
+  | 'idle'        // no call
+  | 'calling'     // outgoing, waiting for accept
+  | 'ringing'     // incoming, need to accept/reject
+  | 'connecting'  // accepted, establishing WebRTC
+  | 'active'      // call in progress
+  | 'ended';      // call just ended (transient)
+
+type CallContextValue = {
+  // state
+  callState: CallState;
+  currentCall: Call | null;
+  localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
+  isMuted: boolean;
+  isSpeakerOn: boolean;
+  isVideoEnabled: boolean;
+  remoteUserInfo: { id: string; name: string; avatar: string | null } | null;
+
+  // actions
+  startCall: (
+    receiverId: string,
+    callType: CallType,
+    receiverInfo: { name: string; avatar: string | null }
+  ) => Promise<void>;
+  acceptIncomingCall: () => Promise<void>;
+  rejectIncomingCall: () => Promise<void>;
+  endCurrentCall: () => Promise<void>;
+  toggleMute: () => void;
+  toggleSpeaker: () => void;
+  toggleVideo: () => void;
+};
+
+const CallContext = createContext<CallContextValue | null>(null);
+
+// ============================================================
+// Provider
+// ============================================================
+
+const RING_TIMEOUT_MS = 60000; // auto-cancel after 60s ringing
+
+export function CallProvider({ children }: { children: ReactNode }) {
+  const router = useRouter();
+
+  const [callState, setCallState] = useState<CallState>('idle');
+  const [currentCall, setCurrentCall] = useState<Call | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(false);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(false);
+  const [remoteUserInfo, setRemoteUserInfo] = useState<{
+    id: string;
+    name: string;
+    avatar: string | null;
+  } | null>(null);
+
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const callIdRef = useRef<string | null>(null);
+  const unsubCallRef = useRef<(() => void) | null>(null);
+  const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const iceCandidateQueueRef = useRef<any[]>([]);
+  const remoteDescSetRef = useRef(false);
+  const myIdRef = useRef<string | null>(null);
+
+  // ------------------------------------------------------------
+  // Cleanup
+  // ------------------------------------------------------------
+  const cleanup = useCallback(() => {
+    if (ringTimeoutRef.current) {
+      clearTimeout(ringTimeoutRef.current);
+      ringTimeoutRef.current = null;
+    }
+    if (unsubCallRef.current) {
+      unsubCallRef.current();
+      unsubCallRef.current = null;
+    }
+    if (pcRef.current) {
+      try {
+        pcRef.current.close();
+      } catch {}
+      pcRef.current = null;
+    }
+    if (localStreamRef.current) {
+      stopStream(localStreamRef.current);
+      localStreamRef.current = null;
+    }
+    iceCandidateQueueRef.current = [];
+    remoteDescSetRef.current = false;
+    callIdRef.current = null;
+    setLocalStream(null);
+    setRemoteStream(null);
+    setIsMuted(false);
+    setIsSpeakerOn(false);
+    setIsVideoEnabled(false);
+  }, []);
+
+  // ------------------------------------------------------------
+  // Init — get my user id
+  // ------------------------------------------------------------
+  useEffect(() => {
+    (async () => {
+      const uid = await getCurrentUserId();
+      myIdRef.current = uid;
+    })();
+  }, []);
+
+  // ------------------------------------------------------------
+  // Subscribe to incoming calls (always active)
+  // ------------------------------------------------------------
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+
+    (async () => {
+      const uid = await getCurrentUserId();
+      if (!uid) return;
+      myIdRef.current = uid;
+
+      unsub = subscribeToIncomingCalls(uid, async (incomingCall) => {
+        // Ignore if already in a call
+        if (callState !== 'idle') return;
+
+        // Ignore if call is old (> 30 sec ago)
+        const age = Date.now() - new Date(incomingCall.created_at).getTime();
+        if (age > 30000) return;
+
+        // Fetch caller info
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id, display_name, avatar_url')
+          .eq('id', incomingCall.caller_id)
+          .single();
+
+        setRemoteUserInfo({
+          id: incomingCall.caller_id,
+          name: profile?.display_name ?? 'Unknown',
+          avatar: profile?.avatar_url ?? null,
+        });
+
+        setCurrentCall(incomingCall);
+        callIdRef.current = incomingCall.id;
+        setCallState('ringing');
+        hapticMedium();
+
+        // Navigate to call screen
+        router.push(
+          `/call/${incomingCall.id}?role=receiver&type=${incomingCall.call_type}`
+        );
+      });
+    })();
+
+    return () => {
+      if (unsub) unsub();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ------------------------------------------------------------
+  // Setup peer connection + listeners
+  // ------------------------------------------------------------
+  const setupPeerConnection = useCallback(
+    async (
+      callId: string,
+      isCaller: boolean,
+      callType: CallType,
+      initialOffer?: any
+    ) => {
+      // create pc
+      const pc = createPeerConnection();
+      pcRef.current = pc;
+
+      // get local media
+      const stream = await getLocalStream(callType === 'video');
+      localStreamRef.current = stream;
+      setLocalStream(stream);
+
+      // add tracks to pc
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
+      });
+
+      // remote stream
+      const remote = new MediaStream();
+      setRemoteStream(remote);
+
+      // @ts-ignore — onaddstream is older API but still works on RN
+      pc.addEventListener('track', (event: any) => {
+        if (event.streams && event.streams[0]) {
+          setRemoteStream(event.streams[0]);
+        } else if (event.track) {
+          remote.addTrack(event.track);
+        }
+      });
+
+      // ICE candidates
+      pc.addEventListener('icecandidate', async (event: any) => {
+        if (!event.candidate) return;
+        try {
+          // Send ICE via realtime broadcast (not DB)
+          const channel = supabase.channel(`call-signal:${callId}`);
+          await channel.send({
+            type: 'broadcast',
+            event: 'ice-candidate',
+            payload: {
+              from: myIdRef.current,
+              candidate: serializeIce(event.candidate),
+            },
+          });
+        } catch (err) {
+          console.warn('[call] ICE send error:', err);
+        }
+      });
+
+      // Connection state monitoring
+      pc.addEventListener('connectionstatechange', () => {
+        const state = pc.connectionState;
+        if (state === 'connected') {
+          setCallState('active');
+        } else if (
+          state === 'failed' ||
+          state === 'disconnected' ||
+          state === 'closed'
+        ) {
+          // Auto-end on disconnect
+          if (callIdRef.current) {
+            apiEndCall(callIdRef.current, myIdRef.current ?? '').catch(() => {});
+          }
+          setCallState('ended');
+          setTimeout(() => {
+            cleanup();
+            setCallState('idle');
+            setCurrentCall(null);
+            setRemoteUserInfo(null);
+          }, 1500);
+        }
+      });
+
+      // Signaling channel (broadcast for ICE exchange)
+      const signalChannel = supabase
+        .channel(`call-signal:${callId}`)
+        .on('broadcast', { event: 'ice-candidate' }, async ({ payload }: any) => {
+          if (!payload || payload.from === myIdRef.current) return;
+          const candidate = deserializeIce(payload.candidate);
+          if (pc.remoteDescription) {
+            try {
+              await pc.addIceCandidate(candidate);
+            } catch (err) {
+              console.warn('[call] addIceCandidate error:', err);
+            }
+          } else {
+            iceCandidateQueueRef.current.push(candidate);
+          }
+        })
+        .subscribe();
+
+      // Caller: create offer and send
+      if (isCaller) {
+        const offer = await pc.createOffer({});
+        await pc.setLocalDescription(offer);
+        const sdp = serializeSdp(pc.localDescription);
+        return { pc, sdp };
+      } else if (initialOffer) {
+        // Receiver: apply offer, create answer
+        await pc.setRemoteDescription(deserializeSdp(initialOffer));
+        remoteDescSetRef.current = true;
+
+        // Flush queued ICE
+        for (const c of iceCandidateQueueRef.current) {
+          try {
+            await pc.addIceCandidate(c);
+          } catch {}
+        }
+        iceCandidateQueueRef.current = [];
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        const sdp = serializeSdp(pc.localDescription);
+        return { pc, sdp };
+      }
+
+      return { pc, sdp: null };
+    },
+    [cleanup]
+  );
+
+  // ------------------------------------------------------------
+  // Start outgoing call
+  // ------------------------------------------------------------
+  const startCall = useCallback(
+    async (
+      receiverId: string,
+      callType: CallType,
+      receiverInfo: { name: string; avatar: string | null }
+    ) => {
+      if (callState !== 'idle') return;
+      const myId = myIdRef.current ?? (await getCurrentUserId());
+      if (!myId) return;
+      myIdRef.current = myId;
+
+      setRemoteUserInfo({
+        id: receiverId,
+        name: receiverInfo.name,
+        avatar: receiverInfo.avatar,
+      });
+
+      try {
+        // Create call row first (with placeholder offer)
+        setCallState('calling');
+
+        // Setup PC + generate offer
+        const tempCallId = `pending-${Date.now()}`;
+        const { sdp } = await setupPeerConnection(
+          tempCallId,
+          true,
+          callType
+        );
+
+        if (!sdp) throw new Error('No SDP generated');
+
+        // Create call in DB
+        const call = await createCall(myId, receiverId, callType, sdp);
+        callIdRef.current = call.id;
+        setCurrentCall(call);
+        setIsVideoEnabled(callType === 'video');
+
+        // Subscribe to call updates (accepted/rejected/ended)
+        unsubCallRef.current = subscribeToCall(call.id, async (updated) => {
+          if (updated.status === 'accepted' && updated.answer) {
+            // Apply answer
+            const pc = pcRef.current;
+            if (pc && !pc.remoteDescription) {
+              await pc.setRemoteDescription(
+                deserializeSdp(updated.answer)
+              );
+              remoteDescSetRef.current = true;
+
+              // Flush ICE queue
+              for (const c of iceCandidateQueueRef.current) {
+                try {
+                  await pc.addIceCandidate(c);
+                } catch {}
+              }
+              iceCandidateQueueRef.current = [];
+            }
+            setCallState('connecting');
+          } else if (updated.status === 'rejected') {
+            hapticError();
+            setCallState('ended');
+            setTimeout(() => {
+              cleanup();
+              setCallState('idle');
+              setCurrentCall(null);
+              setRemoteUserInfo(null);
+            }, 1500);
+          } else if (
+            updated.status === 'ended' ||
+            updated.status === 'cancelled'
+          ) {
+            setCallState('ended');
+            setTimeout(() => {
+              cleanup();
+              setCallState('idle');
+              setCurrentCall(null);
+              setRemoteUserInfo(null);
+            }, 1500);
+          } else if (updated.status === 'missed') {
+            hapticError();
+            setCallState('ended');
+            setTimeout(() => {
+              cleanup();
+              setCallState('idle');
+              setCurrentCall(null);
+              setRemoteUserInfo(null);
+            }, 1500);
+          }
+        });
+
+        // Ring timeout
+        ringTimeoutRef.current = setTimeout(async () => {
+          try {
+            await apiCancelCall(call.id, myId);
+          } catch {}
+          cleanup();
+          setCallState('idle');
+          setCurrentCall(null);
+          setRemoteUserInfo(null);
+        }, RING_TIMEOUT_MS);
+
+        // Navigate to call screen
+        router.push(
+          `/call/${call.id}?role=caller&type=${callType}`
+        );
+      } catch (err) {
+        console.warn('[call] startCall error:', err);
+        hapticError();
+        cleanup();
+        setCallState('idle');
+        setCurrentCall(null);
+        setRemoteUserInfo(null);
+      }
+    },
+    [callState, cleanup, router, setupPeerConnection]
+  );
+
+  // ------------------------------------------------------------
+  // Accept incoming call
+  // ------------------------------------------------------------
+  const acceptIncomingCall = useCallback(async () => {
+    if (callState !== 'ringing' || !currentCall) return;
+
+    if (ringTimeoutRef.current) {
+      clearTimeout(ringTimeoutRef.current);
+      ringTimeoutRef.current = null;
+    }
+
+    try {
+      setCallState('connecting');
+
+      const { sdp } = await setupPeerConnection(
+        currentCall.id,
+        false,
+        currentCall.call_type,
+        currentCall.offer
+      );
+
+      if (!sdp) throw new Error('No answer SDP');
+
+      await apiAcceptCall(currentCall.id, sdp);
+      setIsVideoEnabled(currentCall.call_type === 'video');
+      hapticSuccess();
+    } catch (err) {
+      console.warn('[call] accept error:', err);
+      hapticError();
+      try {
+        await apiRejectCall(currentCall.id);
+      } catch {}
+      cleanup();
+      setCallState('idle');
+      setCurrentCall(null);
+      setRemoteUserInfo(null);
+      router.back();
+    }
+  }, [callState, currentCall, cleanup, router, setupPeerConnection]);
+
+  // ------------------------------------------------------------
+  // Reject incoming call
+  // ------------------------------------------------------------
+  const rejectIncomingCall = useCallback(async () => {
+    if (!currentCall) return;
+    try {
+      await apiRejectCall(currentCall.id);
+    } catch {}
+    cleanup();
+    setCallState('idle');
+    setCurrentCall(null);
+    setRemoteUserInfo(null);
+    router.back();
+  }, [currentCall, cleanup, router]);
+
+  // ------------------------------------------------------------
+  // End current call
+  // ------------------------------------------------------------
+  const endCurrentCall = useCallback(async () => {
+    const myId = myIdRef.current;
+    const call = currentCall;
+    if (!call) return;
+
+    try {
+      if (call.status === 'ringing' && call.caller_id === myId) {
+        await apiCancelCall(call.id, myId);
+      } else {
+        await apiEndCall(call.id, myId ?? '');
+      }
+    } catch (err) {
+      console.warn('[call] end error:', err);
+    }
+
+    cleanup();
+    setCallState('idle');
+    setCurrentCall(null);
+    setRemoteUserInfo(null);
+    router.back();
+  }, [currentCall, cleanup, router]);
+
+  // ------------------------------------------------------------
+  // Toggle controls
+  // ------------------------------------------------------------
+  const toggleMute = useCallback(() => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    const audioTrack = stream.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !audioTrack.enabled;
+      setIsMuted(!audioTrack.enabled);
+    }
+  }, []);
+
+  const toggleSpeaker = useCallback(() => {
+    setIsSpeakerOn((prev) => !prev);
+  }, []);
+
+  const toggleVideo = useCallback(() => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      setIsVideoEnabled(videoTrack.enabled);
+    }
+  }, []);
+
+  // ------------------------------------------------------------
+  // Cleanup on unmount
+  // ------------------------------------------------------------
+  useEffect(() => {
+    return () => {
+      cleanup();
+    };
+  }, [cleanup]);
+
+  const value: CallContextValue = {
+    callState,
+    currentCall,
+    localStream,
+    remoteStream,
+    isMuted,
+    isSpeakerOn,
+    isVideoEnabled,
+    remoteUserInfo,
+    startCall,
+    acceptIncomingCall,
+    rejectIncomingCall,
+    endCurrentCall,
+    toggleMute,
+    toggleSpeaker,
+    toggleVideo,
+  };
+
+  return (
+    <CallContext.Provider value={value}>
+      {children}
+    </CallContext.Provider>
+  );
+}
+
+// ============================================================
+// Hook
+// ============================================================
+
+export function useCall(): CallContextValue {
+  const ctx = useContext(CallContext);
+  if (!ctx) {
+    throw new Error('useCall must be used within CallProvider');
+  }
+  return ctx;
+}
