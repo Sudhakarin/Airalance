@@ -2,7 +2,7 @@
 // Root layout — fonts, auth, theme, navigation stack, push notifications, sounds, SQLite init, network tracker, stale cache cleanup
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Platform, AppState, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -91,6 +91,7 @@ function AppLoadingSkeleton() {
 }
 
 export default function RootLayout() {
+  const router = useRouter();
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -227,12 +228,29 @@ export default function RootLayout() {
 
       if (Platform.OS === 'android') {
         try {
+          // ✅ Default channel — messages/notifications
           await Notifications.setNotificationChannelAsync('default', {
             name: 'Notifications',
             importance: Notifications.AndroidImportance.MAX,
             vibrationPattern: [0, 250, 250, 250],
             lightColor: '#7C5CFF',
             sound: 'default',
+          });
+
+          // ✅ Calls channel — high priority, ring-like behavior
+          await Notifications.setNotificationChannelAsync('calls', {
+            name: 'Incoming calls',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 1000, 1000, 1000],
+            lightColor: '#22C55E',
+            sound: 'default',
+            bypassDnd: true,
+            lockscreenVisibility:
+              Notifications.AndroidNotificationVisibility.PUBLIC,
+            audioAttributes: {
+              usage: Notifications.AndroidAudioUsage.VOICE_COMMUNICATION,
+              contentType: Notifications.AndroidAudioContentType.SPEECH,
+            },
           });
         } catch (e) {
           console.warn('[push] Channel register failed:', e);
@@ -278,6 +296,28 @@ export default function RootLayout() {
       cancelled = true;
     };
   }, [authReady, userId]);
+
+  // ---------- Notification tap handler (navigate to call/chat) ----------
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const data = response.notification.request.content.data as any;
+        if (!data) return;
+
+        // ✅ Incoming call — navigate to call screen
+        if (data.screen === 'call' && data.callId) {
+          const params = new URLSearchParams({
+            role: 'receiver',
+            type: data.callType ?? 'audio',
+          });
+          router.push(`/call/${data.callId}?${params.toString()}`);
+        }
+        // Chat navigation already handled elsewhere (if exists)
+      }
+    );
+
+    return () => sub.remove();
+  }, [router]);
 
   // ---------- Hide splash when fonts ready (skeleton takes over during auth) ----------
   const onLayoutRootView = useCallback(async () => {
