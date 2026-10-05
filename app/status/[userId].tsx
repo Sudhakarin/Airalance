@@ -14,6 +14,8 @@ import {
   FlatList,
   Animated,
   useWindowDimensions,
+  TextInput,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -137,6 +139,52 @@ async function writeStatusesCache(userId: string, statuses: Status[]) {
 // ============================================================
 // Video player
 // ============================================================
+// ============================================================
+// Conversation helpers (same logic as the profile screen's "Message")
+// ============================================================
+async function findSharedConversation(
+  myId: string,
+  otherId: string
+): Promise<string | null> {
+  try {
+    const { data: mine } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', myId);
+    const myIds = (mine ?? []).map((r: any) => r.conversation_id);
+    if (myIds.length === 0) return null;
+    const { data: theirs } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', otherId)
+      .in('conversation_id', myIds);
+    return theirs && theirs.length > 0 ? theirs[0].conversation_id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function findOrCreateConversation(
+  myId: string,
+  otherId: string
+): Promise<string | null> {
+  const existing = await findSharedConversation(myId, otherId);
+  if (existing) return existing;
+
+  const { data: convo, error } = await supabase
+    .from('conversations')
+    .insert({ is_group: false, created_by: myId })
+    .select()
+    .single();
+  if (error || !convo) return null;
+
+  await supabase.from('conversation_participants').insert([
+    { conversation_id: convo.id, user_id: myId },
+    { conversation_id: convo.id, user_id: otherId },
+  ]);
+  return convo.id as string;
+}
+
 function StatusVideoPlayer({
   uri,
   paused,
@@ -346,10 +394,18 @@ export default function StatusViewerScreen() {
   const [liked, setLiked] = useState(false);
   const [likeLoading, setLikeLoading] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
-  const [followLoading, setFollowLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('loading');
   const [connectPopup, setConnectPopup] = useState<'ask' | 'pending' | 'declined' | null>(null);
   const [sendingRequest, setSendingRequest] = useState(false);
+
+  // ✅ reply to status (opens a message in the DM chat)
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [replySending, setReplySending] = useState(false);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ✅ null = still checking, true = viewer does NOT follow the poster (can't see status)
+  const [blocked, setBlocked] = useState<boolean | null>(null);
 
   const [paused, setPaused] = useState(false);
   const [online, setOnline] = useState(isOnline());
@@ -471,10 +527,12 @@ export default function StatusViewerScreen() {
     if (!myId || !userId || myId === userId) {
       setIsFollowing(false);
       setConnectionStatus('none');
+      if (myId && myId === userId) setBlocked(false);
       return;
     }
     if (!online) {
       setConnectionStatus('none');
+      setBlocked(false); // can't verify offline — server rules still protect the data
       return;
     }
     let cancelled = false;
@@ -492,25 +550,32 @@ export default function StatusViewerScreen() {
             .select('status')
             .or(
               `and(from_user_id.eq.${myId},to_user_id.eq.${userId}),and(from_user_id.eq.${userId},to_user_id.eq.${myId})`
-            )
-            .maybeSingle(),
+            ),
         ]);
         if (cancelled) return;
         setIsFollowing(!!followRes.data);
+        // ✅ only followers may watch a status
+        setBlocked(followRes.error ? false : !followRes.data);
 
-        if (reqRes.data) {
-          const s = reqRes.data.status;
-          if (s === 'accepted') setConnectionStatus('connected');
-          else if (s === 'pending') setConnectionStatus('pending');
-          else if (s === 'declined') setConnectionStatus('declined');
-          else setConnectionStatus('none');
-        } else {
-          setConnectionStatus('none');
+        // ✅ there can be 2 rows (each user sent one) → accepted wins over pending over declined
+        const reqStatuses = ((reqRes.data ?? []) as any[]).map((r) => r.status);
+        let conn: ConnectionStatus = 'none';
+        if (reqStatuses.includes('accepted')) conn = 'connected';
+        else if (reqStatuses.includes('pending')) conn = 'pending';
+        else if (reqStatuses.includes('declined')) conn = 'declined';
+
+        // already chatting = connected (same rule as the profile screen)
+        if (conn !== 'connected') {
+          const shared = await findSharedConversation(myId, userId);
+          if (cancelled) return;
+          if (shared) conn = 'connected';
         }
+        setConnectionStatus(conn);
       } catch {
         if (!cancelled) {
           setIsFollowing(false);
           setConnectionStatus('none');
+          setBlocked(false); // network glitch: don't wrongly lock the status
         }
       }
     })();
@@ -556,6 +621,8 @@ export default function StatusViewerScreen() {
 
   async function toggleLike() {
     if (!myId || likeLoading) return;
+    // ✅ like / reply only for connected users
+    if (connectionStatus !== 'connected') return;
     if (!isOnline()) {
       hapticError();
       return;
@@ -588,48 +655,82 @@ export default function StatusViewerScreen() {
     }
   }
 
-  async function toggleFollow() {
-    if (!myId || followLoading || myId === userId) return;
+  function showToast(msg: string) {
+    setToastMsg(msg);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMsg(null), 1800);
+  }
+
+  function openReply() {
+    if (connectionStatus !== 'connected') return;
+    hapticLight();
+    pause();
+    setReplyOpen(true);
+  }
+
+  function closeReply() {
+    setReplyOpen(false);
+    resume();
+  }
+
+  // ✅ Send the reply as a normal chat message that carries a snapshot of the status
+  async function sendStatusReply() {
+    const text = replyText.trim();
+    const cur = statuses[index];
+    if (!text || replySending || !myId || !userId || !cur || myId === userId) return;
+    if (connectionStatus !== 'connected') return;
     if (!isOnline()) {
       hapticError();
+      showToast('No internet connection');
       return;
     }
-    setFollowLoading(true);
-    const was = isFollowing;
-    setIsFollowing(!was);
-    hapticLight();
 
+    setReplySending(true);
     try {
-      if (was) {
-        await supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', myId)
-          .eq('followed_id', userId);
-      } else {
-        const { error } = await supabase
-          .from('follows')
-          .insert({ follower_id: myId, followed_id: userId });
-        if (error) throw error;
+      const convoId = await findOrCreateConversation(myId, userId);
+      if (!convoId) throw new Error('conversation not available');
 
-        try {
-          await supabase.functions.invoke('send-push', {
-            body: {
-              userId,
-              title: 'New follower',
-              body: `${myDisplayName || 'Someone'} started following you`,
-              data: { screen: 'profile', userId: myId },
-            },
-          });
-        } catch {}
-      }
+      const mediaType: 'image' | 'video' | 'text' =
+        cur.media_type ?? (cur.media_url ? 'image' : 'text');
+
+      const { error } = await supabase.from('messages').insert({
+        conversation_id: convoId,
+        sender_id: myId,
+        content: text,
+        message_type: 'text',
+        status_reply: {
+          status_id: cur.id,
+          owner_id: userId,
+          media_type: mediaType,
+          media_url: mediaType === 'image' ? cur.media_url : null,
+          text_content: cur.text_content,
+          bg_color: cur.bg_color,
+        },
+      });
+      if (error) throw error;
+
       hapticSuccess();
+      setReplyText('');
+      setReplyOpen(false);
+      resume();
+      showToast('Reply sent');
+
+      try {
+        await supabase.functions.invoke('send-push', {
+          body: {
+            userId,
+            title: myDisplayName || 'Someone',
+            body: `Replied to your status: ${text.slice(0, 80)}`,
+            data: { screen: 'chat', chatId: convoId },
+          },
+        });
+      } catch {}
     } catch (err) {
-      console.warn('Follow toggle error:', err);
-      setIsFollowing(was);
+      console.warn('Status reply error:', err);
       hapticError();
+      showToast("Couldn't send reply");
     } finally {
-      setFollowLoading(false);
+      setReplySending(false);
     }
   }
 
@@ -1036,6 +1137,30 @@ export default function StatusViewerScreen() {
     );
   }
 
+  // ✅ Still checking whether I follow this person
+  if (blocked === null && online && myId !== userId) {
+    return (
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator color={COLORS.violet} />
+      </View>
+    );
+  }
+
+  // ✅ Not following the poster → the status must not be visible at all
+  if (blocked) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <View style={styles.emptyWrap}>
+          <Ionicons name="lock-closed-outline" size={44} color={COLORS.mist} />
+          <Text style={styles.emptyText}>This status is not available</Text>
+          <TouchableOpacity style={styles.emptyBtn} onPress={safeGoBack}>
+            <Text style={styles.emptyBtnText}>Go back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (statuses.length === 0) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -1240,7 +1365,7 @@ export default function StatusViewerScreen() {
               <TouchableOpacity
                 style={styles.replyBar}
                 activeOpacity={0.7}
-                onPress={() => {}}
+                onPress={openReply}
               >
                 <Text style={styles.replyPlaceholder}>Reply to status…</Text>
               </TouchableOpacity>
@@ -1290,30 +1415,12 @@ export default function StatusViewerScreen() {
                   />
                   <Text style={styles.connectBtnText}>
                     {connectionStatus === 'pending'
-                      ? 'Sent'
+                      ? 'Request sent'
                       : connectionStatus === 'declined'
-                      ? 'Declined'
-                      : 'Connect'}
+                      ? 'Request declined'
+                      : 'Connect to reply'}
                   </Text>
                 </LinearGradient>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.followBtn,
-                  isFollowing && styles.followBtnFollowing,
-                ]}
-                onPress={toggleFollow}
-                activeOpacity={0.85}
-                disabled={followLoading}
-              >
-                {followLoading ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.followBtnText}>
-                    {isFollowing ? 'Unfollow' : 'Follow'}
-                  </Text>
-                )}
               </TouchableOpacity>
             </View>
           )}
@@ -1438,6 +1545,98 @@ export default function StatusViewerScreen() {
             </Pressable>
           </Pressable>
         </BlurView>
+      </Modal>
+
+      {toastMsg && (
+        <View style={styles.toast} pointerEvents="none">
+          <Text style={styles.toastText}>{toastMsg}</Text>
+        </View>
+      )}
+
+      <Modal
+        visible={replyOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={closeReply}
+      >
+        <KeyboardAvoidingView
+          style={styles.replyModalWrap}
+          behavior="padding"
+        >
+          <Pressable style={styles.replyBackdrop} onPress={closeReply} />
+          <View style={styles.replySheet}>
+            <View style={styles.replyContext}>
+              {current.media_type === 'image' && current.media_url ? (
+                <Image
+                  source={{ uri: current.media_url }}
+                  style={styles.replyThumb}
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.replyThumb,
+                    {
+                      backgroundColor:
+                        current.media_type === 'video'
+                          ? '#1B1E29'
+                          : current.bg_color ?? COLORS.violet,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={current.media_type === 'video' ? 'play' : 'text'}
+                    size={14}
+                    color="#FFFFFF"
+                  />
+                </View>
+              )}
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.replyContextTitle} numberOfLines={1}>
+                  {`Replying to ${profile?.display_name ?? 'status'}`}
+                </Text>
+                <Text style={styles.replyContextSub} numberOfLines={1}>
+                  {current.text_content?.trim() ||
+                    (current.media_type === 'video'
+                      ? '🎥 Video'
+                      : current.media_type === 'image'
+                      ? '📷 Photo'
+                      : 'Status')}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.replyInputRow}>
+              <TextInput
+                style={styles.replyInput}
+                value={replyText}
+                onChangeText={setReplyText}
+                placeholder="Reply to status…"
+                placeholderTextColor="rgba(255,255,255,0.45)"
+                autoFocus
+                multiline
+                maxLength={1000}
+              />
+              <TouchableOpacity
+                style={[
+                  styles.replySendBtn,
+                  (!replyText.trim() || replySending) && { opacity: 0.4 },
+                ]}
+                onPress={sendStatusReply}
+                disabled={!replyText.trim() || replySending}
+                activeOpacity={0.8}
+              >
+                {replySending ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons name="send" size={18} color="#FFFFFF" />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {connectPopup && (
@@ -1737,6 +1936,86 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
+  },
+
+  // reply composer
+  replyModalWrap: { flex: 1, justifyContent: 'flex-end' },
+  replyBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  replySheet: {
+    backgroundColor: '#12141C',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 14,
+    gap: 12,
+  },
+  replyContext: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  replyThumb: { width: 38, height: 38, borderRadius: 8 },
+  replyContextTitle: {
+    color: COLORS.violetLight,
+    fontSize: 12,
+    fontFamily: FONTS.bodySemiBold,
+  },
+  replyContextSub: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12.5,
+    fontFamily: FONTS.body,
+    marginTop: 1,
+  },
+  replyInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  replyInput: {
+    flex: 1,
+    maxHeight: 110,
+    minHeight: 42,
+    borderRadius: 21,
+    paddingHorizontal: 16,
+    paddingTop: 11,
+    paddingBottom: 11,
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontFamily: FONTS.body,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  replySendBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.violet,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toast: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    bottom: 110,
+    alignItems: 'center',
+  },
+  toastText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontFamily: FONTS.bodySemiBold,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(30,32,42,0.95)',
   },
 
   replyBar: {
