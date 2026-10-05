@@ -53,6 +53,7 @@ import TypingDots from '../../components/TypingDots';
 import {
   dbGetMessages,
   dbUpsertMessage,
+  dbUpsertMessages,
   dbDeleteMessage,
   dbGetPendingMessages,
   dbGetConversation,
@@ -155,9 +156,7 @@ function messageToDbRow(m: Message) {
 
 async function persistMessages(list: Message[]) {
   try {
-    for (const m of list) {
-      await dbUpsertMessage(messageToDbRow(m));
-    }
+    await dbUpsertMessages(list.map(messageToDbRow));
   } catch (err) {
     console.warn('[chat] persistMessages error:', err);
   }
