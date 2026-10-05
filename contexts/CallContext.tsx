@@ -61,15 +61,14 @@ const MediaStream: any = RNWebRTC?.MediaStream;
 // ============================================================
 
 export type CallState =
-  | 'idle'        // no call
-  | 'calling'     // outgoing, waiting for accept
-  | 'ringing'     // incoming, need to accept/reject
-  | 'connecting'  // accepted, establishing WebRTC
-  | 'active'      // call in progress
-  | 'ended';      // call just ended (transient)
+  | 'idle'
+  | 'calling'
+  | 'ringing'
+  | 'connecting'
+  | 'active'
+  | 'ended';
 
 type CallContextValue = {
-  // state
   callState: CallState;
   currentCall: Call | null;
   localStream: any | null;
@@ -79,7 +78,6 @@ type CallContextValue = {
   isVideoEnabled: boolean;
   remoteUserInfo: { id: string; name: string; avatar: string | null } | null;
 
-  // actions
   startCall: (
     receiverId: string,
     callType: CallType,
@@ -95,11 +93,7 @@ type CallContextValue = {
 
 const CallContext = createContext<CallContextValue | null>(null);
 
-// ============================================================
-// Provider
-// ============================================================
-
-const RING_TIMEOUT_MS = 60000; // auto-cancel after 60s ringing
+const RING_TIMEOUT_MS = 60000;
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -127,7 +121,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const myIdRef = useRef<string | null>(null);
 
   // ------------------------------------------------------------
-  // Setup CallKeep (native incoming call UI)
+  // Setup CallKeep
   // ------------------------------------------------------------
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -140,11 +134,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
     })();
 
-    // Register CallKeep event handlers (native UI actions)
     const unregister = registerCallKeepEvents({
       onAnswerCall: (callId) => {
         console.log('[call] user answered via CallKeep:', callId);
-        // Native UI already accepted — CallContext will sync via realtime
       },
       onEndCall: (callId) => {
         console.log('[call] user ended via CallKeep:', callId);
@@ -183,14 +175,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       stopStream(localStreamRef.current);
       localStreamRef.current = null;
     }
-
-    // ✅ End CallKeep UI if active
     if (callIdRef.current) {
       try {
         endCallKeep(callIdRef.current);
       } catch {}
     }
-
     iceCandidateQueueRef.current = [];
     remoteDescSetRef.current = false;
     callIdRef.current = null;
@@ -212,7 +201,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ------------------------------------------------------------
-  // Subscribe to incoming calls (always active)
+  // Subscribe to incoming calls
   // ------------------------------------------------------------
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -223,14 +212,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       myIdRef.current = uid;
 
       unsub = subscribeToIncomingCalls(uid, async (incomingCall) => {
-        // Ignore if already in a call
         if (callState !== 'idle') return;
 
-        // Ignore if call is old (> 30 sec ago)
         const age = Date.now() - new Date(incomingCall.created_at).getTime();
         if (age > 30000) return;
 
-        // Fetch caller info
         const { data: profile } = await supabase
           .from('profiles')
           .select('id, display_name, avatar_url')
@@ -248,14 +234,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCallState('ringing');
         hapticMedium();
 
-        // ✅ Show native CallKeep UI (works when app is in background)
         displayIncomingCall(
           incomingCall.id,
           profile?.display_name ?? 'Unknown',
           incomingCall.call_type === 'video'
         );
 
-        // Navigate to call screen (in case app is in foreground)
         router.push(
           `/call/${incomingCall.id}?role=receiver&type=${incomingCall.call_type}`
         );
@@ -269,7 +253,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ------------------------------------------------------------
-  // Setup peer connection + listeners
+  // Setup peer connection
   // ------------------------------------------------------------
   const setupPeerConnection = useCallback(
     async (
@@ -278,30 +262,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
       callType: CallType,
       initialOffer?: any
     ) => {
-      // ✅ Guard: WebRTC not available on web
       if (Platform.OS === 'web') {
         throw new Error('Calls are not supported on web');
       }
 
-      // create pc
       const pc = createPeerConnection();
       pcRef.current = pc;
 
-      // get local media
       const stream = await getLocalStream(callType === 'video');
       localStreamRef.current = stream;
       setLocalStream(stream);
 
-      // add tracks to pc
       stream.getTracks().forEach((track: any) => {
         pc.addTrack(track, stream);
       });
 
-      // remote stream
       const remote = new MediaStream();
       setRemoteStream(remote);
 
-      // @ts-ignore — onaddstream is older API but still works on RN
       pc.addEventListener('track', (event: any) => {
         if (event.streams && event.streams[0]) {
           setRemoteStream(event.streams[0]);
@@ -310,11 +288,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
       });
 
-      // ICE candidates
       pc.addEventListener('icecandidate', async (event: any) => {
         if (!event.candidate) return;
         try {
-          // Send ICE via realtime broadcast (not DB)
           const channel = supabase.channel(`call-signal:${callId}`);
           await channel.send({
             type: 'broadcast',
@@ -329,7 +305,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
       });
 
-      // Connection state monitoring
       pc.addEventListener('connectionstatechange', () => {
         const state = pc.connectionState;
         if (state === 'connected') {
@@ -339,7 +314,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
           state === 'disconnected' ||
           state === 'closed'
         ) {
-          // Auto-end on disconnect
           if (callIdRef.current) {
             apiEndCall(callIdRef.current, myIdRef.current ?? '').catch(() => {});
           }
@@ -353,7 +327,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
       });
 
-      // Signaling channel (broadcast for ICE exchange)
       const signalChannel = supabase
         .channel(`call-signal:${callId}`)
         .on('broadcast', { event: 'ice-candidate' }, async ({ payload }: any) => {
@@ -371,18 +344,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
         })
         .subscribe();
 
-      // Caller: create offer and send
       if (isCaller) {
         const offer = await pc.createOffer({});
         await pc.setLocalDescription(offer);
         const sdp = serializeSdp(pc.localDescription);
         return { pc, sdp };
       } else if (initialOffer) {
-        // Receiver: apply offer, create answer
         await pc.setRemoteDescription(deserializeSdp(initialOffer));
         remoteDescSetRef.current = true;
 
-        // Flush queued ICE
         for (const c of iceCandidateQueueRef.current) {
           try {
             await pc.addIceCandidate(c);
@@ -427,26 +397,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
       });
 
       try {
-        // Create call row first (with placeholder offer)
         setCallState('calling');
 
-        // Setup PC + generate offer
         const tempCallId = `pending-${Date.now()}`;
-        const { sdp } = await setupPeerConnection(
-          tempCallId,
-          true,
-          callType
-        );
+        const { sdp } = await setupPeerConnection(tempCallId, true, callType);
 
         if (!sdp) throw new Error('No SDP generated');
 
-        // Create call in DB
         const call = await createCall(myId, receiverId, callType, sdp);
         callIdRef.current = call.id;
         setCurrentCall(call);
         setIsVideoEnabled(callType === 'video');
 
-        // ✅ Send push notification to receiver (Phase 1 — background call alert)
         try {
           const { data: myProfile } = await supabase
             .from('profiles')
@@ -471,18 +433,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
           console.warn('[call] push send failed:', err);
         }
 
-        // Subscribe to call updates (accepted/rejected/ended)
         unsubCallRef.current = subscribeToCall(call.id, async (updated) => {
           if (updated.status === 'accepted' && updated.answer) {
-            // Apply answer
             const pc = pcRef.current;
             if (pc && !pc.remoteDescription) {
-              await pc.setRemoteDescription(
-                deserializeSdp(updated.answer)
-              );
+              await pc.setRemoteDescription(deserializeSdp(updated.answer));
               remoteDescSetRef.current = true;
 
-              // Flush ICE queue
               for (const c of iceCandidateQueueRef.current) {
                 try {
                   await pc.addIceCandidate(c);
@@ -523,7 +480,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
           }
         });
 
-        // Ring timeout
         ringTimeoutRef.current = setTimeout(async () => {
           try {
             await apiCancelCall(call.id, myId);
@@ -534,10 +490,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           setRemoteUserInfo(null);
         }, RING_TIMEOUT_MS);
 
-        // Navigate to call screen
-        router.push(
-          `/call/${call.id}?role=caller&type=${callType}`
-        );
+        router.push(`/call/${call.id}?role=caller&type=${callType}`);
       } catch (err) {
         console.warn('[call] startCall error:', err);
         hapticError();
@@ -638,9 +591,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!stream) return;
     const audioTrack = stream.getAudioTracks()[0];
     if (audioTrack) {
-      audioTrack.en {
-abled = !     audioTrack.enabled video;
-      setIsTrackMuted(!audio.enTrack.enabledabled);
+      audioTrack.enabled = !audioTrack.enabled;
+      setIsMuted(!audioTrack.enabled);
     }
   }, []);
 
@@ -652,7 +604,8 @@ abled = !     audioTrack.enabled video;
     const stream = localStreamRef.current;
     if (!stream) return;
     const videoTrack = stream.getVideoTracks()[0];
-    if (videoTrack) = !videoTrack.enabled;
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
       setIsVideoEnabled(videoTrack.enabled);
     }
   }, []);
