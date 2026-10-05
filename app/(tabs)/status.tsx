@@ -439,6 +439,7 @@ export default function StatusScreen() {
             <StatusRing
               hasStatus={myStatuses.length > 0}
               viewed={myAllViewed}
+              size={58}
             >
               <Avatar
                 name={myProfile?.display_name ?? 'You'}
@@ -496,7 +497,7 @@ export default function StatusScreen() {
                   onPress={() => openStatusViewer(group.userId)}
                   activeOpacity={0.7}
                 >
-                  <StatusRing hasStatus viewed={false}>
+                  <StatusRing hasStatus viewed={false} size={58}>
                     <Avatar
                       name={group.profile?.display_name ?? 'Unknown'}
                       color={group.profile?.avatar_color ?? COLORS.violet}
@@ -539,7 +540,7 @@ export default function StatusScreen() {
                   onPress={() => openStatusViewer(group.userId)}
                   activeOpacity={0.7}
                 >
-                  <StatusRing hasStatus viewed={true}>
+                  <StatusRing hasStatus viewed={true} size={58}>
                     <Avatar
                       name={group.profile?.display_name ?? 'Unknown'}
                       color={group.profile?.avatar_color ?? COLORS.violet}
