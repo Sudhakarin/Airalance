@@ -31,6 +31,7 @@ import { initSounds } from '../lib/sounds';
 import { getDB } from '../lib/db';
 import { initNetwork } from '../lib/network';
 import { CallProvider } from '../contexts/CallContext';
+import { registerBackgroundHandler } from '../lib/fcm';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -170,6 +171,21 @@ export default function RootLayout() {
     });
     return () => sub.remove();
   }, []);
+
+  // ---------- FCM background handler (register once, early) ----------
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    registerBackgroundHandler((data) => {
+      // ✅ Background call received — route to call screen
+      if (data.screen === 'call' && data.callId) {
+        const params = new URLSearchParams({
+          role: 'receiver',
+          type: data.callType ?? 'audio',
+        });
+        router.push(`/call/${data.callId}?${params.toString()}`);
+      }
+    });
+  }, [router]);
 
   // ---------- Load fonts ----------
   useEffect(() => {
