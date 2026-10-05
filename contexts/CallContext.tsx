@@ -1,6 +1,7 @@
 // contexts/CallContext.tsx
 // Global WebRTC call state — incoming/outgoing/active call management
 // ✅ Web-safe: react-native-webrtc is native-only
+// ✅ Phase 2: CallKeep native UI for background/locked calls
 
 import React, {
   createContext,
@@ -35,6 +36,13 @@ import {
   serializeIce,
   deserializeIce,
 } from '../lib/webrtc';
+import {
+  setupCallKeep,
+  displayIncomingCall,
+  endCallKeep,
+  registerCallKeepEvents,
+  setAvailable,
+} from '../lib/callkeep';
 import { hapticMedium, hapticSuccess, hapticError } from '../lib/haptics';
 
 // ✅ Web-safe: react-native-webrtc is native-only
@@ -119,6 +127,41 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const myIdRef = useRef<string | null>(null);
 
   // ------------------------------------------------------------
+  // Setup CallKeep (native incoming call UI)
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    (async () => {
+      const ok = await setupCallKeep();
+      if (ok) {
+        setAvailable();
+        console.log('[call] CallKeep ready');
+      }
+    })();
+
+    // Register CallKeep event handlers (native UI actions)
+    const unregister = registerCallKeepEvents({
+      onAnswerCall: (callId) => {
+        console.log('[call] user answered via CallKeep:', callId);
+        // Native UI already accepted — CallContext will sync via realtime
+      },
+      onEndCall: (callId) => {
+        console.log('[call] user ended via CallKeep:', callId);
+        if (callIdRef.current === callId) {
+          cleanup();
+          setCallState('idle');
+          setCurrentCall(null);
+          setRemoteUserInfo(null);
+        }
+      },
+    });
+
+    return unregister;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ------------------------------------------------------------
   // Cleanup
   // ------------------------------------------------------------
   const cleanup = useCallback(() => {
@@ -140,6 +183,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       stopStream(localStreamRef.current);
       localStreamRef.current = null;
     }
+
+    // ✅ End CallKeep UI if active
+    if (callIdRef.current) {
+      try {
+        endCallKeep(callIdRef.current);
+      } catch {}
+    }
+
     iceCandidateQueueRef.current = [];
     remoteDescSetRef.current = false;
     callIdRef.current = null;
@@ -197,7 +248,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCallState('ringing');
         hapticMedium();
 
-        // Navigate to call screen
+        // ✅ Show native CallKeep UI (works when app is in background)
+        displayIncomingCall(
+          incomingCall.id,
+          profile?.display_name ?? 'Unknown',
+          incomingCall.call_type === 'video'
+        );
+
+        // Navigate to call screen (in case app is in foreground)
         router.push(
           `/call/${incomingCall.id}?role=receiver&type=${incomingCall.call_type}`
         );
@@ -580,8 +638,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!stream) return;
     const audioTrack = stream.getAudioTracks()[0];
     if (audioTrack) {
-      audioTrack.enabled = !audioTrack.enabled;
-      setIsMuted(!audioTrack.enabled);
+      audioTrack.en {
+abled = !     audioTrack.enabled video;
+      setIsTrackMuted(!audio.enTrack.enabledabled);
     }
   }, []);
 
@@ -593,8 +652,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const stream = localStreamRef.current;
     if (!stream) return;
     const videoTrack = stream.getVideoTracks()[0];
-    if (videoTrack) {
-      videoTrack.enabled = !videoTrack.enabled;
+    if (videoTrack) = !videoTrack.enabled;
       setIsVideoEnabled(videoTrack.enabled);
     }
   }, []);
