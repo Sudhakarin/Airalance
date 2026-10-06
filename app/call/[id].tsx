@@ -2,7 +2,7 @@
 // Voice/Video call screen — wired to CallContext (real WebRTC)
 // ✅ Web-safe: RTCView is native-only
 // ✅ Draggable PiP + WhatsApp-style UI
-// ✅ Fixed video overflow (inner inset)
+// ✅ Fixed video overflow + proper button alignment + brand header
 
 import { useEffect, useState, useRef } from 'react';
 import {
@@ -70,7 +70,6 @@ export default function CallScreen() {
   const [elapsed, setElapsed] = useState(0);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Local cache for remote info — prevents "Unknown" flash
   const cachedRemoteInfoRef = useRef<{
     name: string;
     avatar: string | null;
@@ -147,7 +146,6 @@ export default function CallScreen() {
     })
   ).current;
 
-  // Duration timer
   useEffect(() => {
     if (callState === 'active') {
       const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -162,7 +160,6 @@ export default function CallScreen() {
     }
   }, [callState]);
 
-  // Auto-close
   useEffect(() => {
     if (callState === 'idle') {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -205,12 +202,10 @@ export default function CallScreen() {
     }
   }
 
-  // ✅ Removed redundant `callState !== 'ended'` checks
   const showVideo =
     isVideoCall && (callState === 'active' || callState === 'connecting');
   const showRemoteVideo = showVideo && !!remoteStream && !!RTCView;
-  const showLocalVideo =
-    showVideo && !!localStream && isVideoEnabled && !!RTCView;
+  const showLocalVideo = showVideo && !!localStream && isVideoEnabled && !!RTCView;
 
   function handleMute() {
     hapticMedium();
@@ -260,7 +255,6 @@ export default function CallScreen() {
         </>
       )}
 
-      {/* Video overlays */}
       {showRemoteVideo && (
         <>
           <LinearGradient
@@ -278,7 +272,14 @@ export default function CallScreen() {
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         {/* ============================================ */}
-        {/* TOP BAR — WhatsApp style pill */}
+        {/* BRAND HEADER — "Airalance!" at top */}
+        {/* ============================================ */}
+        <View style={styles.brandHeader} pointerEvents="box-none">
+          <Text style={styles.brandText}>Airalance!</Text>
+        </View>
+
+        {/* ============================================ */}
+        {/* TOP BAR — WhatsApp style pill (video call) */}
         {/* ============================================ */}
         {showRemoteVideo && (
           <View style={styles.topBar} pointerEvents="box-none">
@@ -383,7 +384,7 @@ export default function CallScreen() {
         )}
 
         {/* ============================================ */}
-        {/* BOTTOM CONTROLS — WhatsApp style */}
+        {/* BOTTOM CONTROLS — Fixed alignment */}
         {/* ============================================ */}
         {callState !== 'ended' && (
           <View style={styles.controls}>
@@ -419,93 +420,126 @@ export default function CallScreen() {
               </View>
             )}
 
-            {/* ACTIVE ROW — WhatsApp style 4 buttons */}
+            {/* ACTIVE ROW */}
             {(callState === 'calling' ||
               callState === 'connecting' ||
               callState === 'active') && (
               <View style={styles.activeRow}>
-                {/* Mute */}
-                <TouchableOpacity
-                  style={[
-                    styles.circleBtn,
-                    isMuted && styles.circleBtnActive,
-                  ]}
-                  onPress={handleMute}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name={isMuted ? 'mic-off' : 'mic'}
-                    size={22}
-                    color="#FFFFFF"
-                  />
-                </TouchableOpacity>
-
-                {/* Video toggle (video) OR Speaker (audio) */}
+                {/* ============ VIDEO CALL — 4 buttons ============ */}
                 {isVideoCall ? (
-                  <TouchableOpacity
-                    style={[
-                      styles.circleBtn,
-                      !isVideoEnabled && styles.circleBtnActive,
-                    ]}
-                    onPress={handleVideo}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons
-                      name={isVideoEnabled ? 'videocam' : 'videocam-off'}
-                      size={22}
-                      color="#FFFFFF"
-                    />
-                  </TouchableOpacity>
+                  <>
+                    {/* Video toggle */}
+                    <TouchableOpacity
+                      style={[
+                        styles.circleBtn,
+                        !isVideoEnabled && styles.circleBtnActive,
+                      ]}
+                      onPress={handleVideo}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name={isVideoEnabled ? 'videocam' : 'videocam-off'}
+                        size={22}
+                        color="#FFFFFF"
+                      />
+                    </TouchableOpacity>
+
+                    {/* Mute */}
+                    <TouchableOpacity
+                      style={[
+                        styles.circleBtn,
+                        isMuted && styles.circleBtnActive,
+                      ]}
+                      onPress={handleMute}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name={isMuted ? 'mic-off' : 'mic'}
+                        size={22}
+                        color="#FFFFFF"
+                      />
+                    </TouchableOpacity>
+
+                    {/* End call — CENTER, bigger, red */}
+                    <TouchableOpacity
+                      style={[styles.circleBtn, styles.endBtn]}
+                      onPress={handleEnd}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name="call"
+                        size={26}
+                        color="#FFFFFF"
+                        style={{ transform: [{ rotate: '135deg' }] }}
+                      />
+                    </TouchableOpacity>
+
+                    {/* Speaker */}
+                    <TouchableOpacity
+                      style={[
+                        styles.circleBtn,
+                        isSpeakerOn && styles.circleBtnTeal,
+                      ]}
+                      onPress={handleSpeaker}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name={isSpeakerOn ? 'volume-high' : 'volume-medium'}
+                        size={22}
+                        color="#FFFFFF"
+                      />
+                    </TouchableOpacity>
+                  </>
                 ) : (
-                  <TouchableOpacity
-                    style={[
-                      styles.circleBtn,
-                      isSpeakerOn && styles.circleBtnTeal,
-                    ]}
-                    onPress={handleSpeaker}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons
-                      name={isSpeakerOn ? 'volume-high' : 'volume-medium'}
-                      size={22}
-                      color="#FFFFFF"
-                    />
-                  </TouchableOpacity>
+                  <>
+                    {/* ============ AUDIO CALL — 3 buttons ============ */}
+                    {/* Mute */}
+                    <TouchableOpacity
+                      style={[
+                        styles.circleBtn,
+                        isMuted && styles.circleBtnActive,
+                      ]}
+                      onPress={handleMute}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name={isMuted ? 'mic-off' : 'mic'}
+                        size={22}
+                        color="#FFFFFF"
+                      />
+                    </TouchableOpacity>
+
+                    {/* End call — CENTER, bigger, red */}
+                    <TouchableOpacity
+                      style={[styles.circleBtn, styles.endBtn]}
+                      onPress={handleEnd}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name="call"
+                        size={26}
+                        color="#FFFFFF"
+                        style={{ transform: [{ rotate: '135deg' }] }}
+                      />
+                    </TouchableOpacity>
+
+                    {/* Speaker */}
+                    <TouchableOpacity
+                      style={[
+                        styles.circleBtn,
+                        isSpeakerOn && styles.circleBtnTeal,
+                      ]}
+                      onPress={handleSpeaker}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name={isSpeakerOn ? 'volume-high' : 'volume-medium'}
+                        size={22}
+                        color="#FFFFFF"
+                      />
+                    </TouchableOpacity>
+                  </>
                 )}
-
-                {/* End call */}
-                <TouchableOpacity
-                  style={[styles.circleBtn, styles.endBtn]}
-                  onPress={handleEnd}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name="call"
-                    size={24}
-                    color="#FFFFFF"
-                    style={{ transform: [{ rotate: '135deg' }] }}
-                  />
-                </TouchableOpacity>
-
-                {/* Extra: Speaker for video, or empty slot for audio */}
-                {isVideoCall && (
-                  <TouchableOpacity
-                    style={[
-                      styles.circleBtn,
-                      isSpeakerOn && styles.circleBtnTeal,
-                    ]}
-                    onPress={handleSpeaker}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons
-                      name={isSpeakerOn ? 'volume-high' : 'volume-medium'}
-                      size={22}
-                      color="#FFFFFF"
-                    />
-                  </TouchableOpacity>
-                )}
-
-                {!isVideoCall && <View style={styles.circleBtnPlaceholder} />}
               </View>
             )}
           </View>
@@ -558,9 +592,23 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
 
+  // ✅ Brand header
+  brandHeader: {
+    paddingTop: 8,
+    paddingBottom: 4,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  brandText: {
+    fontSize: 20,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
+  },
+
   topBar: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 4,
     alignItems: 'center',
     zIndex: 5,
   },
@@ -689,11 +737,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+
+  // ✅ Fixed: proper centering for audio (3) and video (4) buttons
   activeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: 24,
+    paddingHorizontal: 20,
   },
 
   bigBtn: {
@@ -733,11 +784,6 @@ const styles = StyleSheet.create({
   },
   circleBtnTeal: {
     backgroundColor: 'rgba(34,211,184,0.35)',
-  },
-  circleBtnPlaceholder: {
-    width: 56,
-    height: 56,
-    opacity: 0,
   },
   endBtn: {
     backgroundColor: COLORS.danger,
