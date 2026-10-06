@@ -1,7 +1,8 @@
 // contexts/CallContext.tsx
 // Global WebRTC call state — incoming/outgoing/active call management
 // ✅ Web-safe: react-native-webrtc is native-only
-// ✅ Phase 2: CallKeep native UI for background/locked calls
+// ✅ Phase 2: CallKeep native UI
+// ✅ FIX: Transient 'disconnected' state no longer ends call
 
 import React, {
   createContext,
@@ -56,10 +57,6 @@ if (Platform.OS !== 'web') {
 }
 const MediaStream: any = RNWebRTC?.MediaStream;
 
-// ============================================================
-// Types
-// ============================================================
-
 export type CallState =
   | 'idle'
   | 'calling'
@@ -94,6 +91,7 @@ type CallContextValue = {
 const CallContext = createContext<CallContextValue | null>(null);
 
 const RING_TIMEOUT_MS = 60000;
+const DISCONNECT_GRACE_MS = 8000; // ✅ Wait before ending on transient disconnect
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -116,6 +114,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const callIdRef = useRef<string | null>(null);
   const unsubCallRef = useRef<(() => void) | null>(null);
   const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disconnectGraceRef = useRef<ReturnType<typeof setTimeout> | null>(null); // ✅ NEW
   const iceCandidateQueueRef = useRef<any[]>([]);
   const remoteDescSetRef = useRef(false);
   const myIdRef = useRef<string | null>(null);
@@ -160,6 +159,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (ringTimeoutRef.current) {
       clearTimeout(ringTimeoutRef.current);
       ringTimeoutRef.current = null;
+    }
+    // ✅ Clear disconnect grace timer
+    if (disconnectGraceRef.current) {
+      clearTimeout(disconnectGraceRef.current);
+      disconnectGraceRef.current = null;
     }
     if (unsubCallRef.current) {
       unsubCallRef.current();
@@ -305,28 +309,87 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
       });
 
+      // ============================================================
+      // ✅ FIXED: Connection state monitoring with grace period
+      // ============================================================
+      const handleDisconnected = () => {
+        console.log('[call] connection disconnected — starting grace timer');
+        if (disconnectGraceRef.current) {
+          clearTimeout(disconnectGraceRef.current);
+        }
+        disconnectGraceRef.current = setTimeout(() => {
+          const currentPc = pcRef.current;
+          if (!currentPc) return;
+          const state = currentPc.connectionState;
+          console.log('[call] grace expired, current state:', state);
+          if (state !== 'connected') {
+            // Really failed — end the call
+            if (callIdRef.current) {
+              apiEndCall(callIdRef.current, myIdRef.current ?? '').catch(
+                () => {}
+              );
+            }
+            setCallState('ended');
+            setTimeout(() => {
+              cleanup();
+              setCallState('idle');
+              setCurrentCall(null);
+              setRemoteUserInfo(null);
+            }, 1500);
+          }
+        }, DISCONNECT_GRACE_MS);
+      };
+
+      const handleFailed = () => {
+        console.log('[call] connection failed — ending');
+        if (callIdRef.current) {
+          apiEndCall(callIdRef.current, myIdRef.current ?? '').catch(() => {});
+        }
+        setCallState('ended');
+        setTimeout(() => {
+          cleanup();
+          setCallState('idle');
+          setCurrentCall(null);
+          setRemoteUserInfo(null);
+        }, 1500);
+      };
+
+      const handleConnected = () => {
+        console.log('[call] connection connected');
+        // ✅ Clear any pending disconnect timer
+        if (disconnectGraceRef.current) {
+          clearTimeout(disconnectGraceRef.current);
+          disconnectGraceRef.current = null;
+        }
+        setCallState('active');
+      };
+
       pc.addEventListener('connectionstatechange', () => {
         const state = pc.connectionState;
+        console.log('[call] connectionState:', state);
         if (state === 'connected') {
-          setCallState('active');
-        } else if (
-          state === 'failed' ||
-          state === 'disconnected' ||
-          state === 'closed'
-        ) {
-          if (callIdRef.current) {
-            apiEndCall(callIdRef.current, myIdRef.current ?? '').catch(() => {});
-          }
-          setCallState('ended');
-          setTimeout(() => {
-            cleanup();
-            setCallState('idle');
-            setCurrentCall(null);
-            setRemoteUserInfo(null);
-          }, 1500);
+          handleConnected();
+        } else if (state === 'failed' || state === 'closed') {
+          handleFailed();
+        } else if (state === 'disconnected') {
+          handleDisconnected();
         }
       });
 
+      // ✅ Also monitor iceConnectionState (more granular)
+      pc.addEventListener('iceconnectionstatechange', () => {
+        const iceState = pc.iceConnectionState;
+        console.log('[call] iceConnectionState:', iceState);
+        if (iceState === 'failed') {
+          handleFailed();
+        } else if (iceState === 'disconnected') {
+          handleDisconnected();
+        } else if (iceState === 'connected' || iceState === 'completed') {
+          handleConnected();
+        }
+      });
+
+      // Signaling channel
       const signalChannel = supabase
         .channel(`call-signal:${callId}`)
         .on('broadcast', { event: 'ice-candidate' }, async ({ payload }: any) => {
@@ -643,10 +706,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     </CallContext.Provider>
   );
 }
-
-// ============================================================
-// Hook
-// ============================================================
 
 export function useCall(): CallContextValue {
   const ctx = useContext(CallContext);
