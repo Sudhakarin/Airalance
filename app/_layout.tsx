@@ -31,7 +31,11 @@ import { initSounds } from '../lib/sounds';
 import { getDB } from '../lib/db';
 import { initNetwork } from '../lib/network';
 import { CallProvider } from '../contexts/CallContext';
-import { registerBackgroundHandler } from '../lib/fcm';
+import {
+  registerBackgroundHandler,
+  getFcmToken,
+  onFcmTokenRefresh,
+} from '../lib/fcm';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -97,6 +101,7 @@ export default function RootLayout() {
   const [authReady, setAuthReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const pushRegisteredForUserRef = useRef<string | null>(null);
+  const fcmRegisteredForUserRef = useRef<string | null>(null);
 
   // ---------- Init sounds (once on mount) ----------
   useEffect(() => {
@@ -231,7 +236,7 @@ export default function RootLayout() {
     };
   }, []);
 
-  // ---------- Push registration ----------
+  // ---------- Push registration (Expo) ----------
   useEffect(() => {
     if (!authReady || !userId) return;
     if (Platform.OS === 'web') return;
@@ -310,6 +315,63 @@ export default function RootLayout() {
 
     return () => {
       cancelled = true;
+    };
+  }, [authReady, userId]);
+
+  // ---------- FCM token registration (for FCM V1 push + CallKeep) ----------
+  useEffect(() => {
+    if (!authReady || !userId) return;
+    if (Platform.OS === 'web') return;
+    if (fcmRegisteredForUserRef.current === userId) return;
+
+    let cancelled = false;
+
+    async function registerFcm() {
+      try {
+        // Small delay to ensure permission prompt from push registration is done
+        await new Promise((r) => setTimeout(r, 800));
+        if (cancelled) return;
+
+        const token = await getFcmToken();
+        if (!token || cancelled) {
+          console.warn('[fcm] No token received');
+          return;
+        }
+
+        const { error } = await supabase
+          .from('profiles')
+          .update({ fcm_token: token })
+          .eq('id', userId);
+
+        if (!error) {
+          fcmRegisteredForUserRef.current = userId;
+          console.log('[fcm] Token saved for user:', userId);
+        } else {
+          console.warn('[fcm] Save failed:', error.message);
+        }
+      } catch (err) {
+        console.warn('[fcm] Register failed:', err);
+      }
+    }
+
+    registerFcm();
+
+    // Refresh listener
+    const unsub = onFcmTokenRefresh(async (newToken) => {
+      try {
+        await supabase
+          .from('profiles')
+          .update({ fcm_token: newToken })
+          .eq('id', userId);
+        console.log('[fcm] Token refreshed');
+      } catch (err) {
+        console.warn('[fcm] Refresh save failed:', err);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      if (unsub) unsub();
     };
   }, [authReady, userId]);
 
