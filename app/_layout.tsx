@@ -4,7 +4,14 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Platform, AppState } from 'react-native';
+import {
+  StyleSheet,
+  Platform,
+  AppState,
+  View,
+  Text,
+  Pressable,
+} from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
@@ -55,6 +62,24 @@ const FONT_MAP = {
   JetBrainsMono_400Regular,
 };
 
+// ============================================================
+// FIX #4: Global Error Boundary — kisi bhi screen ka render error
+// white-screen/crash ki jagah graceful screen + retry dikhayega
+// ============================================================
+export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
+  return (
+    <View style={styles.errorContainer}>
+      <Text style={styles.errorTitle}>Something went wrong</Text>
+      <Text style={styles.errorMsg} numberOfLines={4}>
+        {error?.message ?? 'Unexpected error'}
+      </Text>
+      <Pressable onPress={retry} style={styles.errorBtn}>
+        <Text style={styles.errorBtnText}>Try again</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 export default function RootLayout() {
   const router = useRouter();
   const [fontsLoaded, setFontsLoaded] = useState(false);
@@ -62,10 +87,17 @@ export default function RootLayout() {
   const [userId, setUserId] = useState<string | null>(null);
   const pushRegisteredForUserRef = useRef<string | null>(null);
   const fcmRegisteredForUserRef = useRef<string | null>(null);
+  // FIX #3: double-navigation guard (cold-start + listener overlap)
+  const lastNotifNavRef = useRef<{ key: string; time: number }>({ key: '', time: 0 });
 
   // ---------- Init sounds (once on mount) ----------
+  // FIX #6: try/catch — sounds init fail ho toh startup crash na ho
   useEffect(() => {
-    initSounds();
+    try {
+      initSounds();
+    } catch (err) {
+      console.warn('[sounds] init failed:', err);
+    }
   }, []);
 
   // ---------- Init SQLite (once on mount) ----------
@@ -90,7 +122,7 @@ export default function RootLayout() {
     }
   }, []);
 
-  // ---------- Cleanup stale AsyncStorage keys (chats/messages now in SQLite) ----------
+  // ---------- Cleanup stale AsyncStorage keys ----------
   useEffect(() => {
     (async () => {
       try {
@@ -128,9 +160,12 @@ export default function RootLayout() {
   }, []);
 
   // ---------- Lock session reset on background ----------
+  // FIX #5: sirf 'background' pe lock — 'inactive' iOS me permission dialogs,
+  // control center, incoming-call overlay pe bhi fire hota hai
+  // → bina wajah PIN screen aati thi. (Strict chahiye toh 'inactive' wapas add kar dena)
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'background' || state === 'inactive') {
+      if (state === 'background') {
         setSessionUnlocked(false);
       }
     });
@@ -158,14 +193,21 @@ export default function RootLayout() {
   }, []);
 
   // ---------- Auth ----------
+  // FIX #2: .catch add kiya — getSession reject hua toh splash FOREVER stuck na ho
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return;
-      setUserId(session?.user?.id ?? null);
-      setAuthReady(true);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (!mounted) return;
+        setUserId(session?.user?.id ?? null);
+        setAuthReady(true);
+      })
+      .catch((err) => {
+        console.warn('[auth] getSession failed:', err);
+        if (mounted) setAuthReady(true); // app stuck na ho
+      });
 
     const { data: listener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
@@ -181,6 +223,15 @@ export default function RootLayout() {
     };
   }, []);
 
+  // FIX #2b: FAILSAFE — worst case me bhi splash max 8s tak hi rahe
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFontsLoaded(true);
+      setAuthReady(true);
+    }, 8000);
+    return () => clearTimeout(t);
+  }, []);
+
   // ---------- Push registration (Expo) ----------
   useEffect(() => {
     if (!authReady || !userId) return;
@@ -194,7 +245,6 @@ export default function RootLayout() {
 
       if (Platform.OS === 'android') {
         try {
-          // Default channel — messages/notifications
           await Notifications.setNotificationChannelAsync('default', {
             name: 'Notifications',
             importance: Notifications.AndroidImportance.MAX,
@@ -203,7 +253,6 @@ export default function RootLayout() {
             sound: 'default',
           });
 
-          // Calls channel — high priority, ring-like
           await Notifications.setNotificationChannelAsync('calls', {
             name: 'Incoming calls',
             importance: Notifications.AndroidImportance.MAX,
@@ -235,7 +284,10 @@ export default function RootLayout() {
         const projectId =
           Constants.expoConfig?.extra?.eas?.projectId ??
           Constants.easConfig?.projectId;
-        if (!projectId) return;
+        if (!projectId) {
+          console.warn('[push] No EAS projectId found — Expo push skipped');
+          return;
+        }
 
         const token = (
           await Notifications.getExpoPushTokenAsync({ projectId })
@@ -263,7 +315,7 @@ export default function RootLayout() {
     };
   }, [authReady, userId]);
 
-  // ---------- FCM token registration (for FCM V1 push + CallKeep) ----------
+  // ---------- FCM token registration ----------
   useEffect(() => {
     if (!authReady || !userId) return;
     if (Platform.OS === 'web') return;
@@ -318,40 +370,87 @@ export default function RootLayout() {
     };
   }, [authReady, userId]);
 
-  // ---------- Notification tap handler (navigate to call/chat) ----------
+  // ---------- Notification navigation helper ----------
+  // FIX #1 (CRITICAL): URLSearchParams Hermes me EXIST nahi karta —
+  // call notification tap karte hi app CRASH ho jata tha.
+  // Ab expo-router ka params object use hota hai.
+  const navigateFromNotification = useCallback(
+    (data: Record<string, any> | null | undefined) => {
+      if (!data) return;
+
+      if (data.screen === 'call' && data.callId) {
+        const callId = String(data.callId);
+        const callType = data.callType ?? 'audio';
+
+        // Same notification dobara navigate na ho (cold-start + listener overlap)
+        const key = `call:${callId}:${callType}`;
+        const now = Date.now();
+        if (
+          lastNotifNavRef.current.key === key &&
+          now - lastNotifNavRef.current.time < 3000
+        ) {
+          return;
+        }
+        lastNotifNavRef.current = { key, time: now };
+
+        try {
+          router.push({
+            pathname: '/call/[id]',
+            params: { id: callId, role: 'receiver', type: callType },
+          });
+        } catch (err) {
+          console.warn('[notif] Navigation failed:', err);
+        }
+      }
+      // Future: chat/status notifications handle karne ho toh yahan add karo
+    },
+    [router]
+  );
+
+  // ---------- Notification tap handler ----------
+  // FIX #3: cold-start bhi handle — app killed ho tab bhi call screen khulegi
   useEffect(() => {
+    // App band tha, user ne notification tap kiya
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        const data = response?.notification?.request?.content
+          ?.data as Record<string, any> | undefined;
+        if (!data) return;
+        // Root navigation settle hone do
+        setTimeout(() => navigateFromNotification(data), 250);
+      })
+      .catch(() => {});
+
+    // App chal raha ho (background/foreground) tab tap
     const sub = Notifications.addNotificationResponseReceivedListener(
       (response) => {
-        const data = response.notification.request.content.data as any;
-        if (!data) return;
-
-        if (data.screen === 'call' && data.callId) {
-          const params = new URLSearchParams({
-            role: 'receiver',
-            type: data.callType ?? 'audio',
-          });
-          router.push(`/call/${data.callId}?${params.toString()}`);
-        }
+        const data = response?.notification?.request?.content
+          ?.data as Record<string, any> | undefined;
+        navigateFromNotification(data);
       }
     );
 
     return () => sub.remove();
-  }, [router]);
+  }, [navigateFromNotification]);
 
   // ---------- Hide splash only when BOTH fonts + auth are ready ----------
-  // This ensures: splash (logo) → app (no skeleton, no black screen)
   const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded && authReady) {
       await SplashScreen.hideAsync().catch(() => {});
     }
   }, [fontsLoaded, authReady]);
 
-  // Keep splash visible while loading (no skeleton, no black screen)
+  // FIX #7: backup effect — splash hide guaranteed (onLayout miss ho toh bhi)
+  useEffect(() => {
+    if (fontsLoaded && authReady) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded, authReady]);
+
   if (!fontsLoaded || !authReady) {
     return null;
   }
 
-  // Everything ready → real app
   return (
     <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
       <SafeAreaProvider>
@@ -419,4 +518,21 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0A0C12' },
+  // Error Boundary styles
+  errorContainer: {
+    flex: 1,
+    backgroundColor: '#0A0C12',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  errorTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginBottom: 8 },
+  errorMsg: { color: '#9CA3AF', fontSize: 13, textAlign: 'center', marginBottom: 24 },
+  errorBtn: {
+    backgroundColor: '#7C5CFF',
+    paddingHorizontal: 28,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  errorBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
 });
