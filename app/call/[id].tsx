@@ -1,7 +1,7 @@
 // app/call/[id].tsx
 // Voice/Video call screen — wired to CallContext (real WebRTC)
 // ✅ Web-safe: RTCView is native-only
-// ✅ Draggable PiP + proper controls layout
+// ✅ Draggable PiP + improved voice UI + fixed ended state
 
 import { useEffect, useState, useRef } from 'react';
 import {
@@ -36,11 +36,10 @@ if (Platform.OS !== 'web') {
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-// PiP dimensions
 const PIP_W = 108;
 const PIP_H = 160;
 const PIP_MARGIN = 16;
-const TOP_OFFSET = 80; // below top bar
+const TOP_OFFSET = 80;
 
 export default function CallScreen() {
   const router = useRouter();
@@ -71,13 +70,34 @@ export default function CallScreen() {
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ============================================================
+  // ✅ Local cache for remote info — prevents "Unknown" flash on end
+  // ============================================================
+  const cachedRemoteInfoRef = useRef<{
+    name: string;
+    avatar: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (remoteUserInfo) {
+      cachedRemoteInfoRef.current = {
+        name: remoteUserInfo.name,
+        avatar: remoteUserInfo.avatar,
+      };
+    }
+  }, [remoteUserInfo]);
+
+  const remoteInfo = remoteUserInfo ?? cachedRemoteInfoRef.current;
+  const name = remoteInfo?.name ?? 'Unknown';
+  const avatarUrl = remoteInfo?.avatar ?? null;
+  const avatarColor = COLORS.violet;
+
+  // ============================================================
   // Draggable PiP
   // ============================================================
   const pipX = useRef(
     new Animated.Value(SCREEN_W - PIP_W - PIP_MARGIN)
   ).current;
   const pipY = useRef(new Animated.Value(TOP_OFFSET)).current;
-  const pipPan = useRef({ x: 0, y: 0 }).current;
   const lastPipPos = useRef({
     x: SCREEN_W - PIP_W - PIP_MARGIN,
     y: TOP_OFFSET,
@@ -128,14 +148,22 @@ export default function CallScreen() {
     })
   ).current;
 
-  // Duration timer when active
+  // ============================================================
+  // ✅ Duration timer — keeps value during 'ended' state
+  // ============================================================
   useEffect(() => {
-    if (callState !== 'active') {
-      setElapsed(0);
-      return;
+    if (callState === 'active') {
+      const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
+      return () => clearInterval(interval);
     }
-    const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
-    return () => clearInterval(interval);
+    if (
+      callState === 'idle' ||
+      callState === 'calling' ||
+      callState === 'ringing'
+    ) {
+      setElapsed(0);
+    }
+    // 'ended' state me elapsed preserve rakho
   }, [callState]);
 
   // Auto-close screen when call goes idle
@@ -148,7 +176,7 @@ export default function CallScreen() {
         } else {
           router.replace('/(tabs)/chats');
         }
-      }, 300);
+      }, 200);
     }
     return () => {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -157,9 +185,6 @@ export default function CallScreen() {
 
   const isVideoCall = (currentCall?.call_type ?? params.type) === 'video';
   const isIncoming = params.role === 'receiver';
-  const name = remoteUserInfo?.name ?? 'Unknown';
-  const avatarUrl = remoteUserInfo?.avatar ?? null;
-  const avatarColor = COLORS.violet;
 
   function formatElapsed(s: number) {
     const m = Math.floor(s / 60).toString().padStart(2, '0');
@@ -185,9 +210,13 @@ export default function CallScreen() {
   }
 
   const showVideo =
-    isVideoCall && (callState === 'active' || callState === 'connecting');
-  const showRemoteVideo = showVideo && !!remoteStream && !!RTCView;
-  const showLocalVideo = showVideo && !!localStream && isVideoEnabled && !!RTCView;
+    isVideoCall &&
+    (callState === 'active' || callState === 'connecting') &&
+    callState !== 'ended';
+  const showRemoteVideo =
+    showVideo && !!remoteStream && !!RTCView && callState !== 'ended';
+  const showLocalVideo =
+    showVideo && !!localStream && isVideoEnabled && !!RTCView;
 
   function handleMute() {
     hapticMedium();
@@ -214,6 +243,11 @@ export default function CallScreen() {
     endCurrentCall();
   }
 
+  // ✅ Idle pe kuch render mat karo — screen turant close hoga
+  if (callState === 'idle') {
+    return <View style={styles.container} />;
+  }
+
   return (
     <View style={styles.container}>
       {/* Background — remote video OR gradient */}
@@ -231,7 +265,7 @@ export default function CallScreen() {
         </>
       )}
 
-      {/* Dark gradient overlay for text readability on video */}
+      {/* Video overlays for text readability */}
       {showRemoteVideo && (
         <>
           <LinearGradient
@@ -248,28 +282,48 @@ export default function CallScreen() {
       )}
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        {/* ============================================ */}
-        {/* TOP BAR — name + timer overlay */}
-        {/* ============================================ */}
-        <View style={styles.topBar}>
-          {showRemoteVideo ? (
-            // Video call — compact top info
+        {/* TOP BAR — video call me name + timer */}
+        {showRemoteVideo && (
+          <View style={styles.topBar}>
             <View style={styles.videoTopInfo}>
               <Text style={styles.videoTopName} numberOfLines={1}>
                 {name}
               </Text>
               <Text style={styles.videoTopStatus}>{getStatusText()}</Text>
             </View>
-          ) : (
-            // Audio call — full info center (nothing here)
-            null
-          )}
-        </View>
+          </View>
+        )}
 
         {/* ============================================ */}
-        {/* CENTER — avatar + name (audio only) */}
+        {/* BODY — 3 states: ended | video call | audio call */}
         {/* ============================================ */}
-        {!showRemoteVideo && (
+        {callState === 'ended' ? (
+          // ✅ ENDED STATE — avatar + name + duration preserved
+          <View style={styles.body}>
+            <View style={styles.avatarWrap}>
+              <View style={styles.avatarRing}>
+                <Avatar
+                  name={name}
+                  color={avatarColor}
+                  avatarUrl={avatarUrl}
+                  size={110}
+                />
+              </View>
+            </View>
+
+            <Text style={styles.name} numberOfLines={1}>
+              {name}
+            </Text>
+
+            <Text style={styles.endedText}>
+              Call ended{elapsed > 0 ? ` · ${formatElapsed(elapsed)}` : ''}
+            </Text>
+          </View>
+        ) : showRemoteVideo ? (
+          // Video call — spacer (video fills background)
+          <View style={{ flex: 1 }} />
+        ) : (
+          // ✅ AUDIO CALL — improved centered layout
           <View style={styles.body}>
             <View style={styles.avatarWrap}>
               <View
@@ -282,33 +336,35 @@ export default function CallScreen() {
                   name={name}
                   color={avatarColor}
                   avatarUrl={avatarUrl}
-                  size={100}
+                  size={110}
                 />
               </View>
             </View>
 
-            <View style={styles.nameRow}>
-              <Text style={styles.name} numberOfLines={1}>
-                {name}
-              </Text>
-            </View>
+            <Text style={styles.name} numberOfLines={1}>
+              {name}
+            </Text>
 
-            <Text style={styles.status}>{getStatusText()}</Text>
+            <Text
+              style={[
+                styles.status,
+                callState === 'active' && styles.statusActive,
+              ]}
+            >
+              {getStatusText()}
+            </Text>
 
             {callState === 'connecting' && (
               <ActivityIndicator
                 color={COLORS.teal}
-                style={{ marginTop: 12 }}
+                style={{ marginTop: 16 }}
               />
             )}
           </View>
         )}
 
-        {/* Spacer for video call (pushes controls to bottom) */}
-        {showRemoteVideo && <View style={{ flex: 1 }} />}
-
         {/* ============================================ */}
-        {/* DRAGGABLE LOCAL PIP (video calls only) */}
+        {/* DRAGGABLE LOCAL PiP (video calls only) */}
         {/* ============================================ */}
         {showLocalVideo && RTCView && (
           <Animated.View
@@ -334,16 +390,64 @@ export default function CallScreen() {
         )}
 
         {/* ============================================ */}
-        {/* BOTTOM — controls (always at bottom) */}
+        {/* BOTTOM CONTROLS */}
         {/* ============================================ */}
-        <View style={styles.controls}>
-          {/* INCOMING — Accept + Reject */}
-          {callState === 'ringing' && isIncoming && (
-            <View style={styles.incomingRow}>
-              <View style={styles.incomingCol}>
+        {callState !== 'ended' && (
+          <View style={styles.controls}>
+            {/* INCOMING — Accept + Reject */}
+            {callState === 'ringing' && isIncoming && (
+              <View style={styles.incomingRow}>
+                <View style={styles.incomingCol}>
+                  <TouchableOpacity
+                    style={[styles.bigBtn, styles.rejectBtn]}
+                    onPress={handleReject}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name="call"
+                      size={28}
+                      color="#FFFFFF"
+                      style={{ transform: [{ rotate: '135deg' }] }}
+                    />
+                  </TouchableOpacity>
+                  <Text style={styles.btnLabel}>Decline</Text>
+                </View>
+
+                <View style={styles.incomingCol}>
+                  <TouchableOpacity
+                    style={[styles.bigBtn, styles.acceptBtn]}
+                    onPress={handleAccept}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="call" size={28} color="#FFFFFF" />
+                  </TouchableOpacity>
+                  <Text style={styles.btnLabel}>Accept</Text>
+                </View>
+              </View>
+            )}
+
+            {/* CALLING / CONNECTING / ACTIVE */}
+            {(callState === 'calling' ||
+              callState === 'connecting' ||
+              callState === 'active') && (
+              <View style={styles.activeRow}>
+                {/* Mute */}
                 <TouchableOpacity
-                  style={[styles.bigBtn, styles.rejectBtn]}
-                  onPress={handleReject}
+                  style={styles.iconBtn}
+                  onPress={handleMute}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name={isMuted ? 'mic-off' : 'mic'}
+                    size={24}
+                    color={isMuted ? COLORS.danger : '#FFFFFF'}
+                  />
+                </TouchableOpacity>
+
+                {/* End call */}
+                <TouchableOpacity
+                  style={styles.hangupBtn}
+                  onPress={handleEnd}
                   activeOpacity={0.85}
                 >
                   <Ionicons
@@ -353,90 +457,40 @@ export default function CallScreen() {
                     style={{ transform: [{ rotate: '135deg' }] }}
                   />
                 </TouchableOpacity>
-                <Text style={styles.btnLabel}>Decline</Text>
+
+                {/* Video toggle OR Speaker */}
+                {isVideoCall ? (
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={handleVideo}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name={isVideoEnabled ? 'videocam' : 'videocam-off'}
+                      size={24}
+                      color={isVideoEnabled ? '#FFFFFF' : COLORS.danger}
+                    />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[
+                      styles.iconBtn,
+                      isSpeakerOn && styles.iconBtnActive,
+                    ]}
+                    onPress={handleSpeaker}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name={isSpeakerOn ? 'volume-high' : 'volume-medium'}
+                      size={24}
+                      color={isSpeakerOn ? COLORS.teal : '#FFFFFF'}
+                    />
+                  </TouchableOpacity>
+                )}
               </View>
-
-              <View style={styles.incomingCol}>
-                <TouchableOpacity
-                  style={[styles.bigBtn, styles.acceptBtn]}
-                  onPress={handleAccept}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="call" size={28} color="#FFFFFF" />
-                </TouchableOpacity>
-                <Text style={styles.btnLabel}>Accept</Text>
-              </View>
-            </View>
-          )}
-
-          {/* CALLING / CONNECTING / ACTIVE — control row */}
-          {(callState === 'calling' ||
-            callState === 'connecting' ||
-            callState === 'active') && (
-            <View style={styles.activeRow}>
-              {/* Mute */}
-              <TouchableOpacity
-                style={styles.iconBtn}
-                onPress={handleMute}
-                activeOpacity={0.85}
-              >
-                <Ionicons
-                  name={isMuted ? 'mic-off' : 'mic'}
-                  size={24}
-                  color={isMuted ? COLORS.danger : '#FFFFFF'}
-                />
-              </TouchableOpacity>
-
-              {/* End call */}
-              <TouchableOpacity
-                style={styles.hangupBtn}
-                onPress={handleEnd}
-                activeOpacity={0.85}
-              >
-                <Ionicons
-                  name="call"
-                  size={28}
-                  color="#FFFFFF"
-                  style={{ transform: [{ rotate: '135deg' }] }}
-                />
-              </TouchableOpacity>
-
-              {/* Video toggle OR Speaker */}
-              {isVideoCall ? (
-                <TouchableOpacity
-                  style={styles.iconBtn}
-                  onPress={handleVideo}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name={isVideoEnabled ? 'videocam' : 'videocam-off'}
-                    size={24}
-                    color={isVideoEnabled ? '#FFFFFF' : COLORS.danger}
-                  />
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={styles.iconBtn}
-                  onPress={handleSpeaker}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name={isSpeakerOn ? 'volume-high' : 'volume-medium'}
-                    size={24}
-                    color={isSpeakerOn ? COLORS.teal : '#FFFFFF'}
-                  />
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-
-          {/* ENDED */}
-          {callState === 'ended' && (
-            <View style={styles.endedWrap}>
-              <Text style={styles.endedText}>Call ended</Text>
-            </View>
-          )}
-        </View>
+            )}
+          </View>
+        )}
       </SafeAreaView>
     </View>
   );
@@ -449,7 +503,6 @@ const styles = StyleSheet.create({
   },
   safe: { flex: 1 },
 
-  // Gradient glow (audio calls)
   glowTop: {
     position: 'absolute',
     top: -200,
@@ -469,7 +522,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(34,211,184,0.10)',
   },
 
-  // Video overlays for readability
   topOverlay: {
     position: 'absolute',
     top: 0,
@@ -487,7 +539,6 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
 
-  // Top bar
   topBar: {
     paddingHorizontal: 20,
     paddingTop: 8,
@@ -509,14 +560,14 @@ const styles = StyleSheet.create({
   videoTopStatus: {
     fontSize: 14,
     fontFamily: FONTS.bodyMedium,
-    color: 'rgba(255,255,255,0.85)',
+    color: 'rgba(255,255,255,0.9)',
     marginTop: 4,
     textShadowColor: 'rgba(0,0,0,0.75)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
 
-  // Center body (audio call)
+  // Center body — audio & ended
   body: {
     flex: 1,
     alignItems: 'center',
@@ -525,42 +576,58 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   avatarWrap: {
-    marginBottom: SPACING.lg,
+    marginBottom: 28,
   },
   avatarRing: {
-    padding: 5,
+    padding: 6,
     borderRadius: 999,
     borderWidth: 2,
-    borderColor: 'rgba(124,92,255,0.4)',
+    borderColor: 'rgba(124,92,255,0.5)',
+    shadowColor: COLORS.violet,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 12,
   },
   avatarRingConnected: {
-    borderColor: 'rgba(34,211,184,0.6)',
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderColor: 'rgba(34,211,184,0.7)',
+    shadowColor: COLORS.teal,
+    shadowOpacity: 0.5,
   },
   name: {
-    fontSize: 22,
+    fontSize: 24,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
+    textAlign: 'center',
+    letterSpacing: -0.3,
   },
   status: {
     fontSize: 15,
     fontFamily: FONTS.bodyMedium,
+    color: COLORS.mist,
+    marginTop: 12,
+    letterSpacing: 0.2,
+  },
+  statusActive: {
     color: COLORS.teal,
-    marginTop: SPACING.md,
+    fontSize: 16,
+    fontFamily: FONTS.bodySemiBold,
+    letterSpacing: 1,
+  },
+  endedText: {
+    fontSize: 15,
+    fontFamily: FONTS.bodyMedium,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 12,
   },
 
-  // ============================================
-  // DRAGGABLE LOCAL PiP
-  // ============================================
+  // Draggable local PiP
   localPip: {
     position: 'absolute',
     width: PIP_W,
     height: PIP_H,
     borderRadius: 14,
-    overflow: 'hidden', // ✅ prevents video from spilling outside
+    overflow: 'hidden',
     backgroundColor: '#000000',
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.25)',
@@ -574,7 +641,7 @@ const styles = StyleSheet.create({
   localPipInner: {
     flex: 1,
     borderRadius: 12,
-    overflow: 'hidden', // ✅ double safety for inner video clip
+    overflow: 'hidden',
     backgroundColor: '#000000',
   },
   localPipVideo: {
@@ -583,13 +650,11 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
-  // ============================================
-  // BOTTOM CONTROLS
-  // ============================================
+  // Bottom controls
   controls: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingBottom: 20,
+    paddingBottom: 24,
     paddingTop: 16,
     zIndex: 5,
   },
@@ -644,6 +709,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.20)',
   },
+  iconBtnActive: {
+    backgroundColor: 'rgba(34,211,184,0.25)',
+    borderColor: 'rgba(34,211,184,0.5)',
+  },
   hangupBtn: {
     width: 68,
     height: 68,
@@ -656,15 +725,5 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 14,
     elevation: 10,
-  },
-
-  endedWrap: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  endedText: {
-    fontSize: 16,
-    fontFamily: FONTS.bodyMedium,
-    color: 'rgba(255,255,255,0.75)',
   },
 });
