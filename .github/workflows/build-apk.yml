@@ -43,14 +43,28 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
       - name: Expo Prebuild
         run: npx expo prebuild --platform android --clean
+        env:
+          EXPO_UPDATE_CHANNEL: preview
 
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
+        env:
+          EXPO_UPDATE_CHANNEL: preview
+
+      - name: Publish EAS Update (OTA)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          eas update --branch preview --message "${{ github.event.head_commit.message }}" --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
