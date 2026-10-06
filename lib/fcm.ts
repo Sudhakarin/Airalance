@@ -1,5 +1,6 @@
 // lib/fcm.ts
-// Firebase Cloud Messaging — background message handler for incoming calls
+// Firebase Cloud Messaging — token + foreground handlers
+// ✅ Background handler moved to index.js (top-level requirement by Firebase)
 
 import { Platform } from 'react-native';
 
@@ -13,22 +14,26 @@ if (Platform.OS !== 'web') {
   }
 }
 
-// ✅ Background message handler — MUST be registered before app renders
-export function registerBackgroundHandler(onIncomingCall: (data: any) => void) {
-  if (!messaging) return;
-
-  messaging().setBackgroundMessageHandler(async (remoteMessage: any) => {
-    console.log('[fcm] background message:', remoteMessage);
-
-    const data = remoteMessage?.data;
-    if (!data) return;
-
-    if (data.screen === 'call' && data.callId) {
-      console.log('[fcm] background incoming call:', data.callId);
-      onIncomingCall(data);
-    }
-  });
+// ============================================================
+// Background handler — REMOVED
+// ============================================================
+// Firebase requires setBackgroundMessageHandler to be registered
+// at the TOP LEVEL of the app (before React loads).
+// It is now registered in `index.js` at project root.
+//
+// This function is kept as a no-op for backward compatibility
+// so existing imports don't break.
+// ============================================================
+export function registerBackgroundHandler(
+  _onIncomingCall: (data: any) => void
+) {
+  // No-op — see index.js for actual background handler
+  console.log('[fcm] registerBackgroundHandler called (no-op, using index.js)');
 }
+
+// ============================================================
+// Token
+// ============================================================
 
 export async function getFcmToken(): Promise<string | null> {
   if (!messaging) return null;
@@ -45,6 +50,10 @@ export function onFcmTokenRefresh(cb: (token: string) => void) {
   if (!messaging) return () => {};
   return messaging().onTokenRefresh(cb);
 }
+
+// ============================================================
+// Foreground handlers (app open)
+// ============================================================
 
 export function onForegroundMessage(cb: (data: any) => void) {
   if (!messaging) return () => {};
