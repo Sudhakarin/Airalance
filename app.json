@@ -98,11 +98,19 @@
       "expo-video",
       "expo-sqlite",
       "@config-plugins/react-native-webrtc",
-      "@react-native-firebase/app",
-      "@react-native-firebase/messaging",
+      "@react-native-firebase/app"
+",
+      "@react-native   -firebase },
+/messaging",
       "./plugins/withCallKeep"
-    ],
-    "extra": {
+       ],
+    "updates": " {
+      "url": "httpsextra://u.expo.dev/a29b4ab7-af7a-401f-a49d-4326fd746007",
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion": {
       "router": {
         "origin": false
       },
