@@ -21,7 +21,6 @@ const corsHeaders = {
 let cachedAccessToken: { token: string; expiresAt: number } | null = null;
 
 async function getFcmAccessToken(serviceAccount: any): Promise<string> {
-  // Cache token (valid ~1 hour)
   if (cachedAccessToken && cachedAccessToken.expiresAt > Date.now() + 60000) {
     return cachedAccessToken.token;
   }
@@ -90,11 +89,13 @@ async function sendFcmMessage(
     };
 
     if (message.isCall) {
-      // High-priority data-only message for calls (triggers background handler)
+      // High-priority data-only message for calls
+      // Android: HIGH priority + no notification (so background JS handler runs)
       fcmPayload.message.android = {
         priority: 'HIGH',
         ttl: '60s',
       };
+      // iOS: voip-style push
       fcmPayload.message.apns = {
         headers: {
           'apns-priority': '10',
@@ -108,7 +109,6 @@ async function sendFcmMessage(
         },
       };
     } else {
-      // Regular notification
       fcmPayload.message.notification = {
         title: message.title,
         body: message.body,
@@ -246,6 +246,8 @@ serve(async (req) => {
               callerId: String(data.callerId),
               callType: String(data.callType),
               role: 'receiver',
+              // ✅ For CallKeep display name
+              callerName: title,
             },
           });
         } catch (err) {
@@ -265,6 +267,7 @@ serve(async (req) => {
             callerId: data.callerId,
             callType: data.callType,
             role: 'receiver',
+            callerName: title,
           }
         );
       }
