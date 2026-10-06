@@ -39,7 +39,7 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 const PIP_W = 110;
 const PIP_H = 164;
 const PIP_MARGIN = 14;
-const PIP_BORDER = 2; // video inset from border
+const PIP_BORDER = 2;
 const TOP_OFFSET = 88;
 
 export default function CallScreen() {
@@ -205,12 +205,10 @@ export default function CallScreen() {
     }
   }
 
+  // ✅ Removed redundant `callState !== 'ended'` checks
   const showVideo =
-    isVideoCall &&
-    (callState === 'active' || callState === 'connecting') &&
-    callState !== 'ended';
-  const showRemoteVideo =
-    showVideo && !!remoteStream && !!RTCView && callState !== 'ended';
+    isVideoCall && (callState === 'active' || callState === 'connecting');
+  const showRemoteVideo = showVideo && !!remoteStream && !!RTCView;
   const showLocalVideo =
     showVideo && !!localStream && isVideoEnabled && !!RTCView;
 
@@ -359,7 +357,7 @@ export default function CallScreen() {
         )}
 
         {/* ============================================ */}
-        {/* DRAGGABLE LOCAL PiP — ✅ fixed overflow */}
+        {/* DRAGGABLE LOCAL PiP */}
         {/* ============================================ */}
         {showLocalVideo && RTCView && (
           <Animated.View
@@ -372,7 +370,6 @@ export default function CallScreen() {
             ]}
             {...panResponder.panHandlers}
           >
-            {/* ✅ Inner inset view — video can't touch the border */}
             <View style={styles.localPipInner}>
               <RTCView
                 streamURL={(localStream as any).toURL()}
@@ -508,9 +505,7 @@ export default function CallScreen() {
                   </TouchableOpacity>
                 )}
 
-                {!isVideoCall && (
-                  <View style={styles.circleBtnPlaceholder} />
-                )}
+                {!isVideoCall && <View style={styles.circleBtnPlaceholder} />}
               </View>
             )}
           </View>
@@ -563,7 +558,6 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
 
-  // ✅ Top pill (WhatsApp style)
   topBar: {
     paddingHorizontal: 16,
     paddingTop: 8,
@@ -597,7 +591,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
-  // Center body
   body: {
     flex: 1,
     alignItems: 'center',
@@ -651,30 +644,26 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
-  // ============================================
-  // LOCAL PiP — ✅ FIXED overflow
-  // ============================================
   localPip: {
     position: 'absolute',
     width: PIP_W,
     height: PIP_H,
     borderRadius: 16,
-    backgroundColor: '#000000', // black bg (border effect)
+    backgroundColor: '#000000',
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.30)', // visible border
+    borderColor: 'rgba(255,255,255,0.30)',
     zIndex: 10,
     elevation: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.5,
     shadowRadius: 12,
-    // ✅ padding creates inset for inner video
     padding: PIP_BORDER,
   },
   localPipInner: {
     flex: 1,
-    borderRadius: 12, // inner radius (16 - 2 border - 2 padding = 12)
-    overflow: 'hidden', // ✅ clips video to inner bounds
+    borderRadius: 12,
+    overflow: 'hidden',
     backgroundColor: '#000000',
   },
   localPipVideo: {
@@ -683,9 +672,6 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
-  // ============================================
-  // BOTTOM CONTROLS — WhatsApp style
-  // ============================================
   controls: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -710,7 +696,6 @@ const styles = StyleSheet.create({
     gap: 16,
   },
 
-  // Big buttons (incoming)
   bigBtn: {
     width: 68,
     height: 68,
@@ -735,7 +720,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.85)',
   },
 
-  // ✅ WhatsApp-style circular buttons
   circleBtn: {
     width: 56,
     height: 56,
