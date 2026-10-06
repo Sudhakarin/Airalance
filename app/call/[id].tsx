@@ -1,7 +1,8 @@
 // app/call/[id].tsx
 // Voice/Video call screen — wired to CallContext (real WebRTC)
 // ✅ Web-safe: RTCView is native-only
-// ✅ Draggable PiP + improved voice UI + fixed ended state
+// ✅ Draggable PiP + WhatsApp-style UI
+// ✅ Fixed video overflow (inner inset)
 
 import { useEffect, useState, useRef } from 'react';
 import {
@@ -24,7 +25,6 @@ import Avatar from '../../components/Avatar';
 import { COLORS, FONTS, SPACING } from '../../constants/theme';
 import { hapticMedium, hapticSuccess, hapticError } from '../../lib/haptics';
 
-// ✅ Web-safe: RTCView is native-only
 let RTCView: any = null;
 if (Platform.OS !== 'web') {
   try {
@@ -36,10 +36,11 @@ if (Platform.OS !== 'web') {
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
-const PIP_W = 108;
-const PIP_H = 160;
-const PIP_MARGIN = 16;
-const TOP_OFFSET = 80;
+const PIP_W = 110;
+const PIP_H = 164;
+const PIP_MARGIN = 14;
+const PIP_BORDER = 2; // video inset from border
+const TOP_OFFSET = 88;
 
 export default function CallScreen() {
   const router = useRouter();
@@ -69,9 +70,7 @@ export default function CallScreen() {
   const [elapsed, setElapsed] = useState(0);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ============================================================
-  // ✅ Local cache for remote info — prevents "Unknown" flash on end
-  // ============================================================
+  // Local cache for remote info — prevents "Unknown" flash
   const cachedRemoteInfoRef = useRef<{
     name: string;
     avatar: string | null;
@@ -148,9 +147,7 @@ export default function CallScreen() {
     })
   ).current;
 
-  // ============================================================
-  // ✅ Duration timer — keeps value during 'ended' state
-  // ============================================================
+  // Duration timer
   useEffect(() => {
     if (callState === 'active') {
       const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -163,10 +160,9 @@ export default function CallScreen() {
     ) {
       setElapsed(0);
     }
-    // 'ended' state me elapsed preserve rakho
   }, [callState]);
 
-  // Auto-close screen when call goes idle
+  // Auto-close
   useEffect(() => {
     if (callState === 'idle') {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -243,7 +239,6 @@ export default function CallScreen() {
     endCurrentCall();
   }
 
-  // ✅ Idle pe kuch render mat karo — screen turant close hoga
   if (callState === 'idle') {
     return <View style={styles.container} />;
   }
@@ -252,12 +247,14 @@ export default function CallScreen() {
     <View style={styles.container}>
       {/* Background — remote video OR gradient */}
       {showRemoteVideo && RTCView ? (
-        <RTCView
-          streamURL={(remoteStream as any).toURL()}
-          style={StyleSheet.absoluteFill}
-          objectFit="cover"
-          zOrder={0}
-        />
+        <View style={StyleSheet.absoluteFill}>
+          <RTCView
+            streamURL={(remoteStream as any).toURL()}
+            style={StyleSheet.absoluteFill}
+            objectFit="cover"
+            zOrder={0}
+          />
+        </View>
       ) : (
         <>
           <View style={styles.glowTop} />
@@ -265,16 +262,16 @@ export default function CallScreen() {
         </>
       )}
 
-      {/* Video overlays for text readability */}
+      {/* Video overlays */}
       {showRemoteVideo && (
         <>
           <LinearGradient
-            colors={['rgba(0,0,0,0.65)', 'transparent']}
+            colors={['rgba(0,0,0,0.6)', 'transparent']}
             style={styles.topOverlay}
             pointerEvents="none"
           />
           <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.75)']}
+            colors={['transparent', 'rgba(0,0,0,0.85)']}
             style={styles.bottomOverlay}
             pointerEvents="none"
           />
@@ -282,23 +279,25 @@ export default function CallScreen() {
       )}
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        {/* TOP BAR — video call me name + timer */}
+        {/* ============================================ */}
+        {/* TOP BAR — WhatsApp style pill */}
+        {/* ============================================ */}
         {showRemoteVideo && (
-          <View style={styles.topBar}>
-            <View style={styles.videoTopInfo}>
-              <Text style={styles.videoTopName} numberOfLines={1}>
+          <View style={styles.topBar} pointerEvents="box-none">
+            <View style={styles.topPill}>
+              <Text style={styles.topPillName} numberOfLines={1}>
                 {name}
               </Text>
-              <Text style={styles.videoTopStatus}>{getStatusText()}</Text>
+              <View style={styles.topPillDivider} />
+              <Text style={styles.topPillTime}>{getStatusText()}</Text>
             </View>
           </View>
         )}
 
         {/* ============================================ */}
-        {/* BODY — 3 states: ended | video call | audio call */}
+        {/* BODY */}
         {/* ============================================ */}
         {callState === 'ended' ? (
-          // ✅ ENDED STATE — avatar + name + duration preserved
           <View style={styles.body}>
             <View style={styles.avatarWrap}>
               <View style={styles.avatarRing}>
@@ -310,20 +309,16 @@ export default function CallScreen() {
                 />
               </View>
             </View>
-
             <Text style={styles.name} numberOfLines={1}>
               {name}
             </Text>
-
             <Text style={styles.endedText}>
               Call ended{elapsed > 0 ? ` · ${formatElapsed(elapsed)}` : ''}
             </Text>
           </View>
         ) : showRemoteVideo ? (
-          // Video call — spacer (video fills background)
           <View style={{ flex: 1 }} />
         ) : (
-          // ✅ AUDIO CALL — improved centered layout
           <View style={styles.body}>
             <View style={styles.avatarWrap}>
               <View
@@ -364,7 +359,7 @@ export default function CallScreen() {
         )}
 
         {/* ============================================ */}
-        {/* DRAGGABLE LOCAL PiP (video calls only) */}
+        {/* DRAGGABLE LOCAL PiP — ✅ fixed overflow */}
         {/* ============================================ */}
         {showLocalVideo && RTCView && (
           <Animated.View
@@ -377,6 +372,7 @@ export default function CallScreen() {
             ]}
             {...panResponder.panHandlers}
           >
+            {/* ✅ Inner inset view — video can't touch the border */}
             <View style={styles.localPipInner}>
               <RTCView
                 streamURL={(localStream as any).toURL()}
@@ -390,7 +386,7 @@ export default function CallScreen() {
         )}
 
         {/* ============================================ */}
-        {/* BOTTOM CONTROLS */}
+        {/* BOTTOM CONTROLS — WhatsApp style */}
         {/* ============================================ */}
         {callState !== 'ended' && (
           <View style={styles.controls}>
@@ -426,66 +422,94 @@ export default function CallScreen() {
               </View>
             )}
 
-            {/* CALLING / CONNECTING / ACTIVE */}
+            {/* ACTIVE ROW — WhatsApp style 4 buttons */}
             {(callState === 'calling' ||
               callState === 'connecting' ||
               callState === 'active') && (
               <View style={styles.activeRow}>
                 {/* Mute */}
                 <TouchableOpacity
-                  style={styles.iconBtn}
+                  style={[
+                    styles.circleBtn,
+                    isMuted && styles.circleBtnActive,
+                  ]}
                   onPress={handleMute}
                   activeOpacity={0.85}
                 >
                   <Ionicons
                     name={isMuted ? 'mic-off' : 'mic'}
-                    size={24}
-                    color={isMuted ? COLORS.danger : '#FFFFFF'}
-                  />
-                </TouchableOpacity>
-
-                {/* End call */}
-                <TouchableOpacity
-                  style={styles.hangupBtn}
-                  onPress={handleEnd}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name="call"
-                    size={28}
+                    size={22}
                     color="#FFFFFF"
-                    style={{ transform: [{ rotate: '135deg' }] }}
                   />
                 </TouchableOpacity>
 
-                {/* Video toggle OR Speaker */}
+                {/* Video toggle (video) OR Speaker (audio) */}
                 {isVideoCall ? (
                   <TouchableOpacity
-                    style={styles.iconBtn}
+                    style={[
+                      styles.circleBtn,
+                      !isVideoEnabled && styles.circleBtnActive,
+                    ]}
                     onPress={handleVideo}
                     activeOpacity={0.85}
                   >
                     <Ionicons
                       name={isVideoEnabled ? 'videocam' : 'videocam-off'}
-                      size={24}
-                      color={isVideoEnabled ? '#FFFFFF' : COLORS.danger}
+                      size={22}
+                      color="#FFFFFF"
                     />
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity
                     style={[
-                      styles.iconBtn,
-                      isSpeakerOn && styles.iconBtnActive,
+                      styles.circleBtn,
+                      isSpeakerOn && styles.circleBtnTeal,
                     ]}
                     onPress={handleSpeaker}
                     activeOpacity={0.85}
                   >
                     <Ionicons
                       name={isSpeakerOn ? 'volume-high' : 'volume-medium'}
-                      size={24}
-                      color={isSpeakerOn ? COLORS.teal : '#FFFFFF'}
+                      size={22}
+                      color="#FFFFFF"
                     />
                   </TouchableOpacity>
+                )}
+
+                {/* End call */}
+                <TouchableOpacity
+                  style={[styles.circleBtn, styles.endBtn]}
+                  onPress={handleEnd}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="call"
+                    size={24}
+                    color="#FFFFFF"
+                    style={{ transform: [{ rotate: '135deg' }] }}
+                  />
+                </TouchableOpacity>
+
+                {/* Extra: Speaker for video, or empty slot for audio */}
+                {isVideoCall && (
+                  <TouchableOpacity
+                    style={[
+                      styles.circleBtn,
+                      isSpeakerOn && styles.circleBtnTeal,
+                    ]}
+                    onPress={handleSpeaker}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name={isSpeakerOn ? 'volume-high' : 'volume-medium'}
+                      size={22}
+                      color="#FFFFFF"
+                    />
+                  </TouchableOpacity>
+                )}
+
+                {!isVideoCall && (
+                  <View style={styles.circleBtnPlaceholder} />
                 )}
               </View>
             )}
@@ -527,7 +551,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 140,
+    height: 120,
     zIndex: 1,
   },
   bottomOverlay: {
@@ -535,39 +559,45 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 200,
+    height: 220,
     zIndex: 1,
   },
 
+  // ✅ Top pill (WhatsApp style)
   topBar: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 8,
+    alignItems: 'center',
     zIndex: 5,
   },
-  videoTopInfo: {
+  topPill: {
+    flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 14,
     paddingVertical: 8,
+    borderRadius: 999,
+    maxWidth: '85%',
   },
-  videoTopName: {
-    fontSize: 18,
-    fontFamily: FONTS.displayBold,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    textShadowColor: 'rgba(0,0,0,0.75)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  videoTopStatus: {
+  topPillName: {
     fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+  topPillDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+    marginHorizontal: 10,
+  },
+  topPillTime: {
+    fontSize: 13,
     fontFamily: FONTS.bodyMedium,
-    color: 'rgba(255,255,255,0.9)',
-    marginTop: 4,
-    textShadowColor: 'rgba(0,0,0,0.75)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
+    color: '#FFFFFF',
   },
 
-  // Center body — audio & ended
+  // Center body
   body: {
     flex: 1,
     alignItems: 'center',
@@ -621,27 +651,30 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
-  // Draggable local PiP
+  // ============================================
+  // LOCAL PiP — ✅ FIXED overflow
+  // ============================================
   localPip: {
     position: 'absolute',
     width: PIP_W,
     height: PIP_H,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: '#000000',
+    borderRadius: 16,
+    backgroundColor: '#000000', // black bg (border effect)
     borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderColor: 'rgba(255,255,255,0.30)', // visible border
     zIndex: 10,
     elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.5,
     shadowRadius: 12,
+    // ✅ padding creates inset for inner video
+    padding: PIP_BORDER,
   },
   localPipInner: {
     flex: 1,
-    borderRadius: 12,
-    overflow: 'hidden',
+    borderRadius: 12, // inner radius (16 - 2 border - 2 padding = 12)
+    overflow: 'hidden', // ✅ clips video to inner bounds
     backgroundColor: '#000000',
   },
   localPipVideo: {
@@ -650,11 +683,13 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
-  // Bottom controls
+  // ============================================
+  // BOTTOM CONTROLS — WhatsApp style
+  // ============================================
   controls: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingBottom: 24,
+    paddingBottom: 28,
     paddingTop: 16,
     zIndex: 5,
   },
@@ -672,9 +707,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 24,
+    gap: 16,
   },
 
+  // Big buttons (incoming)
   bigBtn: {
     width: 68,
     height: 68,
@@ -699,31 +735,35 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.85)',
   },
 
-  iconBtn: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+  // ✅ WhatsApp-style circular buttons
+  circleBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.20)',
   },
-  iconBtnActive: {
-    backgroundColor: 'rgba(34,211,184,0.25)',
-    borderColor: 'rgba(34,211,184,0.5)',
+  circleBtnActive: {
+    backgroundColor: 'rgba(255,255,255,0.35)',
   },
-  hangupBtn: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
+  circleBtnTeal: {
+    backgroundColor: 'rgba(34,211,184,0.35)',
+  },
+  circleBtnPlaceholder: {
+    width: 56,
+    height: 56,
+    opacity: 0,
+  },
+  endBtn: {
     backgroundColor: COLORS.danger,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     shadowColor: COLORS.danger,
-    shadowOffset: { width: 0, height: 6 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.5,
-    shadowRadius: 14,
+    shadowRadius: 12,
     elevation: 10,
   },
 });
