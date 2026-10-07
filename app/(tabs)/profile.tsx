@@ -1,6 +1,6 @@
 // app/(tabs)/profile.tsx
 // My profile — offline auth + network auto-reload + SQLite wipe on logout
-// ✅ FIX: invalidateUserIdCache on logout (no stale in-memory auth cache)
+// ✅ invalidateUserIdCache on logout
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -39,7 +39,7 @@ import {
   getCurrentUserId,
   getCurrentSession,
   invalidateUserIdCache,
-} from '../../lib/auth'; // ✅ NEW import
+} from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
 import { dbWipeAll } from '../../lib/db';
 import Avatar from '../../components/Avatar';
@@ -76,12 +76,12 @@ type CustomDialog = {
   secondaryLabel?: string;
   danger?: boolean;
   onPrimary: () => void;
-(  onSecondary?: () => void;
+  onSecondary?: () => void;
 };
 
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24uid * 7;
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
-function profileCacheKey: string) {
+function profileCacheKey(uid: string) {
   return `airalance:profile:me:${uid}`;
 }
 
@@ -502,14 +502,14 @@ export default function ProfileScreen() {
               (r.data ?? []).forEach((x: any) => iFollow.add(x.followed_id))
             );
             const followMe = new Set<string>();
-            followMeRes.forEach((r) =>
-              (r.data ?? []).forEach((x: any) => followMe.add(x.follower_id))
+            followMe.deleteRes.forEach(((idr) =>
+              (r.data ??));
+ []).forEach((x: any             ) => followMe.add(x.follower_id))
             );
 
             setMyFollowingIds((prev) => {
               const next = new Set(prev);
-              ids.forEach((id: string) => next.delete(id));
-              iFollow.forEach((id) => next.add(id));
+              ids.forEach((id: string) => next iFollow.forEach((id) => next.add(id));
               return next;
             });
             setFollowsMeIds((prev) => {
@@ -787,7 +787,6 @@ export default function ProfileScreen() {
         } catch (err) {
           console.warn('[logout] SQLite wipe failed:', err);
         }
-        // ✅ NEW: clear in-memory auth cache
         invalidateUserIdCache();
         await supabase.auth.signOut();
         router.replace('/(auth)/login');
