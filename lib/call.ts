@@ -1,5 +1,5 @@
 // lib/call.ts
-// Supabase signaling for WebRTC calls — create/accept/reject/end + realtime
+// Supabase signaling for WebRTC calls — create/accept/reject/end + realtime + call log
 
 import { supabase } from './supabase';
 
@@ -28,6 +28,9 @@ export type Call = {
   ended_by: string | null;
   created_at: string;
 };
+
+// Call log status (what we store inside messages.content JSON)
+export type CallLogStatus = 'answered' | 'missed' | 'declined' | 'cancelled';
 
 // ============================================================
 // Create a new call (caller side)
@@ -229,4 +232,110 @@ export function subscribeToIncomingCalls(
   return () => {
     supabase.removeChannel(channel);
   };
+}
+
+// ============================================================
+// Find direct (1-on-1) conversation between two users
+// ============================================================
+
+async function findDirectConversation(
+  userA: string,
+  userB: string
+): Promise<string | null> {
+  try {
+    // 1) Get all conversation ids for userA
+    const { data: myConvs } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', userA);
+
+    if (!myConvs || myConvs.length === 0) return null;
+    const ids = myConvs.map((c: any) => c.conversation_id);
+
+    // 2) Among those, find ones where userB is also a participant
+    const { data: matches } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .in('conversation_id', ids)
+      .eq('user_id', userB);
+
+    if (!matches || matches.length === 0) return null;
+
+    // 3) Return the first one that is a direct (non-group) conversation
+    for (const m of matches as any[]) {
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('id, is_group')
+        .eq('id', m.conversation_id)
+        .single();
+
+      if (conv && !conv.is_group) return conv.id as string;
+    }
+    return null;
+  } catch (e) {
+    console.warn('[call] findDirectConversation failed:', e);
+    return null;
+  }
+}
+
+// ============================================================
+// Insert a WhatsApp-style call log into the chat (messages table)
+// ------------------------------------------------------------
+// - sender_id is always the caller (so direction = sender_id===me)
+// - content is JSON: { call_id, call_type, status, duration_seconds }
+// - message_type = 'call'
+// ============================================================
+
+export async function insertCallLog(params: {
+  callId: string;
+  conversationId: string | null;
+  callerId: string;
+  receiverId: string;
+  callType: CallType;
+  status: CallLogStatus;
+  durationSeconds: number | null;
+}): Promise<void> {
+  const {
+    callId,
+    conversationId,
+    callerId,
+    receiverId,
+    callType,
+    status,
+    durationSeconds,
+  } = params;
+
+  try {
+    let convId = conversationId;
+
+    // Fallback: look up direct conversation if not provided
+    if (!convId) {
+      convId = await findDirectConversation(callerId, receiverId);
+    }
+
+    if (!convId) {
+      console.warn('[call] insertCallLog: no conversation found, skipping');
+      return;
+    }
+
+    const content = JSON.stringify({
+      call_id: callId,
+      call_type: callType,
+      status,
+      duration_seconds: durationSeconds ?? 0,
+    });
+
+    const { error } = await supabase.from('messages').insert({
+      conversation_id: convId,
+      sender_id: callerId,
+      content,
+      message_type: 'call',
+    });
+
+    if (error) {
+      console.warn('[call] insertCallLog failed:', error.message);
+    }
+  } catch (e) {
+    console.warn('[call] insertCallLog error:', e);
+  }
 }
