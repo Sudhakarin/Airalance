@@ -219,7 +219,6 @@ function CallBubble({
   else if (isCancelled) subtitle = 'Cancelled';
 
   // ---------- Direction arrow ----------
-  // Outgoing → ↗ badge. Incoming missed → ↙ badge. Incoming answered/declined → no badge.
   const showArrow = isMine || (isMissed && !isMine);
   const arrowName: any = isMine ? 'arrow-up' : 'arrow-down';
 
@@ -233,7 +232,6 @@ function CallBubble({
         isMine ? styles.callBubbleMine : styles.callBubbleOther,
       ]}
     >
-      {/* Icon circle with optional direction arrow badge */}
       <View style={styles.callIconSlot}>
         <View style={[styles.callIconCircle, { backgroundColor: iconBg }]}>
           <Ionicons name={glyphName} size={20} color={iconColor} />
@@ -245,17 +243,13 @@ function CallBubble({
         )}
       </View>
 
-      {/* Text column */}
       <View style={styles.callTextCol}>
         <Text style={styles.callTitle} numberOfLines={1}>
           {title}
         </Text>
         <View style={styles.callSubRow}>
           <Text
-            style={[
-              styles.callSubtitle,
-              isMine && styles.callSubtitleMine,
-            ]}
+            style={[styles.callSubtitle, isMine && styles.callSubtitleMine]}
             numberOfLines={1}
           >
             {subtitle}
@@ -420,7 +414,6 @@ function MessageBubbleBase({
   const isVoice = message.message_type === 'voice' && !!message.media_url;
   const isDeleted = !!message.is_deleted;
 
-  // ✅ Parse call log content JSON
   const callData = useMemo(() => {
     if (message.message_type !== 'call') return null;
     try {
@@ -543,7 +536,6 @@ function MessageBubbleBase({
 
   const handlePress = useCallback(() => {
     if (isDeleted) return;
-    // Call messages: tap does nothing (no reaction, no image open)
     if (isCall) return;
     const now = Date.now();
     if (now - lastTapRef.current < DOUBLE_TAP_MS) {
@@ -680,7 +672,6 @@ function MessageBubbleBase({
                   </Text>
                 </View>
               ) : isCall && callData ? (
-                /* ✅ WhatsApp-style call bubble */
                 <CallBubble
                   callType={callData.callType}
                   status={callData.status}
@@ -743,8 +734,6 @@ function MessageBubbleBase({
               )}
             </View>
 
-            {/* ✅ Meta row (time + ticks) — hidden for call bubbles
-                because time is already inside the call bubble */}
             {!isCall && (
               <View style={styles.metaRow}>
                 <Text style={styles.time}>
@@ -779,19 +768,20 @@ function MessageBubbleBase({
   );
 }
 
+// ✅ CLEAN areEqual — corrupted version ko fix kiya
 function areEqual(prev: Props, next: Props) {
-  if (prev.message !== next.message) return falseply;
-  if (prevMessage.isMine !== next.is?.Mine) return false;
-  if (previd.animate !== next.animate) return false);
-  if (prev.prevMessage return?.id !== next.prevMessage?. falseid) return false;
-  if (;
-prev.nextMessage?.id !== next.next Message?.id) return false;
-  if ( ifprev.prevMessage?.created_at !== next.prev (Message?.created_at)
+  if (prev.message !== next.message) return false;
+  if (prev.isMine !== next.isMine) return false;
+  if (prev.animate !== next.animate) return false;
+  if (prev.prevMessage?.id !== next.prevMessage?.id) return false;
+  if (prev.nextMessage?.id !== next.nextMessage?.id) return false;
+  if (prev.prevMessage?.created_at !== next.prevMessage?.created_at)
     return false;
-prev  if (prev.nextMessage?.created.re_at !== next.nextMessage?.created_at)
-ply    return false;
-  if (prevMessage.nextMessage?.sender_id !== next.nextMessage?.sender_id) return false?.;
-  if (prev.replyMessage?.idcontent !== next.re !== next.replyMessage?.content) return false;
+  if (prev.nextMessage?.created_at !== next.nextMessage?.created_at)
+    return false;
+  if (prev.nextMessage?.sender_id !== next.nextMessage?.sender_id) return false;
+  if (prev.replyMessage?.id !== next.replyMessage?.id) return false;
+  if (prev.replyMessage?.content !== next.replyMessage?.content) return false;
   if (prev.replyMessage?.is_deleted !== next.replyMessage?.is_deleted)
     return false;
 
@@ -856,7 +846,6 @@ const styles = StyleSheet.create({
   rowSpaced: { marginTop: 16 },
 
   bubbleWrap: { position: 'relative', maxWidth: '80%' },
-  // Call bubble: a bit wider (WhatsApp-style)
   bubbleWrapCall: { maxWidth: '84%', minWidth: 240 },
 
   bubble: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20 },
@@ -1015,9 +1004,6 @@ const styles = StyleSheet.create({
   },
   voiceDurationMine: { color: 'rgba(255,255,255,0.9)' },
 
-  // ============================================================
-  // ✅ Call bubble styles
-  // ============================================================
   callBubble: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1028,8 +1014,6 @@ const styles = StyleSheet.create({
     minWidth: 240,
   },
   callBubbleMine: {
-    // violet gradient handled by parent container? No — we use solid here
-    // to keep icon contrast perfect. Use gradient-ish violet.
     backgroundColor: '#5B44C9',
     borderBottomRightRadius: 4,
     shadowColor: '#7C5CFF',
