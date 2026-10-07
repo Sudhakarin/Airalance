@@ -249,12 +249,13 @@ export default function RootLayout() {
             sound: 'default',
           });
 
+          // ✅ Calls channel — custom ringtone
           await Notifications.setNotificationChannelAsync('calls', {
             name: 'Incoming calls',
             importance: Notifications.AndroidImportance.MAX,
             vibrationPattern: [0, 1000, 1000, 1000],
             lightColor: '#22C55E',
-            sound: 'default',
+            sound: 'ringtone', // ✅ custom ringtone
             bypassDnd: true,
             lockscreenVisibility:
               Notifications.AndroidNotificationVisibility.PUBLIC,
@@ -264,7 +265,7 @@ export default function RootLayout() {
             },
           });
 
-          // ✅ CallKeep-native channel — used by VoiceConnectionService (plays ringtone)
+          // ✅ CallKeep-native channel — custom ringtone
           await Notifications.setNotificationChannelAsync(
             'com.airalance.app.call',
             {
@@ -272,7 +273,7 @@ export default function RootLayout() {
               importance: Notifications.AndroidImportance.MAX,
               vibrationPattern: [0, 1000, 1000, 1000],
               lightColor: '#22C55E',
-              sound: 'default',
+              sound: 'ringtone', // ✅ custom ringtone
               bypassDnd: true,
               lockscreenVisibility:
                 Notifications.AndroidNotificationVisibility.PUBLIC,
