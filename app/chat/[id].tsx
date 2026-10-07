@@ -1,6 +1,7 @@
 // app/chat/[id].tsx
 // Chat screen — SQLite offline-first + offline auth + network auto-reload + delivery ticks
 // ✅ STABLE MERGE: network response replaces nothing — merges into cache
+// ✅ Call log support (message_type='call') — WhatsApp-style bubbles
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -86,7 +87,7 @@ type Message = {
   created_at: string;
   read_at: string | null;
   delivered_at?: string | null;
-  message_type: 'text' | 'image' | 'voice';
+  message_type: 'text' | 'image' | 'voice' | 'call';
   media_url: string | null;
   media_duration: number | null;
   reply_to_id: string | null;
@@ -196,24 +197,19 @@ async function patchMessageInDb(id: string, patch: Partial<DBMessage>) {
 
 // ============================================================
 // ✅ STABLE MERGE — network response replace nahi karta.
-// Ye "chat screen spinner" aur "messages gayab" ka main fix hai.
 // ============================================================
 function mergeMessages(prev: Message[], next: Message[]): Message[] {
   const map = new Map<string, Message>();
 
-  // 1. Purane (cache + pending) sab preserve karo
   for (const m of prev) map.set(m.id, m);
 
-  // 2. Network entries se update karo
   for (const m of next) {
     if (m.id.startsWith('temp-')) {
-      // Temp entries add mat karo (they come from local optimistic only)
       if (!map.has(m.id)) map.set(m.id, m);
       continue;
     }
     const existing = map.get(m.id);
     if (existing) {
-      // Sirf known fields override karo
       map.set(m.id, {
         ...existing,
         ...m,
@@ -224,7 +220,6 @@ function mergeMessages(prev: Message[], next: Message[]): Message[] {
     }
   }
 
-  // 3. Sort by created_at ASC (oldest first, newest at bottom)
   const merged = Array.from(map.values());
   merged.sort((a, b) => {
     const at = a.created_at || '';
@@ -288,7 +283,6 @@ export default function ChatScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const convoId = params.id;
 
-  // ✅ Call hooks
   const { startCall, callState } = useCall();
 
   const [myId, setMyId] = useState<string | null>(null);
@@ -312,7 +306,6 @@ export default function ChatScreen() {
 
   const [isMutedForConvo, setIsMutedForConvo] = useState(false);
 
-  // ✅ Full-screen photo viewer (tap a photo in chat)
   const [viewerImage, setViewerImage] = useState<Message | null>(null);
   const { width: screenW, height: screenH } = useWindowDimensions();
   const handleImagePress = useCallback((msg: Message) => {
@@ -374,7 +367,6 @@ export default function ChatScreen() {
     }).start();
   }, [showScrollBtn, scrollBtnAnim]);
 
-  // ✅ Network subscription
   useEffect(() => {
     setOnline(isOnline());
     const unsub = subscribeNetwork((next) => {
@@ -383,7 +375,7 @@ export default function ChatScreen() {
     return unsub;
   }, []);
 
-  // ✅ PHASE 3: Show SQLite cache instantly (works offline) — MERGE-safe
+  // ✅ Show SQLite cache instantly
   useEffect(() => {
     if (!convoId || cacheShownRef.current) return;
     (async () => {
@@ -397,14 +389,13 @@ export default function ChatScreen() {
       } catch (err) {
         console.warn('[chat] SQLite read error:', err);
       } finally {
-        // ✅ Guarantee loading=false after cache read
         setLoading(false);
         cacheShownRef.current = true;
       }
     })();
   }, [convoId]);
 
-  // ✅ PHASE 3: Persist messages to SQLite on change
+  // ✅ Persist messages to SQLite
   useEffect(() => {
     if (!convoId) return;
     if (messages.length === 0) return;
@@ -414,7 +405,7 @@ export default function ChatScreen() {
     return () => clearTimeout(timer);
   }, [messages, convoId]);
 
-  // ✅ Bootstrap: works OFFLINE (uses getCurrentUserId from local session)
+  // ✅ Bootstrap: works OFFLINE
   useEffect(() => {
     if (!convoId) return;
     if (bootstrapDoneRef.current) return;
@@ -423,7 +414,6 @@ export default function ChatScreen() {
     let mounted = true;
 
     async function bootstrap() {
-      // ✅ OFFLINE FIX: read user ID from local session (no network)
       const uid = await getCurrentUserId();
       if (!uid || !mounted) {
         setLoading(false);
@@ -431,13 +421,11 @@ export default function ChatScreen() {
         return;
       }
 
-      // Load PIN hash (local)
       const pinHash = await loadStoredPinHash(uid);
       if (!mounted) return;
       setStoredPinHash(pinHash);
       setMyId(uid);
 
-      // ✅ FIX: Load conversation metadata from SQLite (works OFFLINE)
       try {
         const cachedConvo = await dbGetConversation(convoId);
         if (cachedConvo?.other_user_id && mounted) {
@@ -455,7 +443,6 @@ export default function ChatScreen() {
         console.warn('[chat] convo SQLite read error:', err);
       }
 
-      // If offline → skip network, just stop loading (SQLite cache already shown)
       if (!isOnline()) {
         setLockChecked(true);
         setLoading(false);
@@ -521,7 +508,6 @@ export default function ChatScreen() {
         if (otherRes.data?.[0]) {
           const p = (otherRes.data[0] as any).profiles as OtherProfile;
           setOther(p);
-          // ✅ FIX: Persist to SQLite for OFFLINE use next time
           try {
             await dbUpsertConversation({
               id: convoId,
@@ -540,7 +526,6 @@ export default function ChatScreen() {
         const msgs = msgRes.data;
         if (msgs) {
           const ordered = [...msgs].reverse() as Message[];
-          // ✅ FIX: MERGE instead of REPLACE
           setMessages((prev) => mergeMessages(prev, ordered));
           prevMsgCountRef.current = ordered.length;
           setHasMore(msgs.length === PAGE_SIZE);
@@ -573,8 +558,14 @@ export default function ChatScreen() {
           );
           setHiddenForMeIds(hiddenIds);
 
+          // ✅ Skip call logs from read-receipt update (doesn't matter for calls)
           const unreadIds = msgs
-            .filter((m: any) => m.sender_id !== uid && !m.read_at)
+            .filter(
+              (m: any) =>
+                m.sender_id !== uid &&
+                !m.read_at &&
+                m.message_type !== 'call'
+            )
             .map((m: any) => m.id);
           if (unreadIds.length > 0) {
             supabase
@@ -744,6 +735,7 @@ export default function ChatScreen() {
     }
   }, [myId, convoId, hasMore, messages, lockRequired]);
 
+  // ✅ Realtime
   useEffect(() => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
@@ -761,14 +753,18 @@ export default function ChatScreen() {
         },
         (payload) => {
           const incoming = payload.new as Message;
+          const isCallLog = incoming.message_type === 'call';
+
           setPeerTyping(false);
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
 
           if (incoming.sender_id !== myId) {
             markAnimating(incoming.id);
-            if (!isMutedForConvo) playReceive();
+            // ✅ Skip receive sound for call logs
+            if (!isMutedForConvo && !isCallLog) playReceive();
 
-            if (!incoming.delivered_at) {
+            // ✅ Skip delivered/read updates for call logs
+            if (!isCallLog && !incoming.delivered_at) {
               const deliveredAt = new Date().toISOString();
               supabase
                 .from('messages')
@@ -798,7 +794,8 @@ export default function ChatScreen() {
             setNewMessagesCount((c) => c + 1);
           }
 
-          if (incoming.sender_id !== myId) {
+          // ✅ Skip read-receipt update for call logs
+          if (incoming.sender_id !== myId && !isCallLog) {
             supabase
               .from('messages')
               .update({ read_at: new Date().toISOString() })
@@ -1032,6 +1029,7 @@ export default function ChatScreen() {
   const toggleReaction = useCallback(
     async (msg: Message, emoji: string) => {
       if (!myId || msg.is_deleted) return;
+      if (msg.message_type === 'call') return; // ✅ no reactions on call logs
       if (!isOnline()) return;
       hapticLight();
       const existing = (reactionsByMsg[msg.id] ?? []).find(
@@ -1105,12 +1103,14 @@ export default function ChatScreen() {
 
   const handleDoubleTap = useCallback(
     (msg: Message) => {
+      if (msg.message_type === 'call') return; // ✅ no reaction on call logs
       toggleReaction(msg, '❤️');
     },
     [toggleReaction]
   );
 
   const handleReply = useCallback((msg: Message) => {
+    if (msg.message_type === 'call') return; // ✅ no reply on call logs
     setActionSheetMsg(null);
     setReplyingTo(msg);
     setTimeout(() => inputRef.current?.focus(), 150);
@@ -1588,11 +1588,25 @@ export default function ChatScreen() {
     return `Last seen ${Math.floor(hr / 24)}d ago`;
   }
 
+  // ✅ Call log aware preview
   function getMessagePreview(msg: Message | null | undefined): string {
     if (!msg) return '';
     if (msg.is_deleted) return 'This message was deleted';
     if (msg.message_type === 'image') return '📷 Photo';
     if (msg.message_type === 'voice') return '🎤 Voice message';
+    if (msg.message_type === 'call') {
+      try {
+        const parsed = JSON.parse(msg.content || '{}');
+        const glyph = parsed.call_type === 'video' ? '📹' : '📞';
+        const st = parsed.status as string;
+        if (st === 'missed') return `${glyph} Missed call`;
+        if (st === 'declined') return `${glyph} Declined call`;
+        if (st === 'cancelled') return `${glyph} Cancelled call`;
+        return `${glyph} Call`;
+      } catch {
+        return '📞 Call';
+      }
+    }
     return msg.content || '';
   }
 
@@ -1737,6 +1751,8 @@ export default function ChatScreen() {
     );
   }
 
+  const actionIsCall = actionSheetMsg?.message_type === 'call';
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
@@ -1813,7 +1829,6 @@ export default function ChatScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* ✅ Voice call */}
           <TouchableOpacity
             style={styles.headerActionBtn}
             onPress={() => {
@@ -1829,7 +1844,6 @@ export default function ChatScreen() {
             <Ionicons name="call-outline" size={22} color={COLORS.text} />
           </TouchableOpacity>
 
-          {/* ✅ Video call */}
           <TouchableOpacity
             style={styles.headerActionBtn}
             onPress={() => {
@@ -2114,18 +2128,24 @@ export default function ChatScreen() {
               style={styles.dialogCard}
               onPress={(e) => e.stopPropagation()}
             >
-              <ActionRow
-                icon="arrow-undo-outline"
-                label="Reply"
-                onPress={() => actionSheetMsg && handleReply(actionSheetMsg)}
-              />
-              {actionSheetMsg?.message_type === 'text' && (
+              {/* ✅ Hide Reply for call logs */}
+              {!actionIsCall && (
+                <ActionRow
+                  icon="arrow-undo-outline"
+                  label="Reply"
+                  onPress={() => actionSheetMsg && handleReply(actionSheetMsg)}
+                />
+              )}
+
+              {/* ✅ Hide Copy for call logs */}
+              {!actionIsCall && actionSheetMsg?.message_type === 'text' && (
                 <ActionRow
                   icon="copy-outline"
                   label="Copy"
                   onPress={() => actionSheetMsg && handleCopy(actionSheetMsg)}
                 />
               )}
+
               <ActionRow
                 icon="pin-outline"
                 label={
@@ -2228,7 +2248,6 @@ export default function ChatScreen() {
         </BlurView>
       </Modal>
 
-      {/* ✅ Full-screen photo viewer */}
       <Modal
         visible={!!viewerImage}
         transparent
@@ -2286,7 +2305,6 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      {/* ✅ DP hold-to-peek overlay (draws on top of this whole screen) */}
       <AvatarPreviewHost />
     </SafeAreaView>
   );
