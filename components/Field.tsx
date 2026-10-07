@@ -1,9 +1,10 @@
 // components/Field.tsx
 // Reusable field wrapper — label + icon + children
+// Compact design matching website
 
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { COLORS, FONTS, SPACING } from '../constants/theme';
+import { COLORS, FONTS } from '../constants/theme';
 
 type Props = {
   label: string;
@@ -29,18 +30,19 @@ export default function Field({ label, icon, right, children }: Props) {
 
 const styles = StyleSheet.create({
   wrap: {
-    marginBottom: SPACING.md,
+    marginBottom: 16, // gap-4 equivalent
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 5,
+    marginBottom: 6, // mb-1.5
   },
   label: {
-    fontSize: 11.5,
+    fontSize: 12, // text-xs
     fontFamily: FONTS.bodyMedium,
     color: COLORS.mistLight,
+    letterSpacing: 0.2,
   },
   inputWrap: {
     position: 'relative',
@@ -52,5 +54,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     zIndex: 1,
+    pointerEvents: 'none',
   },
 });
