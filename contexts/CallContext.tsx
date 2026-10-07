@@ -5,6 +5,7 @@
 // ✅ Speaker toggle via react-native-incall-manager
 // ✅ Vibration on incoming call (foreground + background)
 // ✅ Phase 12: WhatsApp-style call log insertion (caller side only)
+// ✅ Phase 13: Remote-end auto-dismiss on receiver side
 
 import React, {
   createContext,
@@ -100,6 +101,7 @@ const CallContext = createContext<CallContextValue | null>(null);
 
 const RING_TIMEOUT_MS = 60000;
 const DISCONNECT_GRACE_MS = 8000;
+const REMOTE_END_UI_MS = 1200;
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -131,8 +133,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
   // ✅ Call log bookkeeping
   const loggedCallIdsRef = useRef<Set<string>>(new Set());
   const activeSinceRef = useRef<number | null>(null);
-  // Latest call object (for CallKeep end handler which has stale closure)
   const activeCallRef = useRef<Call | null>(null);
+
+  // ✅ Track whether we (as receiver) already handled an end event
+  const remoteEndHandledRef = useRef<string | null>(null);
+
+  // ============================================================
+  // Shared: safe return to previous screen
+  // ============================================================
+  const safeBack = useCallback(() => {
+    try {
+      router.back();
+    } catch {
+      // ignore — if router can't go back, the call screen will handle it
+    }
+  }, [router]);
 
   // ============================================================
   // Call log helper — only caller inserts (dedup on device)
@@ -140,7 +155,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const logCallOnce = useCallback(
     async (call: Call | null, status: CallLogStatus) => {
       if (!call) return;
-      // Only the caller logs (prevents double entries on receiver device)
       if (call.caller_id !== myIdRef.current) return;
       if (loggedCallIdsRef.current.has(call.id)) return;
       loggedCallIdsRef.current.add(call.id);
@@ -167,7 +181,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       try {
         await insertCallLog({
           callId: call.id,
-          conversationId: null, // will be resolved by findDirectConversation()
+          conversationId: null,
           callerId: call.caller_id,
           receiverId: call.receiver_id,
           callType: call.call_type,
@@ -181,7 +195,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  // Fetch + log by callId (used where call object isn't in scope)
   const logByCallId = useCallback(
     async (callId: string | null, status: CallLogStatus) => {
       if (!callId) return;
@@ -198,7 +211,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
   );
 
   const cleanup = useCallback(() => {
-    // ✅ Stop vibration
     try {
       Vibration.cancel();
     } catch {}
@@ -212,7 +224,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       disconnectGraceRef.current = null;
     }
     if (unsubCallRef.current) {
-      unsubCallRef.current();
+      try {
+        unsubCallRef.current();
+      } catch {}
       unsubCallRef.current = null;
     }
     if (pcRef.current) {
@@ -239,12 +253,80 @@ export function CallProvider({ children }: { children: ReactNode }) {
     callIdRef.current = null;
     activeSinceRef.current = null;
     activeCallRef.current = null;
+    remoteEndHandledRef.current = null;
     setLocalStream(null);
     setRemoteStream(null);
     setIsMuted(false);
     setIsSpeakerOn(false);
     setIsVideoEnabled(false);
   }, []);
+
+  // ============================================================
+  // ✅ Receiver-side: dismiss / end when remote (caller) acts
+  // Returns true if the update was handled (call was terminated)
+  // ============================================================
+  const handleRemoteTermination = useCallback(
+    (updated: Call): boolean => {
+      // Prevent double-handling same terminal event
+      const terminalStatuses: Call['status'][] = [
+        'cancelled',
+        'ended',
+        'rejected',
+        'missed',
+      ];
+      if (!terminalStatuses.includes(updated.status)) return false;
+
+      const key = `${updated.id}:${updated.status}`;
+      if (remoteEndHandledRef.current === key) return true;
+      remoteEndHandledRef.current = key;
+
+      // Caller cancelled while still ringing → dismiss immediately
+      if (updated.status === 'cancelled') {
+        console.log('[call] remote cancelled while ringing — dismissing');
+        hapticError();
+        cleanup();
+        setCallState('idle');
+        setCurrentCall(null);
+        setRemoteUserInfo(null);
+        safeBack();
+        return true;
+      }
+
+      // Caller rejected our call (only relevant on caller side)
+      // Or caller marked call as missed (ring timeout)
+      if (updated.status === 'rejected' || updated.status === 'missed') {
+        console.log('[call] remote rejected/missed — ending');
+        hapticError();
+        setCallState('ended');
+        setTimeout(() => {
+          cleanup();
+          setCallState('idle');
+          setCurrentCall(null);
+          setRemoteUserInfo(null);
+          safeBack();
+        }, REMOTE_END_UI_MS);
+        return true;
+      }
+
+      // Active call ended by remote → show "Call ended" then go back
+      if (updated.status === 'ended') {
+        console.log('[call] remote ended call — closing');
+        hapticError();
+        setCallState('ended');
+        setTimeout(() => {
+          cleanup();
+          setCallState('idle');
+          setCurrentCall(null);
+          setRemoteUserInfo(null);
+          safeBack();
+        }, REMOTE_END_UI_MS);
+        return true;
+      }
+
+      return false;
+    },
+    [cleanup, safeBack]
+  );
 
   // Setup CallKeep
   useEffect(() => {
@@ -268,7 +350,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       onEndCall: (callId) => {
         console.log('[call] user ended via CallKeep:', callId);
         if (callIdRef.current === callId) {
-          // Log before cleanup (if we're the caller)
           const c = activeCallRef.current;
           if (c) {
             const status: CallLogStatus =
@@ -300,7 +381,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
+  // ============================================================
   // Subscribe to incoming calls
+  // ✅ Now also subscribes to updates on THAT call so we get
+  //    notified when the caller cancels or ends it.
+  // ============================================================
   useEffect(() => {
     let unsub: (() => void) | null = null;
 
@@ -312,7 +397,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       unsub = subscribeToIncomingCalls(uid, async (incomingCall) => {
         if (callState !== 'idle') return;
 
-        const age = Date.now() - new Date(incomingCall.created_at).getTime();
+        const age =
+          Date.now() - new Date(incomingCall.created_at).getTime();
         if (age > 30000) return;
 
         const { data: profile } = await supabase
@@ -345,6 +431,36 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
         router.push(
           `/call/${incomingCall.id}?role=receiver&type=${incomingCall.call_type}`
+        );
+
+        // ✅ NEW: watch THIS call for remote updates (cancel / end)
+        // Ensure previous sub is cleared (there shouldn't be one, but be safe)
+        if (unsubCallRef.current) {
+          try {
+            unsubCallRef.current();
+          } catch {}
+          unsubCallRef.current = null;
+        }
+
+        unsubCallRef.current = subscribeToCall(
+          incomingCall.id,
+          async (updated) => {
+            // Only handle terminal states on receiver side.
+            // 'accepted' means WE accepted — ignore.
+            // 'rejected' from us — ignore (our own action).
+            if (updated.status === 'cancelled') {
+              handleRemoteTermination(updated);
+              return;
+            }
+            if (updated.status === 'ended') {
+              handleRemoteTermination(updated);
+              return;
+            }
+            if (updated.status === 'missed') {
+              handleRemoteTermination(updated);
+              return;
+            }
+          }
         );
       });
     })();
@@ -418,7 +534,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
           console.log('[call] grace expired, current state:', state);
           if (state !== 'connected') {
             if (callIdRef.current) {
-              // Log before ending
               logByCallId(callIdRef.current, 'answered');
               apiEndCall(callIdRef.current, myIdRef.current ?? '').catch(
                 () => {}
@@ -456,7 +571,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
           Vibration.cancel();
         } catch {}
 
-        // ✅ Mark start time for duration calculation
         if (!activeSinceRef.current) {
           activeSinceRef.current = Date.now();
         }
@@ -623,7 +737,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
             setCallState('connecting');
           } else if (updated.status === 'rejected') {
             hapticError();
-            // ✅ Receiver rejected → declined
             logCallOnce(call, 'declined');
             setCallState('ended');
             setTimeout(() => {
@@ -636,12 +749,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
             updated.status === 'ended' ||
             updated.status === 'cancelled'
           ) {
-            // ✅ Answered if it was accepted at some point
             const finalStatus: CallLogStatus = updated.accepted_at
               ? 'answered'
               : 'cancelled';
             logCallOnce(
-              { ...call, accepted_at: updated.accepted_at ?? call.accepted_at },
+              {
+                ...call,
+                accepted_at: updated.accepted_at ?? call.accepted_at,
+              },
               finalStatus
             );
             setCallState('ended');
@@ -653,7 +768,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
             }, 1500);
           } else if (updated.status === 'missed') {
             hapticError();
-            // ✅ Missed
             logCallOnce(call, 'missed');
             setCallState('ended');
             setTimeout(() => {
@@ -669,7 +783,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
           try {
             await apiCancelCall(call.id, myId);
           } catch {}
-          // ✅ Ring timeout → missed
           logCallOnce(call, 'missed');
           cleanup();
           setCallState('idle');
@@ -733,7 +846,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const rejectIncomingCall = useCallback(async () => {
     if (!currentCall) return;
-    // ✅ Receiver doesn't log — caller will log 'declined' via realtime
     try {
       await apiRejectCall(currentCall.id);
     } catch {}
@@ -762,7 +874,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       console.warn('[call] end error:', err);
     }
 
-    // ✅ Log if caller
     if (isCaller) {
       if (wasRinging) {
         logCallOnce(call, 'cancelled');
