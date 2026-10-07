@@ -1,8 +1,9 @@
 // app/_layout.tsx
-// Root layout — fonts, auth, theme, navigation stack, push notifications, sounds, SQLite init, network tracker, stale cache cleanup
+// Root layout — fonts, auth, theme, navigation stack, push notifications, sounds,
+// SQLite init, network tracker, stale cache cleanup, notification deep-nav
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import {
   StyleSheet,
@@ -63,8 +64,7 @@ const FONT_MAP = {
 };
 
 // ============================================================
-// FIX #4: Global Error Boundary — kisi bhi screen ka render error
-// white-screen/crash ki jagah graceful screen + retry dikhayega
+// Global Error Boundary — render error pe graceful screen + retry
 // ============================================================
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
   return (
@@ -82,16 +82,18 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => voi
 
 export default function RootLayout() {
   const router = useRouter();
+  const pathname = usePathname();
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const pushRegisteredForUserRef = useRef<string | null>(null);
   const fcmRegisteredForUserRef = useRef<string | null>(null);
-  // FIX #3: double-navigation guard (cold-start + listener overlap)
+  // double-navigation guard (cold-start + listener overlap)
   const lastNotifNavRef = useRef<{ key: string; time: number }>({ key: '', time: 0 });
+  // BLACK-SCREEN FIX: notification data ko stash karo, settle hone ke baad navigate
+  const [pendingNotif, setPendingNotif] = useState<Record<string, any> | null>(null);
 
   // ---------- Init sounds (once on mount) ----------
-  // FIX #6: try/catch — sounds init fail ho toh startup crash na ho
   useEffect(() => {
     try {
       initSounds();
@@ -160,9 +162,9 @@ export default function RootLayout() {
   }, []);
 
   // ---------- Lock session reset on background ----------
-  // FIX #5: sirf 'background' pe lock — 'inactive' iOS me permission dialogs,
-  // control center, incoming-call overlay pe bhi fire hota hai
-  // → bina wajah PIN screen aati thi. (Strict chahiye toh 'inactive' wapas add kar dena)
+  // Sirf 'background' pe lock — 'inactive' iOS me permission dialogs /
+  // control-center / incoming-call overlay pe bhi fire hota hai
+  // → bina wajah PIN screen aati thi.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'background') {
@@ -193,7 +195,6 @@ export default function RootLayout() {
   }, []);
 
   // ---------- Auth ----------
-  // FIX #2: .catch add kiya — getSession reject hua toh splash FOREVER stuck na ho
   useEffect(() => {
     let mounted = true;
 
@@ -206,7 +207,7 @@ export default function RootLayout() {
       })
       .catch((err) => {
         console.warn('[auth] getSession failed:', err);
-        if (mounted) setAuthReady(true); // app stuck na ho
+        if (mounted) setAuthReady(true); // splash stuck na ho
       });
 
     const { data: listener } = supabase.auth.onAuthStateChange(
@@ -223,7 +224,7 @@ export default function RootLayout() {
     };
   }, []);
 
-  // FIX #2b: FAILSAFE — worst case me bhi splash max 8s tak hi rahe
+  // FAILSAFE — worst case me bhi splash max 8s tak hi rahe
   useEffect(() => {
     const t = setTimeout(() => {
       setFontsLoaded(true);
@@ -370,68 +371,83 @@ export default function RootLayout() {
     };
   }, [authReady, userId]);
 
-  // ---------- Notification navigation helper ----------
-  // FIX #1 (CRITICAL): URLSearchParams Hermes me EXIST nahi karta —
-  // call notification tap karte hi app CRASH ho jata tha.
-  // Ab expo-router ka params object use hota hai.
-  const navigateFromNotification = useCallback(
-    (data: Record<string, any> | null | undefined) => {
-      if (!data) return;
-
-      if (data.screen === 'call' && data.callId) {
-        const callId = String(data.callId);
-        const callType = data.callType ?? 'audio';
-
-        // Same notification dobara navigate na ho (cold-start + listener overlap)
-        const key = `call:${callId}:${callType}`;
-        const now = Date.now();
-        if (
-          lastNotifNavRef.current.key === key &&
-          now - lastNotifNavRef.current.time < 3000
-        ) {
-          return;
-        }
-        lastNotifNavRef.current = { key, time: now };
-
-        try {
-          router.push({
-            pathname: '/call/[id]',
-            params: { id: callId, role: 'receiver', type: callType },
-          });
-        } catch (err) {
-          console.warn('[notif] Navigation failed:', err);
-        }
-      }
-      // Future: chat/status notifications handle karne ho toh yahan add karo
-    },
-    [router]
-  );
-
-  // ---------- Notification tap handler ----------
-  // FIX #3: cold-start bhi handle — app killed ho tab bhi call screen khulegi
+  // ============================================================
+  // BLACK-SCREEN FIX — STEP 1: Notification tap ko STASH karo
+  // (cold-start + warm-start dono). Yahan navigate NAHI karte,
+  // kyunki index ka auth-redirect abhi chal raha hota hai —
+  // beech me push karne se call route toota hua mount hota hai.
+  // ============================================================
   useEffect(() => {
-    // App band tha, user ne notification tap kiya
+    // App band thi, user ne notification tap kiya (cold start)
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
         const data = response?.notification?.request?.content
           ?.data as Record<string, any> | undefined;
-        if (!data) return;
-        // Root navigation settle hone do
-        setTimeout(() => navigateFromNotification(data), 250);
+        if (data?.screen === 'call' && data.callId) {
+          setPendingNotif(data);
+        }
+        // Future: chat/status notifications yahan bhi stash kar sakte ho
       })
       .catch(() => {});
 
-    // App chal raha ho (background/foreground) tab tap
+    // App chal rahi ho (background/foreground) tab tap
     const sub = Notifications.addNotificationResponseReceivedListener(
       (response) => {
         const data = response?.notification?.request?.content
           ?.data as Record<string, any> | undefined;
-        navigateFromNotification(data);
+        if (data?.screen === 'call' && data.callId) {
+          setPendingNotif(data);
+        }
       }
     );
 
     return () => sub.remove();
-  }, [navigateFromNotification]);
+  }, []);
+
+  // ============================================================
+  // BLACK-SCREEN FIX — STEP 2: App SETTLE hone ke baad navigate
+  // - auth ready ho
+  // - user logged in ho
+  // - index ka redirect complete ho (adaptive delay se)
+  // ============================================================
+  useEffect(() => {
+    if (!pendingNotif || !authReady) return;
+    if (!userId) return; // logged out — call screen bekaar hogi
+
+    // '/' pe hain → index ka redirect abhi chal raha hai → zyada wait.
+    // Pathname change hote hi effect re-run hoga aur chhota delay lega.
+    const delay = pathname === '/' ? 900 : 350;
+
+    const t = setTimeout(() => {
+      const d = pendingNotif;
+      setPendingNotif(null);
+
+      const callId = String(d.callId);
+      const callType = d.callType === 'video' ? 'video' : 'audio';
+
+      // Same notification dobara navigate na ho
+      const key = `call:${callId}:${callType}`;
+      const now = Date.now();
+      if (
+        lastNotifNavRef.current.key === key &&
+        now - lastNotifNavRef.current.time < 4000
+      ) {
+        return;
+      }
+      lastNotifNavRef.current = { key, time: now };
+
+      try {
+        router.push({
+          pathname: '/call/[id]',
+          params: { id: callId, role: 'receiver', type: callType },
+        });
+      } catch (err) {
+        console.warn('[notif] Navigation failed:', err);
+      }
+    }, delay);
+
+    return () => clearTimeout(t);
+  }, [pendingNotif, authReady, userId, pathname, router]);
 
   // ---------- Hide splash only when BOTH fonts + auth are ready ----------
   const onLayoutRootView = useCallback(async () => {
@@ -440,7 +456,7 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, authReady]);
 
-  // FIX #7: backup effect — splash hide guaranteed (onLayout miss ho toh bhi)
+  // Backup effect — splash hide guaranteed
   useEffect(() => {
     if (fontsLoaded && authReady) {
       SplashScreen.hideAsync().catch(() => {});
@@ -518,7 +534,6 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0A0C12' },
-  // Error Boundary styles
   errorContainer: {
     flex: 1,
     backgroundColor: '#0A0C12',
