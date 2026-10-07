@@ -64,7 +64,7 @@ const FONT_MAP = {
 };
 
 // ============================================================
-// Global Error Boundary — render error pe graceful screen + retry
+// Global Error Boundary
 // ============================================================
 export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
   return (
@@ -88,12 +88,10 @@ export default function RootLayout() {
   const [userId, setUserId] = useState<string | null>(null);
   const pushRegisteredForUserRef = useRef<string | null>(null);
   const fcmRegisteredForUserRef = useRef<string | null>(null);
-  // double-navigation guard (cold-start + listener overlap)
   const lastNotifNavRef = useRef<{ key: string; time: number }>({ key: '', time: 0 });
-  // BLACK-SCREEN FIX: notification data ko stash karo, settle hone ke baad navigate
   const [pendingNotif, setPendingNotif] = useState<Record<string, any> | null>(null);
 
-  // ---------- Init sounds (once on mount) ----------
+  // ---------- Init sounds ----------
   useEffect(() => {
     try {
       initSounds();
@@ -102,7 +100,7 @@ export default function RootLayout() {
     }
   }, []);
 
-  // ---------- Init SQLite (once on mount) ----------
+  // ---------- Init SQLite ----------
   useEffect(() => {
     (async () => {
       try {
@@ -114,7 +112,7 @@ export default function RootLayout() {
     })();
   }, []);
 
-  // ---------- Init network tracker (once on mount) ----------
+  // ---------- Init network tracker ----------
   useEffect(() => {
     try {
       initNetwork();
@@ -162,9 +160,6 @@ export default function RootLayout() {
   }, []);
 
   // ---------- Lock session reset on background ----------
-  // Sirf 'background' pe lock — 'inactive' iOS me permission dialogs /
-  // control-center / incoming-call overlay pe bhi fire hota hai
-  // → bina wajah PIN screen aati thi.
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'background') {
@@ -207,7 +202,7 @@ export default function RootLayout() {
       })
       .catch((err) => {
         console.warn('[auth] getSession failed:', err);
-        if (mounted) setAuthReady(true); // splash stuck na ho
+        if (mounted) setAuthReady(true);
       });
 
     const { data: listener } = supabase.auth.onAuthStateChange(
@@ -224,7 +219,7 @@ export default function RootLayout() {
     };
   }, []);
 
-  // FAILSAFE — worst case me bhi splash max 8s tak hi rahe
+  // FAILSAFE — splash max 8s tak hi rahe
   useEffect(() => {
     const t = setTimeout(() => {
       setFontsLoaded(true);
@@ -268,6 +263,25 @@ export default function RootLayout() {
               contentType: Notifications.AndroidAudioContentType.SPEECH,
             },
           });
+
+          // ✅ CallKeep-native channel — used by VoiceConnectionService (plays ringtone)
+          await Notifications.setNotificationChannelAsync(
+            'com.airalance.app.call',
+            {
+              name: 'Incoming calls (ring)',
+              importance: Notifications.AndroidImportance.MAX,
+              vibrationPattern: [0, 1000, 1000, 1000],
+              lightColor: '#22C55E',
+              sound: 'default',
+              bypassDnd: true,
+              lockscreenVisibility:
+                Notifications.AndroidNotificationVisibility.PUBLIC,
+              audioAttributes: {
+                usage: Notifications.AndroidAudioUsage.VOICE_COMMUNICATION,
+                contentType: Notifications.AndroidAudioContentType.SPEECH,
+              },
+            }
+          );
         } catch (e) {
           console.warn('[push] Channel register failed:', e);
         }
@@ -372,13 +386,9 @@ export default function RootLayout() {
   }, [authReady, userId]);
 
   // ============================================================
-  // BLACK-SCREEN FIX — STEP 1: Notification tap ko STASH karo
-  // (cold-start + warm-start dono). Yahan navigate NAHI karte,
-  // kyunki index ka auth-redirect abhi chal raha hota hai —
-  // beech me push karne se call route toota hua mount hota hai.
+  // BLACK-SCREEN FIX — STEP 1: Notification tap STASH
   // ============================================================
   useEffect(() => {
-    // App band thi, user ne notification tap kiya (cold start)
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
         const data = response?.notification?.request?.content
@@ -386,11 +396,9 @@ export default function RootLayout() {
         if (data?.screen === 'call' && data.callId) {
           setPendingNotif(data);
         }
-        // Future: chat/status notifications yahan bhi stash kar sakte ho
       })
       .catch(() => {});
 
-    // App chal rahi ho (background/foreground) tab tap
     const sub = Notifications.addNotificationResponseReceivedListener(
       (response) => {
         const data = response?.notification?.request?.content
@@ -405,17 +413,12 @@ export default function RootLayout() {
   }, []);
 
   // ============================================================
-  // BLACK-SCREEN FIX — STEP 2: App SETTLE hone ke baad navigate
-  // - auth ready ho
-  // - user logged in ho
-  // - index ka redirect complete ho (adaptive delay se)
+  // BLACK-SCREEN FIX — STEP 2: App settle hone ke baad navigate
   // ============================================================
   useEffect(() => {
     if (!pendingNotif || !authReady) return;
-    if (!userId) return; // logged out — call screen bekaar hogi
+    if (!userId) return;
 
-    // '/' pe hain → index ka redirect abhi chal raha hai → zyada wait.
-    // Pathname change hote hi effect re-run hoga aur chhota delay lega.
     const delay = pathname === '/' ? 900 : 350;
 
     const t = setTimeout(() => {
@@ -425,7 +428,6 @@ export default function RootLayout() {
       const callId = String(d.callId);
       const callType = d.callType === 'video' ? 'video' : 'audio';
 
-      // Same notification dobara navigate na ho
       const key = `call:${callId}:${callType}`;
       const now = Date.now();
       if (
@@ -456,7 +458,6 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, authReady]);
 
-  // Backup effect — splash hide guaranteed
   useEffect(() => {
     if (fontsLoaded && authReady) {
       SplashScreen.hideAsync().catch(() => {});
