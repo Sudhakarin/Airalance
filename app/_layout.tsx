@@ -1,6 +1,7 @@
 // app/_layout.tsx
 // Root layout — fonts, auth, theme, navigation stack, push notifications, sounds,
 // SQLite init, network tracker, stale cache cleanup, notification deep-nav
+// ✅ FIX: sync in-memory userId cache with auth state (instant cold start)
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Stack, useRouter, usePathname } from 'expo-router';
@@ -34,6 +35,7 @@ import {
 } from '@expo-google-fonts/poppins';
 import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono';
 import { supabase } from '../lib/supabase';
+import { setUserIdCache } from '../lib/auth'; // ✅ NEW
 import { setSessionUnlocked } from '../lib/pin';
 import { initSounds } from '../lib/sounds';
 import { getDB } from '../lib/db';
@@ -198,6 +200,7 @@ export default function RootLayout() {
       .then(({ data: { session } }) => {
         if (!mounted) return;
         setUserId(session?.user?.id ?? null);
+        setUserIdCache(session?.user?.id ?? null); // ✅ NEW
         setAuthReady(true);
       })
       .catch((err) => {
@@ -209,6 +212,7 @@ export default function RootLayout() {
       (_event, session) => {
         if (!mounted) return;
         setUserId(session?.user?.id ?? null);
+        setUserIdCache(session?.user?.id ?? null); // ✅ NEW
         setAuthReady(true);
       }
     );
@@ -249,7 +253,6 @@ export default function RootLayout() {
             sound: 'default',
           });
 
-          // ✅ Calls channel — custom ringtone
           await Notifications.setNotificationChannelAsync('calls', {
             name: 'Incoming calls',
             importance: Notifications.AndroidImportance.MAX,
@@ -265,7 +268,6 @@ export default function RootLayout() {
             },
           });
 
-          // ✅ CallKeep-native channel — custom ringtone
           await Notifications.setNotificationChannelAsync(
             'com.airalance.app.call',
             {
@@ -388,14 +390,12 @@ export default function RootLayout() {
 
   // ============================================================
   // ✅ Android 14+ Full-Screen Intent permission check
-  // Non-calling apps ko manually permission leni padti hai
-  // (Android doesn't allow auto-prompt for this permission)
   // ============================================================
   useEffect(() => {
     if (Platform.OS !== 'android') return;
     if (!authReady) return;
     if (typeof Platform.Version !== 'number') return;
-    if (Platform.Version < 34) return; // Only Android 14+
+    if (Platform.Version < 34) return;
 
     console.log(
       '[fsi] Android 14+ detected. Full-screen calls need manual permission grant.'
@@ -471,7 +471,7 @@ export default function RootLayout() {
     return () => clearTimeout(t);
   }, [pendingNotif, authReady, userId, pathname, router]);
 
-  // ---------- Hide splash only when BOTH fonts + auth are ready ----------
+  // ---------- Hide splash ----------
   const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded && authReady) {
       await SplashScreen.hideAsync().catch(() => {});
