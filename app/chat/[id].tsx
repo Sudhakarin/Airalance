@@ -1,8 +1,11 @@
 // app/chat/[id].tsx
 // Chat screen — SQLite offline-first + offline auth + network auto-reload + delivery ticks
-// ✅ STABLE MERGE: network response replaces nothing — merges into cache
-// ✅ Call log support (message_type='call') — WhatsApp-style bubbles
-// ✅ Phase 14: convoId passed to startCall for reliable call log
+// ✅ STABLE MERGE + call log + Phase 14
+// 🐛 FIXES:
+//   - patchMessageInDb normalizes timestamps
+//   - mergeMessages sort comparator stable (returns 0)
+//   - sendMessage: upsert server row BEFORE deleting temp (no message loss)
+//   - retryPendingMessages: same safe order
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -117,6 +120,22 @@ const PAGE_SIZE = 10;
 const MESSAGES_SQLITE_LIMIT = 100;
 
 // ============================================================
+// ✅ Timestamp normalization (same as lib/db.ts)
+// ============================================================
+function normalizeIso(input: string | null | undefined): string | null {
+  if (!input) return null;
+  if (typeof input !== 'string') return null;
+  if (input.endsWith('Z') && input.includes('T')) return input;
+  try {
+    const d = new Date(input);
+    if (isNaN(d.getTime())) return input;
+    return d.toISOString();
+  } catch {
+    return input;
+  }
+}
+
+// ============================================================
 // SQLite <-> Message conversions
 // ============================================================
 function dbRowToMessage(row: DBMessage): Message {
@@ -166,6 +185,7 @@ async function persistMessages(list: Message[]) {
   }
 }
 
+// ✅ FIX: normalize timestamps before saving
 async function patchMessageInDb(id: string, patch: Partial<DBMessage>) {
   try {
     const db = await getDB();
@@ -185,8 +205,8 @@ async function patchMessageInDb(id: string, patch: Partial<DBMessage>) {
       [
         patch.content ?? null,
         patch.is_deleted ?? null,
-        patch.read_at ?? null,
-        patch.delivered_at ?? null,
+        normalizeIso(patch.read_at),
+        normalizeIso(patch.delivered_at),
         patch.local_status ?? null,
         id,
       ]
@@ -197,7 +217,8 @@ async function patchMessageInDb(id: string, patch: Partial<DBMessage>) {
 }
 
 // ============================================================
-// ✅ STABLE MERGE — network response replace nahi karta.
+// ✅ STABLE MERGE — network response replaces nothing
+// ✅ FIX: proper sort comparator (returns 0)
 // ============================================================
 function mergeMessages(prev: Message[], next: Message[]): Message[] {
   const map = new Map<string, Message>();
@@ -228,6 +249,7 @@ function mergeMessages(prev: Message[], next: Message[]): Message[] {
     if (!at && !bt) return 0;
     if (!at) return 1;
     if (!bt) return -1;
+    if (at === bt) return 0;
     return at < bt ? -1 : 1;
   });
   return merged;
@@ -376,7 +398,6 @@ export default function ChatScreen() {
     return unsub;
   }, []);
 
-  // ✅ Show SQLite cache instantly
   useEffect(() => {
     if (!convoId || cacheShownRef.current) return;
     (async () => {
@@ -396,7 +417,6 @@ export default function ChatScreen() {
     })();
   }, [convoId]);
 
-  // ✅ Persist messages to SQLite
   useEffect(() => {
     if (!convoId) return;
     if (messages.length === 0) return;
@@ -406,7 +426,6 @@ export default function ChatScreen() {
     return () => clearTimeout(timer);
   }, [messages, convoId]);
 
-  // ✅ Bootstrap: works OFFLINE
   useEffect(() => {
     if (!convoId) return;
     if (bootstrapDoneRef.current) return;
@@ -559,7 +578,6 @@ export default function ChatScreen() {
           );
           setHiddenForMeIds(hiddenIds);
 
-          // ✅ Skip call logs from read-receipt update
           const unreadIds = msgs
             .filter(
               (m: any) =>
@@ -591,7 +609,7 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
-  // ✅ Retry pending messages
+  // ✅ FIX: safe order — upsert server row FIRST, delete temp AFTER
   const retryPendingMessages = useCallback(async () => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
@@ -621,11 +639,12 @@ export default function ChatScreen() {
 
           if (error) throw error;
           if (inserted) {
-            await dbDeleteMessage(p.id);
+            // ✅ FIX: upsert server row first (safe), then delete temp
             await dbUpsertMessage({
               ...messageToDbRow(inserted as Message),
               local_status: 'synced',
             });
+            await dbDeleteMessage(p.id);
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === p.id
@@ -736,7 +755,6 @@ export default function ChatScreen() {
     }
   }, [myId, convoId, hasMore, messages, lockRequired]);
 
-  // ✅ Realtime
   useEffect(() => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
@@ -1270,6 +1288,7 @@ export default function ChatScreen() {
     } catch {}
   }
 
+  // ✅ FIX: upsert server row FIRST, delete temp AFTER (no message loss)
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
@@ -1339,9 +1358,11 @@ export default function ChatScreen() {
         ...(inserted as Message),
         local_status: 'synced',
       };
+
+      // ✅ FIX: server first, then temp removed
       try {
-        await dbDeleteMessage(tempId);
         await dbUpsertMessage(messageToDbRow(serverMsg));
+        await dbDeleteMessage(tempId);
       } catch (err) {
         console.warn('[chat] SQLite sync save failed:', err);
       }
@@ -1586,7 +1607,6 @@ export default function ChatScreen() {
     return `Last seen ${Math.floor(hr / 24)}d ago`;
   }
 
-  // ✅ Call log aware preview
   function getMessagePreview(msg: Message | null | undefined): string {
     if (!msg) return '';
     if (msg.is_deleted) return 'This message was deleted';
