@@ -1,5 +1,6 @@
 // app/chat/[id].tsx
 // Chat screen — SQLite offline-first + offline auth + network auto-reload + delivery ticks
+// ✅ STABLE MERGE: network response replaces nothing — merges into cache
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -193,6 +194,49 @@ async function patchMessageInDb(id: string, patch: Partial<DBMessage>) {
   }
 }
 
+// ============================================================
+// ✅ STABLE MERGE — network response replace nahi karta.
+// Ye "chat screen spinner" aur "messages gayab" ka main fix hai.
+// ============================================================
+function mergeMessages(prev: Message[], next: Message[]): Message[] {
+  const map = new Map<string, Message>();
+
+  // 1. Purane (cache + pending) sab preserve karo
+  for (const m of prev) map.set(m.id, m);
+
+  // 2. Network entries se update karo
+  for (const m of next) {
+    if (m.id.startsWith('temp-')) {
+      // Temp entries add mat karo (they come from local optimistic only)
+      if (!map.has(m.id)) map.set(m.id, m);
+      continue;
+    }
+    const existing = map.get(m.id);
+    if (existing) {
+      // Sirf known fields override karo
+      map.set(m.id, {
+        ...existing,
+        ...m,
+        local_status: 'synced',
+      });
+    } else {
+      map.set(m.id, m);
+    }
+  }
+
+  // 3. Sort by created_at ASC (oldest first, newest at bottom)
+  const merged = Array.from(map.values());
+  merged.sort((a, b) => {
+    const at = a.created_at || '';
+    const bt = b.created_at || '';
+    if (!at && !bt) return 0;
+    if (!at) return 1;
+    if (!bt) return -1;
+    return at < bt ? -1 : 1;
+  });
+  return merged;
+}
+
 // ---------- Memoized row ----------
 const MessageRow = memo(function MessageRow({
   item,
@@ -339,7 +383,7 @@ export default function ChatScreen() {
     return unsub;
   }, []);
 
-  // ✅ PHASE 3: Show SQLite cache instantly (works offline)
+  // ✅ PHASE 3: Show SQLite cache instantly (works offline) — MERGE-safe
   useEffect(() => {
     if (!convoId || cacheShownRef.current) return;
     (async () => {
@@ -347,14 +391,16 @@ export default function ChatScreen() {
         const rows = await dbGetMessages(convoId, MESSAGES_SQLITE_LIMIT);
         if (rows.length > 0) {
           const ordered = [...rows].reverse().map(dbRowToMessage);
-          setMessages(ordered);
-          setLoading(false);
+          setMessages((prev) => mergeMessages(prev, ordered));
           prevMsgCountRef.current = ordered.length;
         }
       } catch (err) {
         console.warn('[chat] SQLite read error:', err);
+      } finally {
+        // ✅ Guarantee loading=false after cache read
+        setLoading(false);
+        cacheShownRef.current = true;
       }
-      cacheShownRef.current = true;
     })();
   }, [convoId]);
 
@@ -494,7 +540,8 @@ export default function ChatScreen() {
         const msgs = msgRes.data;
         if (msgs) {
           const ordered = [...msgs].reverse() as Message[];
-          setMessages(ordered);
+          // ✅ FIX: MERGE instead of REPLACE
+          setMessages((prev) => mergeMessages(prev, ordered));
           prevMsgCountRef.current = ordered.length;
           setHasMore(msgs.length === PAGE_SIZE);
 
