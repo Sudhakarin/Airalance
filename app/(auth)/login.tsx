@@ -1,6 +1,7 @@
 // app/(auth)/login.tsx
 // Full login flow — password, OTP, forgot password (6 modes)
 // Compact design matching website
+// ✅ FIXED: consistent input heights (minHeight: 44)
 
 import { useState } from 'react';
 import {
@@ -756,9 +757,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // ✅ COMPACT inputs — matches website
+  // ✅ COMPACT input — all same height (44px)
   input: {
     width: '100%',
+    minHeight: 44,
     backgroundColor: COLORS.ink800,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
@@ -768,6 +770,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
+    justifyContent: 'center',
   },
   inputWithIcon: {
     paddingLeft: 42,
