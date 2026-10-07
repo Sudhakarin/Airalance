@@ -1,5 +1,6 @@
 // components/OtpBoxes.tsx
 // 6-box OTP input — auto-advance, paste support
+// Compact design matching website
 
 import { useRef } from 'react';
 import {
@@ -70,15 +71,16 @@ const styles = StyleSheet.create({
   },
   box: {
     flex: 1,
-    height: 50,
-    borderRadius: RADII.lg,
+    height: 44,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
     backgroundColor: COLORS.ink800,
     textAlign: 'center',
-    fontSize: 18,
+    fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
     color: '#FFFFFF',
+    paddingVertical: 0,
   },
   boxFilled: {
     borderColor: 'rgba(124,92,255,0.5)',
