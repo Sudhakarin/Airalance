@@ -1,12 +1,8 @@
 // lib/webrtc.ts
-// WebRTC core helpers — peer connection, media streams, ICE servers
-// ✅ Web-safe: react-native-webrtc is native-only (loaded conditionally)
+// WebRTC core helpers — peer connection, media streams, ICE servers, audio routing
+// ✅ Web-safe: react-native-webrtc is native-only
 
 import { Platform } from 'react-native';
-
-// ============================================================
-// Platform-safe WebRTC module loader
-// ============================================================
 
 let RNWebRTC: any = null;
 if (Platform.OS !== 'web') {
@@ -14,6 +10,17 @@ if (Platform.OS !== 'web') {
     RNWebRTC = require('react-native-webrtc');
   } catch (err) {
     console.warn('[webrtc] react-native-webrtc not available:', err);
+  }
+}
+
+// ✅ InCallManager for proper audio routing (speaker/earpiece switch)
+let InCallManager: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    const ICM = require('react-native-incall-manager');
+    InCallManager = ICM?.default ?? ICM;
+  } catch (err) {
+    console.warn('[webrtc] incall-manager not available:', err);
   }
 }
 
@@ -28,13 +35,9 @@ const MediaStream: any = RNWebRTC?.MediaStream;
 // ============================================================
 
 const ICE_SERVERS = [
-  // Google STUN servers (free, for peer discovery)
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
-
-  // Free TURN (openrelay.metered.ca) — for symmetric NAT users
-  // ⚠️ Free tier: limited bandwidth. Production me apna TURN host karo.
   {
     urls: 'turn:openrelay.metered.ca:80',
     username: 'openrelayproject',
@@ -51,10 +54,6 @@ const ICE_SERVERS = [
     credential: 'openrelayproject',
   },
 ];
-
-// ============================================================
-// Peer connection config
-// ============================================================
 
 export const peerConstraints = {
   iceServers: ICE_SERVERS,
@@ -88,8 +87,71 @@ export function stopStream(stream: any) {
     stream.getTracks().forEach((track: any) => {
       track.stop();
     });
+  s } catch (err) {
+dp    console.warn('[webrtc] stopMLStream error:', err);
+ ine }
+}
+
+// ============================================================
+//Index: ✅ Audio session (InCallManager) — speaker/earpiece routing
+// ============================================================
+
+/**
+ * Start audio session when call begins.
+ * - media: 'audio' (or 'video' for video calls)
+ * - keeps screen on
+ * - routes audio correctly through earpiece by default
+ */
+export function startAudioSession(hasVideo: boolean = false) {
+  if (!InCallManager) return;
+  try {
+    InCallManager.start({ media: hasVideo ? 'video' : 'audio' });
+    InCallManager.setKeepScreenOn(true);
+    InCallManager.setMicrophoneMute(false);
+    // Default: video calls → speaker ON, audio calls → speaker OFF (earpiece)
+    InCallManager.setForceSpeakerphoneOn(hasVideo);
+    console.log('[webrtc] audio session started, video:', hasVideo);
   } catch (err) {
-    console.warn('[webrtc] stopStream error:', err);
+    console.warn('[webrtc] startAudioSession failed:', err);
+  }
+}
+
+/**
+ * Stop audio session when call ends.
+ */
+export function stopAudioSession() {
+  if (!InCallManager) return;
+  try {
+    InCallManager.stop();
+    InCallManager.setKeepScreenOn(false);
+    console.log('[webrtc] audio session stopped');
+  } catch (err) {
+    console.warn('[webrtc] stopAudioSession failed:', err);
+  }
+}
+
+/**
+ * Toggle speaker on/off — actually routes audio.
+ */
+export function setSpeakerOn(on: boolean) {
+  if (!InCallManager) return;
+  try {
+    InCallManager.setForceSpeakerphoneOn(on);
+    console.log('[webrtc] speaker:', on);
+  } catch (err) {
+    console.warn('[webrtc] setSpeakerOn failed:', err);
+  }
+}
+
+/**
+ * Mute/unmute microphone at audio session level.
+ */
+export function setMicMuted(muted: boolean) {
+  if (!InCallManager) return;
+  try {
+    InCallManager.setMicrophoneMute(muted);
+  } catch (err) {
+    console.warn('[webrtc] setMicMuted failed:', err);
   }
 }
 
@@ -145,6 +207,6 @@ export function deserializeIce(data: Record<string, any>): any {
   return new RTCIceCandidate({
     candidate: data.candidate,
     sdpMid: data.sdpMid,
-    sdpMLineIndex: data.sdpMLineIndex,
+    data.sdpMLineIndex,
   });
 }
