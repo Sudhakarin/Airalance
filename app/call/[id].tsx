@@ -1,8 +1,10 @@
 // app/call/[id].tsx
 // Voice/Video call screen — wired to CallContext (real WebRTC)
 // ✅ Web-safe: RTCView is native-only
-// ✅ Redesigned: pulse rings, glass control bar, swipe-to-answer,
-//    edge-snapping PiP, timer chip, E2E hint, proper ended state
+// ✅ Pulse rings, glass control bar, swipe-to-answer, edge-snapping PiP
+// ✅ BLACK-SCREEN FIX: notification tap se aaye call ka self-bootstrap
+//    fallback — context 'idle' ho toh screen khud Supabase se call
+//    fetch karke ringing → accept → WebRTC chalati hai.
 
 import { useEffect, useState, useRef } from 'react';
 import {
@@ -15,6 +17,8 @@ import {
   Animated,
   Dimensions,
   Easing,
+  Vibration,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -24,15 +28,44 @@ import { useCall } from '../../contexts/CallContext';
 import Avatar from '../../components/Avatar';
 import { COLORS, FONTS, SPACING } from '../../constants/theme';
 import { hapticMedium, hapticSuccess, hapticError } from '../../lib/haptics';
+import { supabase } from '../../lib/supabase';
 
 let RTCView: any = null;
+let RTCPeerConnection: any = null;
+let RTCSessionDescription: any = null;
+let RTCIceCandidate: any = null;
+let mediaDevices: any = null;
 if (Platform.OS !== 'web') {
   try {
-    RTCView = require('react-native-webrtc').RTCView;
+    const WebRTC = require('react-native-webrtc');
+    RTCView = WebRTC.RTCView;
+    RTCPeerConnection = WebRTC.RTCPeerConnection;
+    RTCSessionDescription = WebRTC.RTCSessionDescription;
+    RTCIceCandidate = WebRTC.RTCIceCandidate;
+    mediaDevices = WebRTC.mediaDevices;
   } catch (err) {
-    console.warn('[call] RTCView not available:', err);
+    console.warn('[call] react-native-webrtc not available:', err);
   }
 }
+
+// Optional — speaker toggle best-effort (fallback path ke liye)
+let InCallManager: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    InCallManager = require('react-native-incall-manager').default;
+  } catch {}
+}
+
+// ⚠️ PRODUCTION: TURN server add karo warna kai networks pe connect nahi hoga
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    // { urls: 'turn:your.turn.server:3478', username: 'user', credential: 'pass' },
+  ],
+};
+
+const FB_RING_TIMEOUT_MS = 45_000;
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -55,7 +88,7 @@ function TypingDots() {
           Animated.delay(delay),
           Animated.timing(v, { toValue: 1, duration: 300, useNativeDriver: true }),
           Animated.timing(v, { toValue: 0.25, duration: 300, useNativeDriver: true }),
-          Animated.delay(900 - delay), // keeps total period 1500ms → always in sync
+          Animated.delay(900 - delay),
         ])
       );
     const l1 = make(a, 0);
@@ -123,27 +156,397 @@ export default function CallScreen() {
   }, [remoteUserInfo]);
 
   const remoteInfo = remoteUserInfo ?? cachedRemoteInfoRef.current;
-  const name = remoteInfo?.name ?? 'Unknown';
-  const avatarUrl = remoteInfo?.avatar ?? null;
+
+  // ============================================================
+  // BLACK-SCREEN FIX — FALLBACK (notification path)
+  // Context 'idle' ho + params me incoming call ho → screen khud
+  // Supabase se call bootstrap karti hai (ringing → accept → WebRTC)
+  // ============================================================
+  type FbCall = {
+    callId: string;
+    callType: 'audio' | 'video';
+    callerName: string;
+    callerAvatar: string | null;
+  };
+
+  const [fb, setFb] = useState<FbCall | null>(null);
+  const [fbPhase, setFbPhase] = useState<
+    'loading' | 'ringing' | 'connecting' | 'active' | 'ended'
+  >('loading');
+  const [fbRemoteStream, setFbRemoteStream] = useState<any>(null);
+  const [fbLocalStream, setFbLocalStream] = useState<any>(null);
+  const [fbMuted, setFbMuted] = useState(false);
+  const [fbSpeaker, setFbSpeaker] = useState(false);
+  const [fbVideoEnabled, setFbVideoEnabled] = useState(true);
+  const [fbElapsed, setFbElapsed] = useState(0);
+
+  const fbRef = useRef<FbCall | null>(null);
+  const fbPhaseRef = useRef(fbPhase);
+  const callStateRef = useRef(callState);
+  const myIdRef = useRef<string | null>(null);
+  const fbPcRef = useRef<any>(null);
+  const fbLocalRef = useRef<any>(null);
+  const fbRingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fbTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fbChannelRef = useRef<any>(null);
+  const fbEndedRef = useRef(false);
+  const fbConnectedRef = useRef(false);
+  const fbPendingIceRef = useRef<any[]>([]);
+  const bootstrappedForRef = useRef<string | null>(null);
+  const aliveRef = useRef(true);
+
+  useEffect(() => { fbRef.current = fb; }, [fb]);
+  useEffect(() => { fbPhaseRef.current = fbPhase; }, [fbPhase]);
+  useEffect(() => { callStateRef.current = callState; }, [callState]);
+  useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; }; }, []);
+
+  // ---- Fallback: teardown ----
+  const fbCleanupMedia = () => {
+    Vibration.cancel();
+    if (fbRingTimerRef.current) { clearTimeout(fbRingTimerRef.current); fbRingTimerRef.current = null; }
+    if (fbTickRef.current) { clearInterval(fbTickRef.current); fbTickRef.current = null; }
+    try { fbLocalRef.current?.getTracks?.().forEach((t: any) => t.stop()); } catch {}
+    fbLocalRef.current = null;
+    try { fbPcRef.current?.close?.(); } catch {}
+    fbPcRef.current = null;
+    if (fbChannelRef.current) {
+      try { supabase.removeChannel(fbChannelRef.current); } catch {}
+      fbChannelRef.current = null;
+    }
+  };
+
+  const fbEnd = (status: 'ended' | 'declined' | 'missed' | null) => {
+    if (fbEndedRef.current) return;
+    fbEndedRef.current = true;
+    fbCleanupMedia();
+    const cur = fbRef.current;
+    if (status && cur) {
+      supabase.from('calls').update({ status }).eq('id', cur.callId).then(
+        () => {},
+        () => {}
+      );
+    }
+    if (aliveRef.current) setFbPhase('ended');
+  };
+
+  // ---- Fallback: ICE helpers ----
+  const fbAddIce = async (candidate: any) => {
+    const pc = fbPcRef.current;
+    if (!pc || !candidate) return;
+    try {
+      if (pc.remoteDescription?.type) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } else {
+        fbPendingIceRef.current.push(candidate);
+      }
+    } catch {}
+  };
+
+  const createFbPc = (stream: any, callId: string) => {
+    const pc: any = new RTCPeerConnection(RTC_CONFIG);
+    stream.getTracks().forEach((t: any) => pc.addTrack(t, stream));
+
+    pc.ontrack = (e: any) => {
+      const s = e.streams?.[0] ?? e.stream;
+      if (s) {
+        setFbRemoteStream(s);
+        if (!fbConnectedRef.current) {
+          fbConnectedRef.current = true;
+          if (fbTickRef.current) { clearInterval(fbTickRef.current); fbTickRef.current = null; }
+          if (aliveRef.current) {
+            setFbPhase('active');
+            fbTickRef.current = setInterval(() => setFbElapsed((x) => x + 1), 1000);
+          }
+        }
+      }
+    };
+    pc.onicecandidate = (e: any) => {
+      if (e.candidate && myIdRef.current) {
+        supabase
+          .from('call_signals')
+          .insert({ call_id: callId, sender_id: myIdRef.current, kind: 'candidate', payload: e.candidate })
+          .then(() => {}, () => {});
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        fbEnd(null);
+      }
+    };
+    fbPcRef.current = pc;
+    return pc;
+  };
+
+  // ---- Fallback: bootstrap (Supabase se call fetch) ----
+  const bootstrapFallback = async (callId: string) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setFbPhase('ended'); return; }
+      myIdRef.current = user.id;
+
+      const { data: row } = await supabase
+        .from('calls')
+        .select('*')
+        .eq('id', callId)
+        .maybeSingle();
+
+      if (
+        !row ||
+        ['ended', 'declined', 'missed'].includes(row.status) ||
+        row.receiver_id !== user.id
+      ) {
+        setFbPhase('ended');
+        return;
+      }
+
+      const rawType = row.call_type ?? row.type ?? params.type ?? 'audio';
+      const isVideo = rawType === 'video';
+
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('id, username, full_name, avatar_url')
+        .eq('id', row.caller_id)
+        .maybeSingle();
+
+      setFb({
+        callId,
+        callType: isVideo ? 'video' : 'audio',
+        callerName: prof?.full_name || prof?.username || 'Unknown',
+        callerAvatar: prof?.avatar_url ?? null,
+      });
+      setFbVideoEnabled(isVideo);
+      setFbPhase('ringing');
+
+      Vibration.vibrate([0, 1000, 1000], true);
+      fbRingTimerRef.current = setTimeout(() => fbEnd('missed'), FB_RING_TIMEOUT_MS);
+    } catch (e) {
+      console.warn('[call] fallback bootstrap failed:', e);
+      setFbPhase('ended');
+    }
+  };
+
+  // Grace period — FCM background handler ko context set karne ka
+  // mauka do; agar 700ms baad bhi context 'idle' hai toh fallback chalao
+  useEffect(() => {
+    const id = params.id ? String(params.id) : '';
+    if (!id || params.role !== 'receiver') return;
+    if (Platform.OS === 'web') return;
+
+    const t = setTimeout(() => {
+      if (callStateRef.current !== 'idle') return; // context ne sambhal liya
+      if (bootstrappedForRef.current === id) return;
+      bootstrappedForRef.current = id;
+      void bootstrapFallback(id);
+    }, 700);
+
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id, params.role]);
+
+  // ---- Fallback: realtime (answer/status + candidates) ----
+  useEffect(() => {
+    if (!fb || !myIdRef.current) return;
+    if (fbPhase === 'ended') return;
+
+    const ch = supabase
+      .channel(`fb-call-${fb.callId}`)
+      .on(
+        'postgres_changes' as any,
+        { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${fb.callId}` },
+        (msg: any) => {
+          const row = msg.new;
+          if (['declined', 'ended', 'missed'].includes(row.status)) {
+            fbEnd(null);
+          }
+        }
+      )
+      .on(
+        'postgres_changes' as any,
+        { event: 'INSERT', schema: 'public', table: 'call_signals', filter: `call_id=eq.${fb.callId}` },
+        (msg: any) => {
+          const sig = msg.new;
+          if (sig.sender_id === myIdRef.current) return;
+          const cand = sig.payload?.candidate ?? sig.payload;
+          if (cand?.candidate) void fbAddIce(cand);
+        }
+      )
+      .subscribe();
+
+    fbChannelRef.current = ch;
+    return () => {
+      try { supabase.removeChannel(ch); } catch {}
+      if (fbChannelRef.current === ch) fbChannelRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fb, fbPhase === 'ended']);
+
+  // ---- Fallback: Accept ----
+  const fbAccept = async () => {
+    const cur = fbRef.current;
+    if (!cur || fbPhaseRef.current !== 'ringing') return;
+    fbPhaseRef.current = 'connecting';
+    Vibration.cancel();
+    if (fbRingTimerRef.current) { clearTimeout(fbRingTimerRef.current); fbRingTimerRef.current = null; }
+    setFbPhase('connecting');
+
+    try {
+      if (typeof RTCPeerConnection !== 'function') throw new Error('WebRTC unavailable');
+
+      // Offer retry (caller abhi write kar raha ho sakta hai)
+      let offer = cur.row?.offer;
+      for (let i = 0; i < 10 && !offer?.sdp; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const { data } = await supabase
+          .from('calls')
+          .select('offer, status')
+          .eq('id', cur.callId)
+          .maybeSingle();
+        if (data?.status && ['ended', 'declined', 'missed'].includes(data.status)) {
+          throw new Error('call already ended');
+        }
+        offer = data?.offer ?? offer;
+      }
+      if (!offer?.sdp) throw new Error('offer missing');
+
+      await supabase.from('calls').update({ status: 'accepted' }).eq('id', cur.callId);
+
+      const stream = await mediaDevices.getUserMedia({
+        audio: true,
+        video: cur.callType === 'video' ? { facingMode: 'user' } : false,
+      });
+      fbLocalRef.current = stream;
+      setFbLocalStream(stream);
+
+      const pc = createFbPc(stream, cur.callId);
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+      // Pehle se aaye candidates (offer ke saath)
+      try {
+        const { data: sigs } = await supabase
+          .from('call_signals')
+          .select('*')
+          .eq('call_id', cur.callId)
+          .order('created_at', { ascending: true });
+        for (const s of sigs ?? []) {
+          if (s.sender_id === myIdRef.current) continue;
+          const cand = s.payload?.candidate ?? s.payload;
+          if (cand?.candidate) await fbAddIce(cand);
+        }
+      } catch {}
+
+      const pending = fbPendingIceRef.current;
+      fbPendingIceRef.current = [];
+      for (const c of pending) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+      }
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await supabase
+        .from('calls')
+        .update({ answer: { type: answer.type, sdp: answer.sdp } })
+        .eq('id', cur.callId);
+    } catch (e: any) {
+      console.warn('[call] fallback accept failed:', e?.message ?? e);
+      fbEnd('ended');
+    }
+  };
+
+  // ---- Fallback: control toggles ----
+  const fbToggleMute = () => {
+    const s = fbLocalRef.current;
+    if (!s) return;
+    const next = !fbMuted;
+    s.getAudioTracks?.().forEach((t: any) => { t.enabled = !next; });
+    setFbMuted(next);
+  };
+
+  const fbToggleSpeaker = () => {
+    const next = !fbSpeaker;
+    setFbSpeaker(next);
+    try { InCallManager?.setForceSpeakerphoneOn?.(next); } catch {}
+  };
+
+  const fbToggleVideo = () => {
+    const s = fbLocalRef.current;
+    if (!s) return;
+    const next = !fbVideoEnabled;
+    s.getVideoTracks?.().forEach((t: any) => { t.enabled = next; });
+    setFbVideoEnabled(next);
+  };
+
+  // ---- Fallback: ended → auto-close ----
+  useEffect(() => {
+    if (fb && fbPhase === 'ended') {
+      const t = setTimeout(() => {
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace('/(tabs)/chats');
+        }
+      }, 2500);
+      return () => clearTimeout(t);
+    }
+  }, [fb, fbPhase, router]);
+
+  // ---- Fallback: unmount cleanup (back during ringing → 'missed') ----
+  useEffect(() => {
+    return () => {
+      const wasRinging = fbPhaseRef.current === 'ringing';
+      const cur = fbRef.current;
+      fbCleanupMedia();
+      if (cur && wasRinging && !fbEndedRef.current) {
+        supabase.from('calls').update({ status: 'missed' }).eq('id', cur.callId).then(
+          () => {},
+          () => {}
+        );
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ============================================================
+  // Effective state — fallback context ke state ko override karta hai
+  // ============================================================
+  const FB_TO_STATE: Record<string, string> = {
+    loading: 'connecting',
+    ringing: 'ringing',
+    connecting: 'connecting',
+    active: 'active',
+    ended: 'ended',
+  };
+  const effState = fb ? FB_TO_STATE[fbPhase] : callState;
+
+  const name = fb ? fb.callerName : (remoteInfo?.name ?? 'Unknown');
+  const avatarUrl = fb ? fb.callerAvatar : (remoteInfo?.avatar ?? null);
   const avatarColor = COLORS.violet;
+
+  const remoteStreamEff = fb ? fbRemoteStream : remoteStream;
+  const localStreamEff = fb ? fbLocalStream : localStream;
+  const isMutedEff = fb ? fbMuted : isMuted;
+  const isSpeakerEff = fb ? fbSpeaker : isSpeakerOn;
+  const isVideoEnabledEff = fb ? fbVideoEnabled : isVideoEnabled;
+  const elapsedEff = fb ? fbElapsed : elapsed;
 
   // ============================================================
   // Derived flags
   // ============================================================
-  const isVideoCall = (currentCall?.call_type ?? params.type) === 'video';
+  const isVideoCall = fb
+    ? fb.callType === 'video'
+    : (currentCall?.call_type ?? params.type) === 'video';
   const isIncoming = params.role === 'receiver';
 
   const showControlBar =
-    callState === 'calling' ||
-    callState === 'connecting' ||
-    callState === 'active' ||
-    (callState === 'ringing' && !isIncoming); // ✅ caller can cancel while ringing
+    effState === 'calling' ||
+    effState === 'connecting' ||
+    effState === 'active' ||
+    (effState === 'ringing' && !isIncoming);
 
   const showVideo =
-    isVideoCall && (callState === 'active' || callState === 'connecting');
-  const showRemoteVideo = showVideo && !!remoteStream && !!RTCView;
+    isVideoCall && (effState === 'active' || effState === 'connecting');
+  const showRemoteVideo = showVideo && !!remoteStreamEff && !!RTCView;
   const showLocalVideo =
-    showVideo && !!localStream && isVideoEnabled && !!RTCView;
+    showVideo && !!localStreamEff && isVideoEnabledEff && !!RTCView;
 
   // ============================================================
   // Draggable + edge-snapping PiP
@@ -193,7 +596,6 @@ export default function CallScreen() {
           Math.min(SCREEN_H - PIP_H - 170, lastPipPos.y + g.dy)
         );
 
-        // ✅ Snap to nearest horizontal edge
         const snapX =
           rawX + PIP_W / 2 < SCREEN_W / 2
             ? PIP_MARGIN
@@ -217,24 +619,26 @@ export default function CallScreen() {
   ).current;
 
   // ============================================================
-  // Timers (unchanged logic)
+  // Timers (context path)
   // ============================================================
   useEffect(() => {
-    if (callState === 'active') {
+    if (!fb && callState === 'active') {
       const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
       return () => clearInterval(interval);
     }
     if (
-      callState === 'idle' ||
-      callState === 'calling' ||
-      callState === 'ringing'
+      !fb &&
+      (callState === 'idle' || callState === 'calling' || callState === 'ringing')
     ) {
       setElapsed(0);
     }
-  }, [callState]);
+  }, [callState, fb]);
 
   useEffect(() => {
+    // FALLBACK GUARD: notification-driven incoming call me auto-close
+    // mat karo — bootstrap 700ms me take over karega
     if (callState === 'idle') {
+      if (params.id && params.role === 'receiver') return;
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
       closeTimerRef.current = setTimeout(() => {
         if (router.canGoBack()) {
@@ -247,19 +651,18 @@ export default function CallScreen() {
     return () => {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     };
-  }, [callState, router]);
+  }, [callState, params.id, params.role, router]);
 
   // ============================================================
   // Animations
   // ============================================================
-  // Ripple rings behind avatar (incoming + outgoing)
   const pulseA = useRef(new Animated.Value(0)).current;
   const pulseB = useRef(new Animated.Value(0)).current;
 
   const isRipple =
-    callState === 'ringing' ||
-    callState === 'calling' ||
-    callState === 'connecting';
+    effState === 'ringing' ||
+    effState === 'calling' ||
+    effState === 'connecting';
 
   useEffect(() => {
     if (!isRipple) {
@@ -307,10 +710,9 @@ export default function CallScreen() {
     outputRange: [0.4, 0],
   });
 
-  // Breathing avatar when connected
   const breath = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    if (callState === 'active') {
+    if (effState === 'active') {
       const l = Animated.loop(
         Animated.sequence([
           Animated.timing(breath, {
@@ -331,12 +733,11 @@ export default function CallScreen() {
       return () => l.stop();
     }
     breath.setValue(1);
-  }, [callState, breath]);
+  }, [effState, breath]);
 
-  // Live dot blink (timer chip + video pill)
   const liveDot = useRef(new Animated.Value(1)).current;
   useEffect(() => {
-    if (callState === 'active') {
+    if (effState === 'active') {
       const l = Animated.loop(
         Animated.sequence([
           Animated.timing(liveDot, { toValue: 0.25, duration: 700, useNativeDriver: true }),
@@ -347,12 +748,11 @@ export default function CallScreen() {
       return () => l.stop();
     }
     liveDot.setValue(1);
-  }, [callState, liveDot]);
+  }, [effState, liveDot]);
 
-  // Controls entrance (slide-up + fade)
   const controlsIn = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    if (callState === 'idle' || callState === 'ended') {
+    if (effState === 'idle' || effState === 'ended') {
       controlsIn.setValue(0);
       return;
     }
@@ -364,17 +764,16 @@ export default function CallScreen() {
     });
     anim.start();
     return () => anim.stop();
-  }, [callState, controlsIn]);
+  }, [effState, controlsIn]);
 
   const controlsSlide = controlsIn.interpolate({
     inputRange: [0, 1],
     outputRange: [26, 0],
   });
 
-  // Accept button glow halo (incoming only)
   const acceptGlow = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    if (callState === 'ringing' && isIncoming) {
+    if (effState === 'ringing' && isIncoming) {
       const l = Animated.loop(
         Animated.sequence([
           Animated.timing(acceptGlow, {
@@ -390,7 +789,7 @@ export default function CallScreen() {
       return () => l.stop();
     }
     acceptGlow.setValue(0);
-  }, [callState, isIncoming, acceptGlow]);
+  }, [effState, isIncoming, acceptGlow]);
 
   const haloScale = acceptGlow.interpolate({
     inputRange: [0, 1],
@@ -401,21 +800,22 @@ export default function CallScreen() {
     outputRange: [0.45, 0],
   });
 
-  // Swipe-up to answer (tap still works)
+  // Swipe-up to answer — latest handler ref (stale closure safe)
+  const acceptPressRef = useRef<() => void>(() => {});
   const acceptLift = useRef(new Animated.Value(0)).current;
   const acceptLiftY = Animated.multiply(acceptLift, -1);
   const acceptPan = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => false, // tap → onPress
+      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, g) =>
-        g.dy < -8 && Math.abs(g.dy) > Math.abs(g.dx), // upward drag
+        g.dy < -8 && Math.abs(g.dy) > Math.abs(g.dx),
       onPanResponderMove: (_, g) => {
         acceptLift.setValue(Math.min(120, Math.max(0, -g.dy)));
       },
       onPanResponderRelease: (_, g) => {
         if (g.dy < -70) {
           hapticSuccess();
-          acceptIncomingCall();
+          acceptPressRef.current();
         }
         Animated.spring(acceptLift, {
           toValue: 0,
@@ -434,8 +834,13 @@ export default function CallScreen() {
   ).current;
 
   // ============================================================
-  // Helpers
+  // Handlers (context ya fallback — jo active ho)
   // ============================================================
+  acceptPressRef.current = () => {
+    if (fb) void fbAccept();
+    else acceptIncomingCall();
+  };
+
   function formatElapsed(s: number) {
     const m = Math.floor(s / 60).toString().padStart(2, '0');
     const sec = (s % 60).toString().padStart(2, '0');
@@ -443,7 +848,7 @@ export default function CallScreen() {
   }
 
   function statusText() {
-    switch (callState) {
+    switch (effState) {
       case 'calling':
         return 'Calling';
       case 'ringing':
@@ -461,27 +866,32 @@ export default function CallScreen() {
 
   function handleMute() {
     hapticMedium();
-    toggleMute();
+    if (fb) fbToggleMute();
+    else toggleMute();
   }
   function handleSpeaker() {
     hapticMedium();
-    toggleSpeaker();
+    if (fb) fbToggleSpeaker();
+    else toggleSpeaker();
   }
   function handleVideo() {
     hapticMedium();
-    toggleVideo();
+    if (fb) fbToggleVideo();
+    else toggleVideo();
   }
   function handleAccept() {
     hapticSuccess();
-    acceptIncomingCall();
+    acceptPressRef.current();
   }
   function handleReject() {
     hapticError();
-    rejectIncomingCall();
+    if (fb) fbEnd('declined');
+    else rejectIncomingCall();
   }
   function handleEnd() {
     hapticError();
-    endCurrentCall();
+    if (fb) fbEnd('ended');
+    else endCurrentCall();
   }
   function handleDone() {
     hapticMedium();
@@ -492,8 +902,18 @@ export default function CallScreen() {
     }
   }
 
-  if (callState === 'idle') {
-    return <View style={styles.container} />;
+  if (callState === 'idle' && !fb) {
+    const waitingBootstrap = !!params.id && params.role === 'receiver';
+    return (
+      <View style={styles.container}>
+        {waitingBootstrap && (
+          <View style={styles.bootstrapLoading}>
+            <ActivityIndicator color={COLORS.violet} size="large" />
+            <Text style={styles.bootstrapText}>Connecting…</Text>
+          </View>
+        )}
+      </View>
+    );
   }
 
   return (
@@ -502,7 +922,7 @@ export default function CallScreen() {
       {showRemoteVideo && RTCView ? (
         <View style={StyleSheet.absoluteFill}>
           <RTCView
-            streamURL={(remoteStream as any).toURL()}
+            streamURL={(remoteStreamEff as any).toURL()}
             style={StyleSheet.absoluteFill}
             objectFit="cover"
             zOrder={0}
@@ -531,27 +951,23 @@ export default function CallScreen() {
       )}
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        {/* ============================================ */}
         {/* BRAND HEADER */}
-        {/* ============================================ */}
         <View style={styles.brandHeader} pointerEvents="box-none">
           <Text style={styles.brandText}>Airalance!</Text>
         </View>
 
-        {/* ============================================ */}
         {/* VIDEO — top info pill */}
-        {/* ============================================ */}
         {showRemoteVideo && (
           <View style={styles.topBar} pointerEvents="box-none">
             <View style={styles.topPill}>
-              {callState === 'active' ? (
+              {effState === 'active' ? (
                 <>
                   <Animated.View style={[styles.pillLiveDot, { opacity: liveDot }]} />
                   <Text style={styles.topPillName} numberOfLines={1}>
                     {name}
                   </Text>
                   <View style={styles.topPillDivider} />
-                  <Text style={styles.topPillTime}>{formatElapsed(elapsed)}</Text>
+                  <Text style={styles.topPillTime}>{formatElapsed(elapsedEff)}</Text>
                 </>
               ) : (
                 <Text style={styles.topPillName} numberOfLines={1}>
@@ -562,10 +978,8 @@ export default function CallScreen() {
           </View>
         )}
 
-        {/* ============================================ */}
         {/* BODY */}
-        {/* ============================================ */}
-        {callState === 'ended' ? (
+        {effState === 'ended' ? (
           <View style={styles.body}>
             <View style={styles.avatarStage}>
               <View style={[styles.avatarRing, styles.avatarRingDim]}>
@@ -581,7 +995,7 @@ export default function CallScreen() {
               {name}
             </Text>
             <Text style={styles.endedText}>
-              Call ended{elapsed > 0 ? ` · ${formatElapsed(elapsed)}` : ''}
+              Call ended{elapsedEff > 0 ? ` · ${formatElapsed(elapsedEff)}` : ''}
             </Text>
             <TouchableOpacity
               style={styles.doneBtn}
@@ -596,7 +1010,6 @@ export default function CallScreen() {
         ) : (
           <View style={styles.body}>
             <View style={styles.avatarStage}>
-              {/* Pulsing ripple rings */}
               {isRipple && (
                 <>
                   <Animated.View
@@ -614,12 +1027,11 @@ export default function CallScreen() {
                   />
                 </>
               )}
-              {/* Breathing avatar */}
               <Animated.View style={{ transform: [{ scale: breath }] }}>
                 <View
                   style={[
                     styles.avatarRing,
-                    callState === 'active' && styles.avatarRingConnected,
+                    effState === 'active' && styles.avatarRingConnected,
                   ]}
                 >
                   <Avatar
@@ -636,15 +1048,14 @@ export default function CallScreen() {
               {name}
             </Text>
 
-            {/* Timer chip (active) / Status row (other states) */}
-            {callState === 'active' ? (
+            {effState === 'active' ? (
               <View style={styles.timerChip}>
                 <Animated.View style={[styles.liveDot, { opacity: liveDot }]} />
-                <Text style={styles.timerText}>{formatElapsed(elapsed)}</Text>
+                <Text style={styles.timerText}>{formatElapsed(elapsedEff)}</Text>
               </View>
             ) : (
               <View style={styles.statusRow}>
-                {callState === 'ringing' && isIncoming && (
+                {effState === 'ringing' && isIncoming && (
                   <Ionicons
                     name={isVideoCall ? 'videocam' : 'call'}
                     size={14}
@@ -652,17 +1063,15 @@ export default function CallScreen() {
                   />
                 )}
                 <Text style={styles.statusText}>{statusText()}</Text>
-                {(callState === 'calling' ||
-                  callState === 'connecting' ||
-                  (callState === 'ringing' && !isIncoming)) && <TypingDots />}
+                {(effState === 'calling' ||
+                  effState === 'connecting' ||
+                  (effState === 'ringing' && !isIncoming)) && <TypingDots />}
               </View>
             )}
           </View>
         )}
 
-        {/* ============================================ */}
         {/* DRAGGABLE + SNAP PiP */}
-        {/* ============================================ */}
         {showLocalVideo && RTCView && (
           <Animated.View
             style={[
@@ -677,7 +1086,7 @@ export default function CallScreen() {
           >
             <View style={styles.localPipInner}>
               <RTCView
-                streamURL={(localStream as any).toURL()}
+                streamURL={(localStreamEff as any).toURL()}
                 style={styles.localPipVideo}
                 objectFit="cover"
                 zOrder={1}
@@ -687,19 +1096,15 @@ export default function CallScreen() {
           </Animated.View>
         )}
 
-        {/* ============================================ */}
         {/* BOTTOM CONTROLS */}
-        {/* ============================================ */}
-        {callState !== 'ended' && (
+        {effState !== 'ended' && (
           <View style={styles.bottomArea}>
-            {/* E2E trust hint */}
             <View style={styles.secureRow}>
               <Ionicons name="lock-closed" size={11} color="rgba(255,255,255,0.45)" />
               <Text style={styles.secureText}>End-to-end encrypted</Text>
             </View>
 
-            {/* INCOMING — Decline + Accept (swipe-up supported) */}
-            {callState === 'ringing' && isIncoming ? (
+            {effState === 'ringing' && isIncoming ? (
               <View style={styles.incomingRow}>
                 <View style={styles.incomingCol}>
                   <TouchableOpacity
@@ -738,7 +1143,6 @@ export default function CallScreen() {
                 </Animated.View>
               </View>
             ) : showControlBar ? (
-              /* GLASS CONTROL BAR — mute / end / speaker (+ video) */
               <Animated.View
                 style={[
                   styles.controlBar,
@@ -747,31 +1151,30 @@ export default function CallScreen() {
               >
                 {isVideoCall && (
                   <TouchableOpacity
-                    style={[styles.circleBtn, !isVideoEnabled && styles.circleBtnSolid]}
+                    style={[styles.circleBtn, !isVideoEnabledEff && styles.circleBtnSolid]}
                     onPress={handleVideo}
                     activeOpacity={0.85}
                   >
                     <Ionicons
-                      name={isVideoEnabled ? 'videocam' : 'videocam-off'}
+                      name={isVideoEnabledEff ? 'videocam' : 'videocam-off'}
                       size={22}
-                      color={isVideoEnabled ? '#FFFFFF' : '#0B0D14'}
+                      color={isVideoEnabledEff ? '#FFFFFF' : '#0B0D14'}
                     />
                   </TouchableOpacity>
                 )}
 
                 <TouchableOpacity
-                  style={[styles.circleBtn, isMuted && styles.circleBtnSolid]}
+                  style={[styles.circleBtn, isMutedEff && styles.circleBtnSolid]}
                   onPress={handleMute}
                   activeOpacity={0.85}
                 >
                   <Ionicons
-                    name={isMuted ? 'mic-off' : 'mic'}
+                    name={isMutedEff ? 'mic-off' : 'mic'}
                     size={22}
-                    color={isMuted ? '#0B0D14' : '#FFFFFF'}
+                    color={isMutedEff ? '#0B0D14' : '#FFFFFF'}
                   />
                 </TouchableOpacity>
 
-                {/* End call — center, bigger, red glow */}
                 <TouchableOpacity
                   style={styles.endBtn}
                   onPress={handleEnd}
@@ -786,12 +1189,12 @@ export default function CallScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.circleBtn, isSpeakerOn && styles.circleBtnTeal]}
+                  style={[styles.circleBtn, isSpeakerEff && styles.circleBtnTeal]}
                   onPress={handleSpeaker}
                   activeOpacity={0.85}
                 >
                   <Ionicons
-                    name={isSpeakerOn ? 'volume-high' : 'volume-medium'}
+                    name={isSpeakerEff ? 'volume-high' : 'volume-medium'}
                     size={22}
                     color="#FFFFFF"
                   />
@@ -811,6 +1214,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#07080D',
   },
   safe: { flex: 1 },
+
+  bootstrapLoading: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+  },
+  bootstrapText: {
+    fontSize: 14,
+    fontFamily: FONTS.bodyMedium,
+    color: 'rgba(255,255,255,0.6)',
+  },
 
   glowTop: {
     position: 'absolute',
