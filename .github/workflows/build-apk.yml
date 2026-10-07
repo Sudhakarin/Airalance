@@ -51,7 +51,7 @@ jobs:
         env:
           EXPO_UPDATE_CHANNEL: preview
 
-      # ✅ NEW: bump Gradle heap to prevent OutOfMemoryError during lint
+      # ✅ Bump Gradle heap to prevent OOM during lint
       - name: Increase Gradle Heap
         run: |
           echo "" >> android/gradle.properties
@@ -63,11 +63,24 @@ jobs:
           echo "=== gradle.properties ==="
           cat android/gradle.properties
 
+      # ✅ TypeScript check — catch code errors before Gradle
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      # ✅ Build with stacktrace for debugging
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease -x lint -x lintVitalRelease --no-daemon
+          ./gradlew assembleRelease -x lint -x lintVitalRelease --no-daemon --stacktrace 2>&1 | tee build.log
+          exit_code=${PIPESTATUS[0]}
+          if [ $exit_code -ne 0 ]; then
+            echo "=== BUILD FAILED — Last 300 lines ==="
+            tail -300 build.log
+            echo "=== FAILURE lines ==="
+            grep -A 20 -i "FAILURE\|What went wrong\|error:" build.log | head -100
+          fi
+          exit $exit_code
         env:
           EXPO_UPDATE_CHANNEL: preview
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
@@ -85,3 +98,12 @@ jobs:
           name: airalance-apk-${{ github.run_number }}
           path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 30
+
+      # ✅ Upload build log even on failure (for debugging)
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_number }}
+          path: android/build.log
+          retention-days: 7
