@@ -1,5 +1,6 @@
 // components/MessageBubble.tsx
-// Double-tap heart reaction + reaction pills + haptics + entrance animation + swipe-to-reply + voice waveform + delivery ticks
+// Double-tap heart reaction + reaction pills + haptics + entrance animation
+// + swipe-to-reply + voice waveform + delivery ticks + WhatsApp-style call bubbles
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -26,7 +27,7 @@ type Message = {
   created_at: string;
   read_at: string | null;
   delivered_at?: string | null;
-  message_type: 'text' | 'image' | 'voice';
+  message_type: 'text' | 'image' | 'voice' | 'call';
   media_url: string | null;
   media_duration: number | null;
   reply_to_id: string | null;
@@ -86,10 +87,22 @@ function formatDuration(total: number) {
   return `${m}:${sec}`;
 }
 
+// WhatsApp-style call duration: "45 sec" / "44 min" / "2 hr 15 min"
+function formatCallDuration(total: number) {
+  const s = Math.max(0, Math.floor(total));
+  if (s < 60) return `${s} sec`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm > 0 ? `${h} hr ${rm} min` : `${h} hr`;
+}
+
 function replyPreviewText(msg: Message): string {
   if (msg.is_deleted) return 'This message was deleted';
   if (msg.message_type === 'image') return '📷 Photo';
   if (msg.message_type === 'voice') return '🎤 Voice message';
+  if (msg.message_type === 'call') return '📞 Call';
   return msg.content || '';
 }
 
@@ -146,6 +159,116 @@ function DeliveryTicks({ message }: { message: Message }) {
       color="rgba(255,255,255,0.55)"
       style={{ marginLeft: 4 }}
     />
+  );
+}
+
+// ============================================================
+// ✅ Call bubble — WhatsApp-style, premium version
+// ============================================================
+type CallStatus = 'answered' | 'missed' | 'declined' | 'cancelled';
+
+function CallBubble({
+  callType,
+  status,
+  durationSeconds,
+  isMine,
+  time,
+}: {
+  callType: 'audio' | 'video';
+  status: CallStatus;
+  durationSeconds: number;
+  isMine: boolean;
+  time: string;
+}) {
+  const isMissed = status === 'missed';
+  const isDeclined = status === 'declined';
+  const isCancelled = status === 'cancelled';
+  const isAnswered = status === 'answered';
+
+  // ---------- Icon color (matches status) ----------
+  let iconColor = '#FFFFFF';
+  let iconBg = 'rgba(255,255,255,0.22)';
+
+  if (!isMine) {
+    if (isMissed) {
+      iconColor = '#EF4444';
+      iconBg = 'rgba(239,68,68,0.16)';
+    } else if (isDeclined) {
+      iconColor = '#F97316';
+      iconBg = 'rgba(249,115,22,0.16)';
+    } else if (isCancelled) {
+      iconColor = COLORS.mist;
+      iconBg = 'rgba(139,143,163,0.18)';
+    } else {
+      iconColor = COLORS.teal;
+      iconBg = 'rgba(34,211,184,0.16)';
+    }
+  }
+
+  // ---------- Title ----------
+  const baseTitle = callType === 'video' ? 'Video call' : 'Voice call';
+  let title = baseTitle;
+  if (isMissed && !isMine) title = `Missed ${baseTitle.toLowerCase()}`;
+  else if (isDeclined && !isMine) title = `Declined ${baseTitle.toLowerCase()}`;
+
+  // ---------- Subtitle ----------
+  let subtitle = '';
+  if (isAnswered) subtitle = formatCallDuration(durationSeconds);
+  else if (isMissed) subtitle = isMine ? 'No answer' : 'Tap to call back';
+  else if (isDeclined) subtitle = isMine ? 'Declined' : 'You declined';
+  else if (isCancelled) subtitle = 'Cancelled';
+
+  // ---------- Direction arrow ----------
+  // Outgoing → ↗ badge. Incoming missed → ↙ badge. Incoming answered/declined → no badge.
+  const showArrow = isMine || (isMissed && !isMine);
+  const arrowName: any = isMine ? 'arrow-up' : 'arrow-down';
+
+  // ---------- Icon glyph ----------
+  const glyphName: any = callType === 'video' ? 'videocam' : 'call';
+
+  return (
+    <View
+      style={[
+        styles.callBubble,
+        isMine ? styles.callBubbleMine : styles.callBubbleOther,
+      ]}
+    >
+      {/* Icon circle with optional direction arrow badge */}
+      <View style={styles.callIconSlot}>
+        <View style={[styles.callIconCircle, { backgroundColor: iconBg }]}>
+          <Ionicons name={glyphName} size={20} color={iconColor} />
+        </View>
+        {showArrow && (
+          <View style={[styles.callArrowBadge, { backgroundColor: iconBg }]}>
+            <Ionicons name={arrowName} size={9} color={iconColor} />
+          </View>
+        )}
+      </View>
+
+      {/* Text column */}
+      <View style={styles.callTextCol}>
+        <Text style={styles.callTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        <View style={styles.callSubRow}>
+          <Text
+            style={[
+              styles.callSubtitle,
+              isMine && styles.callSubtitleMine,
+            ]}
+            numberOfLines={1}
+          >
+            {subtitle}
+          </Text>
+          <Text
+            style={[styles.callTime, isMine && styles.callTimeMine]}
+            numberOfLines={1}
+          >
+            {time}
+          </Text>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -292,9 +415,31 @@ function MessageBubbleBase({
     return dayLabel(nextMessage.created_at) === currentDay;
   }, [nextMessage, message.sender_id, message.created_at, currentDay]);
 
+  const isCall = message.message_type === 'call';
   const isImage = message.message_type === 'image' && !!message.media_url;
   const isVoice = message.message_type === 'voice' && !!message.media_url;
   const isDeleted = !!message.is_deleted;
+
+  // ✅ Parse call log content JSON
+  const callData = useMemo(() => {
+    if (message.message_type !== 'call') return null;
+    try {
+      const parsed = JSON.parse(message.content || '{}');
+      const ct = parsed.call_type === 'video' ? 'video' : 'audio';
+      const st = ['answered', 'missed', 'declined', 'cancelled'].includes(
+        parsed.status
+      )
+        ? (parsed.status as CallStatus)
+        : ('answered' as CallStatus);
+      const dur =
+        typeof parsed.duration_seconds === 'number'
+          ? parsed.duration_seconds
+          : 0;
+      return { callType: ct as 'audio' | 'video', status: st, duration: dur };
+    } catch {
+      return null;
+    }
+  }, [message.message_type, message.content]);
 
   const hasReply =
     !!replyMessage &&
@@ -346,7 +491,6 @@ function MessageBubbleBase({
 
   const swipeableRef = useRef<any>(null);
 
-  // ✅ FIX: vertical center of the BUBBLE only (not the whole row with time/reactions)
   const [bubbleCenterY, setBubbleCenterY] = useState<number | null>(null);
 
   const handleBubbleLayout = useCallback((e: any) => {
@@ -379,11 +523,11 @@ function MessageBubbleBase({
   );
 
   const handleSwipeOpen = useCallback(() => {
-    if (isDeleted) return;
+    if (isDeleted || isCall) return;
     hapticMedium();
     onSwipeReply?.(message);
     swipeableRef.current?.close();
-  }, [isDeleted, onSwipeReply, message]);
+  }, [isDeleted, isCall, onSwipeReply, message]);
 
   const lastTapRef = useRef<number>(0);
   const imageTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -399,16 +543,16 @@ function MessageBubbleBase({
 
   const handlePress = useCallback(() => {
     if (isDeleted) return;
+    // Call messages: tap does nothing (no reaction, no image open)
+    if (isCall) return;
     const now = Date.now();
     if (now - lastTapRef.current < DOUBLE_TAP_MS) {
-      // double tap → heart reaction (cancel the pending image open)
       lastTapRef.current = 0;
       clearImageTapTimer();
       hapticMedium();
       onDoubleTap?.(message);
     } else {
       lastTapRef.current = now;
-      // single tap on a photo → open full-screen viewer (after double-tap window)
       if (isImage && onImagePress) {
         clearImageTapTimer();
         imageTapTimerRef.current = setTimeout(() => {
@@ -420,6 +564,7 @@ function MessageBubbleBase({
     }
   }, [
     isDeleted,
+    isCall,
     isImage,
     onDoubleTap,
     onImagePress,
@@ -459,8 +604,6 @@ function MessageBubbleBase({
         </View>
       )}
 
-      {/* ✅ row spacing now lives on the container so the swipe action area
-          matches the row height exactly (no extra top margin inside it) */}
       <Swipeable
         ref={swipeableRef}
         renderLeftActions={renderLeftActions}
@@ -468,7 +611,7 @@ function MessageBubbleBase({
         leftThreshold={60}
         overshootLeft={false}
         friction={2}
-        enabled={!isDeleted}
+        enabled={!isDeleted && !isCall}
         containerStyle={[
           styles.swipeContainer,
           grouped ? styles.rowGrouped : styles.rowSpaced,
@@ -489,6 +632,7 @@ function MessageBubbleBase({
             style={[
               styles.bubbleWrap,
               { alignItems: isMine ? 'flex-end' : 'flex-start' },
+              isCall && styles.bubbleWrapCall,
             ]}
           >
             {hasReply && replyMessage && (
@@ -535,6 +679,15 @@ function MessageBubbleBase({
                     This message was deleted
                   </Text>
                 </View>
+              ) : isCall && callData ? (
+                /* ✅ WhatsApp-style call bubble */
+                <CallBubble
+                  callType={callData.callType}
+                  status={callData.status}
+                  durationSeconds={callData.duration}
+                  isMine={isMine}
+                  time={formatTime(message.created_at)}
+                />
               ) : isImage ? (
                 <View style={styles.imageWrap}>
                   <Image
@@ -590,13 +743,18 @@ function MessageBubbleBase({
               )}
             </View>
 
-            {/* ✅ Meta row: time + delivery ticks */}
-            <View style={styles.metaRow}>
-              <Text style={styles.time}>{formatTime(message.created_at)}</Text>
-              {isMine && <DeliveryTicks message={message} />}
-            </View>
+            {/* ✅ Meta row (time + ticks) — hidden for call bubbles
+                because time is already inside the call bubble */}
+            {!isCall && (
+              <View style={styles.metaRow}>
+                <Text style={styles.time}>
+                  {formatTime(message.created_at)}
+                </Text>
+                {isMine && <DeliveryTicks message={message} />}
+              </View>
+            )}
 
-            {groupedReactions.length > 0 && (
+            {!isCall && groupedReactions.length > 0 && (
               <View style={styles.reactionsRow}>
                 {groupedReactions.map((r) => (
                   <View
@@ -622,18 +780,18 @@ function MessageBubbleBase({
 }
 
 function areEqual(prev: Props, next: Props) {
-  if (prev.message !== next.message) return false;
-  if (prev.isMine !== next.isMine) return false;
-  if (prev.animate !== next.animate) return false;
-  if (prev.prevMessage?.id !== next.prevMessage?.id) return false;
-  if (prev.nextMessage?.id !== next.nextMessage?.id) return false;
-  if (prev.prevMessage?.created_at !== next.prevMessage?.created_at)
+  if (prev.message !== next.message) return falseply;
+  if (prevMessage.isMine !== next.is?.Mine) return false;
+  if (previd.animate !== next.animate) return false);
+  if (prev.prevMessage return?.id !== next.prevMessage?. falseid) return false;
+  if (;
+prev.nextMessage?.id !== next.next Message?.id) return false;
+  if ( ifprev.prevMessage?.created_at !== next.prev (Message?.created_at)
     return false;
-  if (prev.nextMessage?.created_at !== next.nextMessage?.created_at)
-    return false;
-  if (prev.nextMessage?.sender_id !== next.nextMessage?.sender_id) return false;
-  if (prev.replyMessage?.id !== next.replyMessage?.id) return false;
-  if (prev.replyMessage?.content !== next.replyMessage?.content) return false;
+prev  if (prev.nextMessage?.created.re_at !== next.nextMessage?.created_at)
+ply    return false;
+  if (prevMessage.nextMessage?.sender_id !== next.nextMessage?.sender_id) return false?.;
+  if (prev.replyMessage?.idcontent !== next.re !== next.replyMessage?.content) return false;
   if (prev.replyMessage?.is_deleted !== next.replyMessage?.is_deleted)
     return false;
 
@@ -672,7 +830,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
 
-  // ✅ FIX: arrow is top-aligned and pushed down to the bubble's own vertical center
   swipeLeftAction: {
     flex: 1,
     flexDirection: 'row',
@@ -699,6 +856,8 @@ const styles = StyleSheet.create({
   rowSpaced: { marginTop: 16 },
 
   bubbleWrap: { position: 'relative', maxWidth: '80%' },
+  // Call bubble: a bit wider (WhatsApp-style)
+  bubbleWrapCall: { maxWidth: '84%', minWidth: 240 },
 
   bubble: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20 },
 
@@ -832,7 +991,6 @@ const styles = StyleSheet.create({
   voicePlayBtnMine: { backgroundColor: 'rgba(255,255,255,0.22)' },
   voicePlayBtnOther: { backgroundColor: 'rgba(124,92,255,0.15)' },
 
-  // ✅ FIX: waveform bars shrink to fit, no overlap with duration
   waveWrap: {
     flex: 1,
     minWidth: 100,
@@ -856,4 +1014,95 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   voiceDurationMine: { color: 'rgba(255,255,255,0.9)' },
+
+  // ============================================================
+  // ✅ Call bubble styles
+  // ============================================================
+  callBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 18,
+    minWidth: 240,
+  },
+  callBubbleMine: {
+    // violet gradient handled by parent container? No — we use solid here
+    // to keep icon contrast perfect. Use gradient-ish violet.
+    backgroundColor: '#5B44C9',
+    borderBottomRightRadius: 4,
+    shadowColor: '#7C5CFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  callBubbleOther: {
+    backgroundColor: '#171A24',
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+
+  callIconSlot: {
+    width: 46,
+    height: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  callIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  callArrowBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#171A24',
+  },
+
+  callTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  callTitle: {
+    fontSize: 15.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    marginBottom: 3,
+  },
+  callSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  callSubtitle: {
+    fontSize: 13,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+    flexShrink: 1,
+  },
+  callSubtitleMine: {
+    color: 'rgba(255,255,255,0.9)',
+  },
+  callTime: {
+    fontSize: 11.5,
+    fontFamily: FONTS.body,
+    color: 'rgba(255,255,255,0.55)',
+  },
+  callTimeMine: {
+    color: 'rgba(255,255,255,0.75)',
+  },
 });
