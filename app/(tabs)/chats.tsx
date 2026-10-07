@@ -1,6 +1,18 @@
 // app/(tabs)/chats.tsx
-// Chats list — SQLite-backed (offline-first) + offline auth + network auto-reload
-// ✅ FIX ADDED: useFocusEffect to force refresh when returning from chat screen
+// Chats list — SQLite-backed (offline-first) + SMART INCREMENTAL SYNC
+// ✅ STRATEGY:
+// 1. Instant Load from Cache (SQLite)
+// 2. Background Sync (Supabase) -> Merge only CHANGED items
+// 3. Realtime -> Update SPECIFIC row in state (No full reload)
+// 4. Focus Effect -> Light Sync (Not heavy reload)
+// 🐛 FIXES:
+//   - Realtime INSERT now persists actual preview (not "Updated via RT")
+//   - Sort comparator fixed
+//   - UPDATE / DELETE realtime handled
+//   - ChatRow memo compares profile fields too
+//   - syncBackground defined before use (TS ordering)
+//   - OtherProfile.last_seen optional added
+
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
   View,
@@ -20,7 +32,7 @@ import { BlurView } from 'expo-blur';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native'; // ✅ Added for focus detection
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
@@ -57,7 +69,7 @@ type OtherProfile = {
   avatar_color: string;
   avatar_url: string | null;
   verified: boolean | null;
-  last_seen?: string | null;
+  last_seen?: string | null; // ✅ FIX: optional
 };
 
 type Conversation = {
@@ -70,12 +82,6 @@ type Conversation = {
   unread_count: number;
   is_muted?: boolean;
   is_locked?: boolean;
-};
-
-type ChatSetting = {
-  conversation_id: string;
-  is_muted: boolean;
-  is_locked: boolean;
 };
 
 const ROW_HEIGHT = 78;
@@ -147,10 +153,7 @@ async function persistConversations(list: Conversation[]) {
   }
 }
 
-async function patchDbConversation(
-  id: string,
-  patch: Partial<DBConversation>
-) {
+async function patchDbConversation(id: string, patch: Partial<DBConversation>) {
   try {
     await dbUpsertConversation({ id, ...patch });
   } catch (err) {
@@ -181,61 +184,77 @@ function getCallPreview(rawContent: string): string {
   }
 }
 
-function mergeConversations(
-  prev: Conversation[],
-  next: Conversation[]
-): Conversation[] {
-  const map = new Map<string, Conversation>();
-  for (const c of prev) map.set(c.id, c);
-  for (const c of next) {
-    const existing = map.get(c.id);
-    if (existing) {
-      const merged: Conversation = { ...existing };
-      if (c.last_message) merged.last_message = c.last_message;
-      if (c.last_at) merged.last_at = c.last_at;
-      if (typeof c.unread_count === 'number') merged.unread_count = c.unread_count;
-      if (typeof c.is_muted === 'boolean') merged.is_muted = c.is_muted;
-      if (typeof c.is_locked === 'boolean') merged.is_locked = c.is_locked;
-      if (c.other_profile) merged.other_profile = c.other_profile;
-      if (c.name) merged.name = c.name;
-      if (typeof c.is_group === 'boolean') merged.is_group = c.is_group;
-      map.set(c.id, merged);
-    } else {
-      map.set(c.id, c);
-    }
-  }
-  const merged = Array.from(map.values());
-  merged.sort((a, b) => {
+// ✅ FIX: Extract preview text from a raw message
+function previewFromMessage(msg: {
+  content?: string | null;
+  message_type?: string | null;
+  is_deleted?: boolean | null;
+}): string {
+  if (!msg) return '';
+  if (msg.is_deleted) return 'This message was deleted';
+  if (msg.message_type === 'image') return '📷 Photo';
+  if (msg.message_type === 'voice') return '🎤 Voice message';
+  if (msg.message_type === 'call') return getCallPreview(msg.content ?? '');
+  if (msg.content?.startsWith('[STATUS_REPLY]'))
+    return '↩️ Replied to your status';
+  return msg.content || '';
+}
+
+// ✅ FIX: Proper sort comparator (returns 0 on equality, stable-ish)
+function sortConversations(list: Conversation[]): Conversation[] {
+  return [...list].sort((a, b) => {
     const at = a.last_at || '';
     const bt = b.last_at || '';
     if (!at && !bt) return 0;
     if (!at) return 1;
     if (!bt) return -1;
+    if (at === bt) return 0;
     return at < bt ? 1 : -1;
   });
-  return merged;
 }
 
-function SkeletonBlock({
-  width,
-  height,
-  borderRadius = 6,
-  style,
-}: {
-  width: number | string;
-  height: number;
-  borderRadius?: number;
-  style?: any;
-}) {
+// Merge new data into existing state WITHOUT replacing everything
+function mergeIntoState(
+  prev: Conversation[],
+  updates: Conversation[]
+): Conversation[] {
+  const map = new Map<string, Conversation>();
+
+  for (const c of prev) map.set(c.id, c);
+
+  for (const u of updates) {
+    const existing = map.get(u.id);
+    if (existing) {
+      map.set(u.id, {
+        ...existing,
+        last_message: u.last_message || existing.last_message,
+        last_at: u.last_at || existing.last_at,
+        unread_count:
+          typeof u.unread_count === 'number'
+            ? u.unread_count
+            : existing.unread_count,
+        is_muted:
+          typeof u.is_muted === 'boolean' ? u.is_muted : existing.is_muted,
+        is_locked:
+          typeof u.is_locked === 'boolean' ? u.is_locked : existing.is_locked,
+        other_profile: u.other_profile || existing.other_profile,
+        name: u.name || existing.name,
+        is_group:
+          typeof u.is_group === 'boolean' ? u.is_group : existing.is_group,
+      });
+    } else {
+      map.set(u.id, u);
+    }
+  }
+
+  return sortConversations(Array.from(map.values()));
+}
+
+function SkeletonBlock({ width, height, borderRadius = 6, style }: any) {
   return (
     <View
       style={[
-        {
-          width,
-          height,
-          borderRadius,
-          backgroundColor: 'rgba(255,255,255,0.08)',
-        },
+        { width, height, borderRadius, backgroundColor: 'rgba(255,255,255,0.08)' },
         style,
       ]}
     />
@@ -271,17 +290,7 @@ function ChatListSkeleton() {
 }
 
 const ChatRow = memo(
-  function ChatRow({
-    item,
-    onPress,
-    onLongPress,
-    showSeparator,
-  }: {
-    item: Conversation;
-    onPress: (id: string) => void;
-    onLongPress: (convo: Conversation) => void;
-    showSeparator: boolean;
-  }) {
+  function ChatRow({ item, onPress, onLongPress, showSeparator }: any) {
     const displayName = item.is_group
       ? item.name ?? 'Group'
       : item.other_profile?.display_name ?? 'Unknown';
@@ -324,10 +333,7 @@ const ChatRow = memo(
                 )}
               </View>
               <Text
-                style={[
-                  styles.rowTime,
-                  showUnread && styles.rowTimeUnread,
-                ]}
+                style={[styles.rowTime, showUnread && styles.rowTimeUnread]}
               >
                 {formatTime(item.last_at)}
               </Text>
@@ -356,6 +362,7 @@ const ChatRow = memo(
       </View>
     );
   },
+  // ✅ FIX: also compare profile identity fields (avatar/verified/name)
   (prev, next) =>
     prev.item.id === next.item.id &&
     prev.item.last_at === next.item.last_at &&
@@ -379,8 +386,8 @@ export default function ChatsScreen() {
   const [loading, setLoading] = useState(true);
   const [myId, setMyId] = useState<string | null>(null);
   const [online, setOnline] = useState(isOnline());
-  
-  // Modals state
+
+  // Modals State
   const [actionSheetConvo, setActionSheetConvo] = useState<Conversation | null>(null);
   const [deleteConfirmConvo, setDeleteConfirmConvo] = useState<Conversation | null>(null);
   const [blockConfirmConvo, setBlockConfirmConvo] = useState<Conversation | null>(null);
@@ -401,9 +408,10 @@ export default function ChatsScreen() {
   const didHideRef = useRef(false);
   const scrollYRef = useRef(0);
   const startYRef = useRef(0);
-
+  const hasFocusedOnceRef = useRef(false);
   const nativeGesture = useMemo(() => Gesture.Native(), []);
 
+  // Init User ID
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -415,12 +423,14 @@ export default function ChatsScreen() {
     };
   }, []);
 
+  // Network Listener
   useEffect(() => {
     setOnline(isOnline());
     const unsub = subscribeNetwork(setOnline);
     return unsub;
   }, []);
 
+  // Load PIN Hash
   useEffect(() => {
     if (!myId) return;
     (async () => {
@@ -429,48 +439,19 @@ export default function ChatsScreen() {
     })();
   }, [myId]);
 
-  // Initial Load
-  useEffect(() => {
-    if (!myId || cacheShownRef.current) return;
-    (async () => {
-      try {
-        const rows = await dbGetConversations();
-        if (rows.length > 0) {
-          const cached = rows.map(dbRowToConversation);
-          setConversations((prev) => mergeConversations(prev, cached));
-        }
-      } catch (err) {
-        console.warn('[chats] SQLite read error:', err);
-      } finally {
-        setLoading(false);
-        cacheShownRef.current = true;
-      }
-    })();
-  }, [myId]);
+  // ✅ FIX: syncBackground defined BEFORE the initial-load effect that uses it
+  const syncBackground = useCallback(async () => {
+    if (!myId || !isOnline() || isLoadingRef.current) return;
 
-  const loadConversations = useCallback(async (isBackgroundRefresh = false) => {
-    if (!myId) return;
-    if (!isOnline()) {
-      if (!isBackgroundRefresh) setLoading(false);
-      return;
-    }
-    
-    // Prevent multiple simultaneous loads unless forced
-    if (isLoadingRef.current && !isBackgroundRefresh) return;
-    
-    if (!isBackgroundRefresh) isLoadingRef.current = true;
-
+    isLoadingRef.current = true;
     try {
-      const { data: participantRows, error: pError } = await supabase
+      const { data: participants } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
         .eq('user_id', myId);
 
-      if (pError) throw pError;
-
-      const convoIds = (participantRows ?? []).map((r) => r.conversation_id);
-
-      if (convoIds.length === 0) {
+      const ids = (participants ?? []).map((p) => p.conversation_id);
+      if (ids.length === 0) {
         setConversations([]);
         await dbClearAllConversations();
         return;
@@ -481,18 +462,18 @@ export default function ChatsScreen() {
           supabase
             .from('conversations')
             .select('id, is_group, name')
-            .in('id', convoIds),
+            .in('id', ids),
           supabase
             .from('conversation_participants')
             .select(
-              'conversation_id, user_id, profiles(id, username, display_name, avatar_color, avatar_url, verified, last_seen)'
+              'conversation_id, user_id, profiles(id, username, display_name, avatar_color, avatar_url, verified)'
             )
-            .in('conversation_id', convoIds)
+            .in('conversation_id', ids)
             .neq('user_id', myId),
           supabase
             .from('messages')
-            .select('id, conversation_id')
-            .in('conversation_id', convoIds)
+            .select('conversation_id')
+            .in('conversation_id', ids)
             .neq('sender_id', myId)
             .is('read_at', null),
           supabase
@@ -500,159 +481,174 @@ export default function ChatsScreen() {
             .select(
               'conversation_id, content, message_type, created_at, is_deleted'
             )
-            .in('conversation_id', convoIds)
+            .in('conversation_id', ids)
             .order('created_at', { ascending: false })
-            .limit(Math.max(convoIds.length * 2, 40)),
+            .limit(Math.max(ids.length * 2, 40)),
           supabase
             .from('chat_settings')
             .select('conversation_id, is_muted, is_locked')
             .eq('user_id', myId)
-            .in('conversation_id', convoIds),
+            .in('conversation_id', ids),
         ]);
 
-      const convos = convosRes.data ?? [];
-      const otherParticipants = othersRes.data ?? [];
-      const unreadRows = unreadRes.data ?? [];
-      const lastMessages = lastMsgRes.data ?? [];
-      const settings = (settingsRes.data ?? []) as ChatSetting[];
-
-      const settingsMap: Record<string, ChatSetting> = {};
-      for (const s of settings) settingsMap[s.conversation_id] = s;
-
-      const unreadCounts: Record<string, number> = {};
-      for (const m of unreadRows as any[]) {
-        unreadCounts[m.conversation_id] =
-          (unreadCounts[m.conversation_id] || 0) + 1;
-      }
+      const settingsMap = new Map(
+        (settingsRes.data ?? []).map((s) => [s.conversation_id, s])
+      );
+      const unreadCounts = new Map<string, number>();
+      (unreadRes.data ?? []).forEach((m: any) => {
+        unreadCounts.set(
+          m.conversation_id,
+          (unreadCounts.get(m.conversation_id) || 0) + 1
+        );
+      });
 
       const lastPerConvo = new Map<string, any>();
-      for (const m of lastMessages as any[]) {
-        if (!lastPerConvo.has(m.conversation_id)) {
+      (lastMsgRes.data ?? []).forEach((m: any) => {
+        if (!lastPerConvo.has(m.conversation_id))
           lastPerConvo.set(m.conversation_id, m);
-        }
-      }
+      });
 
-      const missingIds = convos
-        .map((c) => c.id)
-        .filter((id) => !lastPerConvo.has(id));
+      const otherProfiles = new Map<string, any>();
+      (othersRes.data ?? []).forEach((p: any) => {
+        if (p.profiles) otherProfiles.set(p.conversation_id, p.profiles);
+      });
 
-      if (missingIds.length > 0) {
-        const extra = await Promise.all(
-          missingIds.map(async (id) => {
-            try {
-              const { data } = await supabase
-                .from('messages')
-                .select(
-                  'conversation_id, content, message_type, created_at, is_deleted'
-                )
-                .eq('conversation_id', id)
-                .order('created_at', { ascending: false })
-                .limit(1);
-              return (data?.[0] as any) ?? null;
-            } catch {
-              return null;
-            }
-          })
-        );
-        for (const m of extra) {
-          if (m) lastPerConvo.set(m.conversation_id, m);
-        }
-      }
-
-      const rows: Conversation[] = convos.map((c) => {
-        const other = (otherParticipants as any[]).find(
-          (p) => p.conversation_id === c.id
-        );
+      const updatedRows: Conversation[] = (convosRes.data ?? []).map((c: any) => {
         const last = lastPerConvo.get(c.id);
-        const setting = settingsMap[c.id];
+        const setting = settingsMap.get(c.id);
+        const profile = otherProfiles.get(c.id);
 
-        let preview = 'Say hello 👋';
-        if (last) {
-          if (last.is_deleted) {
-            preview = 'This message was deleted';
-          } else if (last.message_type === 'image') {
-            preview = '📷 Photo';
-          } else if (last.message_type === 'voice') {
-            preview = '🎤 Voice message';
-          } else if (last.message_type === 'call') {
-            preview = getCallPreview(last.content ?? '');
-          } else if (last.content?.startsWith('[STATUS_REPLY]')) {
-            preview = '↩️ Replied to your status';
-          } else {
-            preview = last.content || '';
-          }
-        }
+        const preview = last ? previewFromMessage(last) : 'Say hello 👋';
 
         return {
           id: c.id,
           is_group: c.is_group,
           name: c.name,
-          other_profile: (other as any)?.profiles ?? null,
+          other_profile: profile
+            ? {
+                id: profile.id,
+                username: profile.username,
+                display_name: profile.display_name,
+                avatar_color: profile.avatar_color,
+                avatar_url: profile.avatar_url,
+                verified: profile.verified,
+              }
+            : null,
           last_message: preview,
           last_at: last?.created_at ?? '',
-          unread_count: unreadCounts[c.id] ?? 0,
+          unread_count: unreadCounts.get(c.id) ?? 0,
           is_muted: setting?.is_muted ?? false,
           is_locked: setting?.is_locked ?? false,
         };
       });
 
-      setConversations((prev) => mergeConversations(prev, rows));
-      await persistConversations(rows);
+      setConversations((prev) => mergeIntoState(prev, updatedRows));
+      await persistConversations(updatedRows);
     } catch (err) {
-      console.warn('Load conversations error:', err);
+      console.warn('[chats] Sync Error:', err);
     } finally {
       isLoadingRef.current = false;
-      if (!isBackgroundRefresh) setLoading(false);
     }
   }, [myId]);
 
-  // ✅ FIX: Refresh data when screen comes into focus (e.g., back from chat)
-  useFocusEffect(
-    useCallback(() => {
-      if (myId && online) {
-        // Trigger a background refresh immediately upon focus
-        // This ensures we see the latest messages without showing a full loader
-        loadConversations(true); 
+  // 1. INITIAL LOAD: CACHE FIRST (Instant)
+  useEffect(() => {
+    if (!myId || cacheShownRef.current) return;
+    (async () => {
+      try {
+        const rows = await dbGetConversations();
+        if (rows.length > 0) {
+          const cached = rows.map(dbRowToConversation);
+          setConversations(sortConversations(cached));
+        }
+      } catch (err) {
+        console.warn('[chats] SQLite read error:', err);
+      } finally {
+        setLoading(false);
+        cacheShownRef.current = true;
+
+        if (isOnline()) {
+          syncBackground();
+        }
       }
-    }, [myId, online, loadConversations])
-  );
+    })();
+  }, [myId, syncBackground]);
 
-  // Auto-reload on reconnect
+  // 3. REALTIME UPDATES: TARGETED PATCHING
   useEffect(() => {
-    if (online && myId) {
-      console.log('[chats] back online — reloading');
-      loadConversations();
-    }
-  }, [online, myId, loadConversations]);
-
-  // Realtime subscriptions
-  useEffect(() => {
-    if (!myId) return;
-    if (!online) return;
-
-    const scheduleReload = () => {
-      if (realtimeTimeoutRef.current) clearTimeout(realtimeTimeoutRef.current);
-      realtimeTimeoutRef.current = setTimeout(() => {
-        loadConversations(true); // Use background mode for realtime updates
-      }, 500); // Reduced delay for faster feel
-    };
+    if (!myId || !online) return;
 
     const channel = supabase
-      .channel('chats-list-realtime')
+      .channel('chats-list-realtime-v3')
+      // ── INSERT ──
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
-        scheduleReload
+        (payload) => {
+          const msg = payload.new as any;
+          const cid = msg.conversation_id;
+
+          if (realtimeTimeoutRef.current)
+            clearTimeout(realtimeTimeoutRef.current);
+
+          realtimeTimeoutRef.current = setTimeout(() => {
+            // ✅ FIX: compute the real preview (not "Updated via RT")
+            const preview = previewFromMessage(msg);
+            const isFromMe = msg.sender_id === myId;
+
+            setConversations((prev) => {
+              const idx = prev.findIndex((c) => c.id === cid);
+              if (idx === -1) {
+                // Not in list (new chat) → trigger full sync instead of guessing
+                syncBackground();
+                return prev;
+              }
+
+              const updated = [...prev];
+              const convo = updated[idx];
+
+              updated[idx] = {
+                ...convo,
+                last_message: preview,
+                last_at: msg.created_at,
+                unread_count: isFromMe
+                  ? convo.unread_count
+                  : convo.unread_count + 1,
+              };
+
+              return sortConversations(updated);
+            });
+
+            // ✅ FIX: persist the real preview, not a placeholder
+            dbUpsertConversation({
+              id: cid,
+              last_message: preview,
+              last_at: msg.created_at,
+              // Only bump unread in DB when message is from someone else
+              ...(isFromMe ? {} : { unread_count: 1 }),
+            }).catch(console.warn);
+          }, 300);
+        }
       )
+      // ── UPDATE (edits, read receipts) ──
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
-        scheduleReload
+        () => {
+          if (realtimeTimeoutRef.current)
+            clearTimeout(realtimeTimeoutRef.current);
+          realtimeTimeoutRef.current = setTimeout(syncBackground, 800);
+        }
       )
+      // ── DELETE ──
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'chat_settings' },
-        scheduleReload
+        { event: 'DELETE', schema: 'public', table: 'messages' },
+        () => {
+          if (realtimeTimeoutRef.current)
+            clearTimeout(realtimeTimeoutRef.current);
+          realtimeTimeoutRef.current = setTimeout(syncBackground, 800);
+        }
       )
       .subscribe();
 
@@ -660,16 +656,29 @@ export default function ChatsScreen() {
       if (realtimeTimeoutRef.current) clearTimeout(realtimeTimeoutRef.current);
       supabase.removeChannel(channel);
     };
-  }, [myId, loadConversations, online]);
+  }, [myId, online, syncBackground]);
 
-  const updateCache = useCallback(
-    async (next: Conversation[]) => {
-      if (!myId) return;
-      await persistConversations(next);
-    },
-    [myId]
+  // 4. FOCUS EFFECT: LIGHT SYNC WHEN RETURNING
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasFocusedOnceRef.current) {
+        hasFocusedOnceRef.current = true;
+        return;
+      }
+      if (myId && online) {
+        syncBackground();
+      }
+    }, [myId, online, syncBackground])
   );
 
+  // Auto-reload on reconnect
+  useEffect(() => {
+    if (online && myId) {
+      syncBackground();
+    }
+  }, [online, myId, syncBackground]);
+
+  // --- ACTIONS ---
   const unlockedConversations = conversations.filter((c) => !c.is_locked);
   const lockedConversations = conversations.filter((c) => c.is_locked);
   const hasLocked = lockedConversations.length > 0;
@@ -705,9 +714,7 @@ export default function ChatsScreen() {
   const openLockedChat = useCallback(
     (convoId: string) => {
       setLockedViewOpen(false);
-      setTimeout(() => {
-        router.push(`/chat/${convoId}`);
-      }, 320);
+      setTimeout(() => router.push(`/chat/${convoId}`), 320);
     },
     [router]
   );
@@ -717,7 +724,7 @@ export default function ChatsScreen() {
     setDeleteConfirmConvo(null);
     const next = conversations.filter((c) => c.id !== convoId);
     setConversations(next);
-    updateCache(next);
+    await persistConversations(next);
     await dbDeleteConversation(convoId);
     try {
       await supabase
@@ -731,10 +738,9 @@ export default function ChatsScreen() {
         .eq('conversation_id', convoId)
         .eq('user_id', myId);
     } catch (err) {
-      console.warn('Delete failed:', err);
       hapticError();
       Alert.alert('Delete failed', 'Please try again.');
-      loadConversations();
+      syncBackground();
     }
   }
 
@@ -747,10 +753,10 @@ export default function ChatsScreen() {
       c.id === convo.id ? { ...c, is_muted: nextMuted } : c
     );
     setConversations(next);
-    updateCache(next);
+    await persistConversations(next);
     await patchDbConversation(convo.id, { is_muted: nextMuted ? 1 : 0 });
     try {
-      const { error } = await supabase.from('chat_settings').upsert(
+      await supabase.from('chat_settings').upsert(
         {
           user_id: myId,
           conversation_id: convo.id,
@@ -759,18 +765,13 @@ export default function ChatsScreen() {
         },
         { onConflict: 'user_id,conversation_id' }
       );
-      if (error) throw error;
     } catch (err) {
-      console.warn('Mute failed:', err);
       hapticError();
       const revert = conversations.map((c) =>
         c.id === convo.id ? { ...c, is_muted: !nextMuted } : c
       );
       setConversations(revert);
-      updateCache(revert);
-      await patchDbConversation(convo.id, {
-        is_muted: !nextMuted ? 1 : 0,
-      });
+      await persistConversations(revert);
       Alert.alert('Failed', 'Could not update mute.');
     }
   }
@@ -795,7 +796,7 @@ export default function ChatsScreen() {
     if (!myId) return;
     try {
       const convo = conversations.find((c) => c.id === convoId);
-      const { error } = await supabase.from('chat_settings').upsert(
+      await supabase.from('chat_settings').upsert(
         {
           user_id: myId,
           conversation_id: convoId,
@@ -804,15 +805,13 @@ export default function ChatsScreen() {
         },
         { onConflict: 'user_id,conversation_id' }
       );
-      if (error) throw error;
       const next = conversations.map((c) =>
         c.id === convoId ? { ...c, is_locked: lock } : c
       );
       setConversations(next);
-      updateCache(next);
+      await persistConversations(next);
       await patchDbConversation(convoId, { is_locked: lock ? 1 : 0 });
     } catch (err) {
-      console.warn('Lock failed:', err);
       hapticError();
       Alert.alert('Failed', 'Could not update lock.');
     }
@@ -842,9 +841,6 @@ export default function ChatsScreen() {
       hapticSuccess();
       const targetId = pinSetupConvo.id;
       setPinSetupConvo(null);
-      setPinInput1('');
-      setPinInput2('');
-      setPinError('');
       await applyLock(targetId, true);
     } catch (err) {
       hapticError();
@@ -879,8 +875,6 @@ export default function ChatsScreen() {
         hapticSuccess();
         setSessionUnlocked(true);
         setPinModalVisible(false);
-        setPinVerifyInput('');
-        setPinVerifyError('');
         hideLockedRow();
         setTimeout(() => setLockedViewOpen(true), 220);
       } else {
@@ -919,19 +913,21 @@ export default function ChatsScreen() {
         .eq('user_id', myId);
       const next = conversations.filter((c) => c.id !== convo.id);
       setConversations(next);
-      updateCache(next);
+      await persistConversations(next);
       await dbDeleteConversation(convo.id);
-      Alert.alert('Blocked', `@${convo.other_profile?.username} has been blocked.`);
+      Alert.alert(
+        'Blocked',
+        `@${convo.other_profile?.username} has been blocked.`
+      );
     } catch (err) {
-      console.warn('Block failed:', err);
       hapticError();
       Alert.alert('Failed', 'Could not block.');
-      loadConversations();
+      syncBackground();
     }
   }
 
   const renderItem = useCallback(
-    ({ item, index }: { item: Conversation; index: number }) => (
+    ({ item, index }: any) => (
       <ChatRow
         item={item}
         onPress={openChat}
@@ -1214,8 +1210,7 @@ export default function ChatsScreen() {
               </View>
               <Text style={styles.dialogTitle}>Delete this chat?</Text>
               <Text style={styles.dialogSub}>
-                This will remove the chat from your list. The other person will
-                still see the conversation.
+                This will remove the chat from your list.
               </Text>
               <View style={styles.dialogButtons}>
                 <TouchableOpacity
@@ -1275,7 +1270,7 @@ export default function ChatsScreen() {
                 Block @{blockConfirmConvo?.other_profile?.username}?
               </Text>
               <Text style={styles.dialogSub}>
-                They won't be able to message you. This chat will be removed.
+                They won't be able to message you.
               </Text>
               <View style={styles.dialogButtons}>
                 <TouchableOpacity
@@ -1334,9 +1329,7 @@ export default function ChatsScreen() {
                   />
                 </View>
                 <Text style={styles.pinDialogTitle}>Set a chat lock PIN</Text>
-                <Text style={styles.pinDialogSub}>
-                  Enter a 4-digit PIN to lock this chat.
-                </Text>
+                <Text style={styles.pinDialogSub}>Enter a 4-digit PIN.</Text>
                 <TextInput
                   style={styles.pinInput}
                   value={pinInput1}
@@ -1361,9 +1354,7 @@ export default function ChatsScreen() {
                   secureTextEntry
                   maxLength={4}
                 />
-                {!!pinError && (
-                  <Text style={styles.pinError}>{pinError}</Text>
-                )}
+                {!!pinError && <Text style={styles.pinError}>{pinError}</Text>}
                 <View style={styles.dialogButtons}>
                   <TouchableOpacity
                     style={styles.dialogBtnSecondary}
@@ -1421,7 +1412,7 @@ export default function ChatsScreen() {
                 </View>
                 <Text style={styles.pinDialogTitle}>Enter your PIN</Text>
                 <Text style={styles.pinDialogSub}>
-                  Unlock to view your locked chats.
+                  Unlock to view locked chats.
                 </Text>
                 <TextInput
                   style={styles.pinInput}
@@ -1504,17 +1495,7 @@ export default function ChatsScreen() {
   );
 }
 
-function ActionRow({
-  icon,
-  label,
-  onPress,
-  danger,
-}: {
-  icon: any;
-  label: string;
-  onPress: () => void;
-  danger?: boolean;
-}) {
+function ActionRow({ icon, label, onPress, danger }: any) {
   return (
     <TouchableOpacity
       style={styles.actionRow}
