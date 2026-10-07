@@ -1,6 +1,7 @@
 // app/(auth)/signup.tsx
 // Full signup — matches website style (compact, clean)
 // ✅ FIXED: all inputs same height (minHeight: 44)
+// ✅ NEW: Privacy Policy popup with blurred backdrop
 
 import { useState } from 'react';
 import {
@@ -24,6 +25,7 @@ import { supabase } from '../../lib/supabase';
 import { requestNotificationPermission } from '../../lib/push-permissions';
 import Field from '../../components/Field';
 import DobPicker, { formatDob, calcAge } from '../../components/DobPicker';
+import PrivacyPolicyModal from '../../components/PrivacyPolicyModal';
 
 const MIN_AGE = 13;
 
@@ -36,6 +38,7 @@ export default function SignupScreen() {
   const [password, setPassword] = useState('');
   const [dob, setDob] = useState<Date | null>(null);
   const [showDobPicker, setShowDobPicker] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -340,8 +343,13 @@ export default function SignupScreen() {
                     </View>
                     <Text style={styles.checkboxText}>
                       I agree to the{' '}
-                      <Text style={styles.linkText}>Privacy Policy</Text> and
-                      consent to the collection and use of my information as
+                      <Text
+                        style={styles.linkText}
+                        onPress={() => setShowPrivacy(true)}
+                      >
+                        Privacy Policy
+                      </Text>{' '}
+                      and consent to the collection and use of my information as
                       described.
                     </Text>
                   </Pressable>
@@ -399,6 +407,11 @@ export default function SignupScreen() {
           setShowDobPicker(false);
         }}
         minAge={MIN_AGE}
+      />
+
+      <PrivacyPolicyModal
+        visible={showPrivacy}
+        onClose={() => setShowPrivacy(false)}
       />
     </SafeAreaView>
   );
@@ -476,7 +489,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // ✅ COMPACT input — all same height (44px)
   input: {
     width: '100%',
     minHeight: 44,
@@ -566,7 +578,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyMedium,
   },
 
-  // ✅ COMPACT button — matches website
   primaryBtn: {
     borderRadius: 12,
     overflow: 'hidden',
