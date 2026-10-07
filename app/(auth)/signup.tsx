@@ -1,5 +1,5 @@
 // app/(auth)/signup.tsx
-// Full signup — username, display name, email, password + privacy checkbox
+// Full signup — username, display name, email, DOB (scroll picker), password
 
 import { useState } from 'react';
 import {
@@ -27,8 +27,11 @@ import {
   SHADOWS,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
-import { requestNotificationPermission } from '../../lib/push-permissions'; // <-- ADDED IMPORT
+import { requestNotificationPermission } from '../../lib/push-permissions';
 import Field from '../../components/Field';
+import DobPicker, { formatDob, calcAge } from '../../components/DobPicker';
+
+const MIN_AGE = 13;
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -37,6 +40,8 @@ export default function SignupScreen() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [dob, setDob] = useState<Date | null>(null);
+  const [showDobPicker, setShowDobPicker] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [agreedToPolicy, setAgreedToPolicy] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -62,12 +67,31 @@ export default function SignupScreen() {
       setError('Password must be at least 6 characters.');
       return;
     }
+
+    // DOB validation
+    if (!dob) {
+      setError('Please select your date of birth.');
+      return;
+    }
+    const age = calcAge(dob);
+    if (age < MIN_AGE) {
+      setError(`You must be at least ${MIN_AGE} years old to use this app.`);
+      return;
+    }
+    if (age > 120) {
+      setError('Please enter a valid date of birth.');
+      return;
+    }
+
     if (!agreedToPolicy) {
       setError('Please agree to the Privacy Policy to create an account.');
       return;
     }
 
     setLoading(true);
+
+    // Format DOB as YYYY-MM-DD for DB
+    const dobISO = `${dob.getFullYear()}-${String(dob.getMonth() + 1).padStart(2, '0')}-${String(dob.getDate()).padStart(2, '0')}`;
 
     const { data, error: signupErr } = await supabase.auth.signUp({
       email: email.trim().toLowerCase(),
@@ -76,6 +100,7 @@ export default function SignupScreen() {
         data: {
           username: username.trim().toLowerCase(),
           display_name: displayName.trim() || username.trim(),
+          date_of_birth: dobISO,
           privacy_accepted_at: new Date().toISOString(),
         },
       },
@@ -89,7 +114,7 @@ export default function SignupScreen() {
     }
 
     if (data.session) {
-      await requestNotificationPermission(); // <-- ADDED
+      await requestNotificationPermission();
       router.replace('/(tabs)/home');
     } else {
       setDone(true);
@@ -114,11 +139,7 @@ export default function SignupScreen() {
             <Link href="/" asChild>
               <Pressable style={styles.brandRow}>
                 <View style={styles.brandIcon}>
-                  <Ionicons
-                    name="chatbubble"
-                    size={20}
-                    color="#FFFFFF"
-                  />
+                  <Ionicons name="chatbubble" size={20} color="#FFFFFF" />
                 </View>
                 <Text style={styles.brandText}>
                   Aira
@@ -144,7 +165,7 @@ export default function SignupScreen() {
                   activeOpacity={0.9}
                 >
                   <LinearGradient
-                    colors={GRADIENTS.violet}
+                    colors={GRTextEntry={!ADIENTS.violet}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={styles.primaryBtnInner}
@@ -156,19 +177,13 @@ export default function SignupScreen() {
             ) : (
               <>
                 <Text style={styles.h1}>Create your account</Text>
-                <Text style={styles.subtitle}>
-                  Takes less than a minute.
-                </Text>
+                <Text style={styles.subtitle}>Takes less than a minute.</Text>
 
                 <View style={{ marginTop: SPACING.lg }}>
                   <Field
                     label="Username"
                     icon={
-                      <Ionicons
-                        name="at-outline"
-                        size={20}
-                        color={COLORS.mist}
-                      />
+                      <Ionicons name="at-outline" size={20} color={COLORS.mist} />
                     }
                   >
                     <TextInput
@@ -236,6 +251,49 @@ export default function SignupScreen() {
                     />
                   </Field>
 
+                  {/* ✅ DOB picker field */}
+                  <Field
+                    label="Date of birth"
+                    icon={
+                      <Ionicons
+                        name="calendar-outline"
+                        size={20}
+                        color={COLORS.mist}
+                      />
+                    }
+                  >
+                    <TouchableOpacity
+                      activeOpacity={0.75}
+                      onPress={() => {
+                        if (loading) return;
+                        if (error) setError(null);
+                        setShowDobPicker(true);
+                      }}
+                      style={[
+                        styles.input,
+                        styles.inputWithIcon,
+                        styles.inputWithIconRight,
+                        styles.dobTouchable,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.dobText,
+                          !dob && styles.dobTextPlaceholder,
+                        ]}
+                      >
+                        {dob ? formatDob(dob) : 'Select date of birth'}
+                      </Text>
+                    </TouchableOpacity>
+                    <View style={styles.dobChevron} pointerEvents="none">
+                      <Ionicons
+                        name="chevron-down"
+                        size={18}
+                        color={COLORS.mist}
+                      />
+                    </View>
+                  </Field>
+
                   <Field
                     label="Password"
                     icon={
@@ -259,7 +317,7 @@ export default function SignupScreen() {
                       }}
                       placeholder="At least 6 characters"
                       placeholderTextColor={'rgba(139,143,163,0.5)'}
-                      secureTextEntry={!showPassword}
+                      secureshowPassword}
                       autoCapitalize="none"
                       autoCorrect={false}
                       editable={!loading}
@@ -288,18 +346,14 @@ export default function SignupScreen() {
                       ]}
                     >
                       {agreedToPolicy && (
-                        <Ionicons
-                          name="checkmark"
-                          size={16}
-                          color="#FFFFFF"
-                        />
+                        <Ionicons name="checkmark" size={16} color="#FFFFFF" />
                       )}
                     </View>
                     <Text style={styles.checkboxText}>
                       I agree to the{' '}
-                      <Text style={styles.linkText}>Privacy Policy</Text>{' '}
-                      and consent to the collection and use of my information
-                      as described.
+                      <Text style={styles.linkText}>Privacy Policy</Text> and
+                      consent to the collection and use of my information as
+                      described.
                     </Text>
                   </Pressable>
 
@@ -346,6 +400,18 @@ export default function SignupScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ✅ DOB Picker Modal */}
+      <DobPicker
+        visible={showDobPicker}
+        value={dob}
+        onClose={() => setShowDobPicker(false)}
+        onConfirm={(d) => {
+          setDob(d);
+          setShowDobPicker(false);
+        }}
+        minAge={MIN_AGE}
+      />
     </SafeAreaView>
   );
 }
@@ -358,7 +424,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: SPACING.xl,
   },
-
   glowTop: {
     position: 'absolute',
     top: -150,
@@ -377,7 +442,6 @@ const styles = StyleSheet.create({
     borderRadius: 200,
     backgroundColor: 'rgba(34,211,184,0.12)',
   },
-
   card: {
     backgroundColor: 'rgba(16,19,28,0.85)',
     borderRadius: 28,
@@ -386,12 +450,7 @@ const styles = StyleSheet.create({
     padding: 22,
     ...SHADOWS.card,
   },
-
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   brandIcon: {
     width: 40,
     height: 40,
@@ -410,10 +469,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
-  brandTextGradient: {
-    color: COLORS.violetLight,
-  },
-
+  brandTextGradient: { color: COLORS.violetLight },
   h1: {
     marginTop: SPACING.xl,
     fontSize: 28,
@@ -427,7 +483,6 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     lineHeight: 21,
   },
-
   input: {
     width: '100%',
     backgroundColor: COLORS.ink800,
@@ -440,12 +495,8 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.body,
     color: '#FFFFFF',
   },
-  inputWithIcon: {
-    paddingLeft: 48,
-  },
-  inputWithIconRight: {
-    paddingRight: 48,
-  },
+  inputWithIcon: { paddingLeft: 48 },
+  inputWithIconRight: { paddingRight: 48 },
   eyeBtn: {
     position: 'absolute',
     right: 14,
@@ -453,7 +504,24 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
   },
-
+  dobTouchable: {
+    justifyContent: 'center',
+  },
+  dobText: {
+    fontSize: 16,
+    fontFamily: FONTS.body,
+    color: '#FFFFFF',
+  },
+  dobTextPlaceholder: {
+    color: 'rgba(139,143,163,0.5)',
+  },
+  dobChevron: {
+    position: 'absolute',
+    right: 14,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+  },
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -483,7 +551,6 @@ const styles = StyleSheet.create({
     color: COLORS.mist,
     lineHeight: 20,
   },
-
   errorBox: {
     backgroundColor: 'rgba(239,68,68,0.10)',
     borderRadius: RADII.md,
@@ -496,7 +563,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontFamily: FONTS.bodyMedium,
   },
-
   primaryBtn: {
     borderRadius: RADII.xl,
     overflow: 'hidden',
@@ -518,7 +584,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
   },
-
   linkText: {
     color: COLORS.violetLight,
     fontFamily: FONTS.bodyMedium,
