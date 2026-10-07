@@ -2,6 +2,7 @@
 // Chat screen — SQLite offline-first + offline auth + network auto-reload + delivery ticks
 // ✅ STABLE MERGE: network response replaces nothing — merges into cache
 // ✅ Call log support (message_type='call') — WhatsApp-style bubbles
+// ✅ Phase 14: convoId passed to startCall for reliable call log
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -47,11 +48,11 @@ import {
 import { supabase } from '../../lib/supabase';
 import { getCurrentUserId } from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
-import { useCall } from '../../contexts/CallContext';
-import Avatar from '../../components/Avatar';
-import AvatarPreviewHost from '../../components/AvatarPreviewHost';
-import MessageBubble from '../../components/MessageBubble';
-import VerifiedBadge from '../../components/VerifiedBadge';
+import { useCall } from '../../context '../../s/CallContextcomponents';
+import Avatar from '../../components/Avatar/';
+import AvatarPreviewHost from '../../components/AvVerifiedatarPreviewHost';
+import MessageBubble from '../../componentsBad/MessageBubble';
+import VerifiedBadge fromge';
 import TypingDots from '../../components/TypingDots';
 import {
   dbGetMessages,
@@ -558,7 +559,7 @@ export default function ChatScreen() {
           );
           setHiddenForMeIds(hiddenIds);
 
-          // ✅ Skip call logs from read-receipt update (doesn't matter for calls)
+          // ✅ Skip call logs from read-receipt update
           const unreadIds = msgs
             .filter(
               (m: any) =>
@@ -760,10 +761,8 @@ export default function ChatScreen() {
 
           if (incoming.sender_id !== myId) {
             markAnimating(incoming.id);
-            // ✅ Skip receive sound for call logs
             if (!isMutedForConvo && !isCallLog) playReceive();
 
-            // ✅ Skip delivered/read updates for call logs
             if (!isCallLog && !incoming.delivered_at) {
               const deliveredAt = new Date().toISOString();
               supabase
@@ -794,7 +793,6 @@ export default function ChatScreen() {
             setNewMessagesCount((c) => c + 1);
           }
 
-          // ✅ Skip read-receipt update for call logs
           if (incoming.sender_id !== myId && !isCallLog) {
             supabase
               .from('messages')
@@ -1829,30 +1827,42 @@ export default function ChatScreen() {
             </View>
           </TouchableOpacity>
 
+          {/* ✅ Voice call — convoId passed for call log */}
           <TouchableOpacity
             style={styles.headerActionBtn}
             onPress={() => {
               if (!other || callState !== 'idle') return;
               hapticMedium();
-              startCall(other.id, 'audio', {
-                name: other.display_name,
-                avatar: other.avatar_url,
-              });
+              startCall(
+                other.id,
+                'audio',
+                {
+                  name: other.display_name,
+                  avatar: other.avatar_url,
+                },
+                convoId
+              );
             }}
             activeOpacity={0.7}
           >
             <Ionicons name="call-outline" size={22} color={COLORS.text} />
           </TouchableOpacity>
 
+          {/* ✅ Video call — convoId passed for call log */}
           <TouchableOpacity
             style={styles.headerActionBtn}
             onPress={() => {
               if (!other || callState !== 'idle') return;
               hapticMedium();
-              startCall(other.id, 'video', {
-                name: other.display_name,
-                avatar: other.avatar_url,
-              });
+              startCall(
+                other.id,
+                'video',
+                {
+                  name: other.display_name,
+                  avatar: other.avatar_url,
+                },
+                convoId
+              );
             }}
             activeOpacity={0.7}
           >
@@ -2128,7 +2138,6 @@ export default function ChatScreen() {
               style={styles.dialogCard}
               onPress={(e) => e.stopPropagation()}
             >
-              {/* ✅ Hide Reply for call logs */}
               {!actionIsCall && (
                 <ActionRow
                   icon="arrow-undo-outline"
@@ -2137,7 +2146,6 @@ export default function ChatScreen() {
                 />
               )}
 
-              {/* ✅ Hide Copy for call logs */}
               {!actionIsCall && actionSheetMsg?.message_type === 'text' && (
                 <ActionRow
                   icon="copy-outline"
