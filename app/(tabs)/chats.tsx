@@ -2,6 +2,7 @@
 // Chats list — SQLite-backed (offline-first) + offline auth + network auto-reload
 // Locked chats: hidden above the list, pull down to reveal (WhatsApp style),
 // keep pulling + release to open PIN prompt (react-native-gesture-handler)
+// ✅ STABLE MERGE: network response replaces nothing — merges into cache
 
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
@@ -80,8 +81,8 @@ type ChatSetting = {
 };
 
 const ROW_HEIGHT = 78;
-const LOCKED_H = 56; // height of the "Locked chats" header row
-const PULL_OPEN_DISTANCE = 70; // extra pull (px) after row is fully revealed to open PIN prompt
+const LOCKED_H = 56;
+const PULL_OPEN_DISTANCE = 70;
 
 function formatTime(iso: string) {
   if (!iso) return '';
@@ -157,6 +158,53 @@ async function patchDbConversation(
   } catch (err) {
     console.warn('[chats] patchDbConversation error:', err);
   }
+}
+
+// ============================================================
+// ✅ STABLE MERGE — network response kabhi cache ko replace nahi karta.
+// Ye "chat list flicker" aur "chat gayab hone" ka main fix hai.
+// ============================================================
+function mergeConversations(
+  prev: Conversation[],
+  next: Conversation[]
+): Conversation[] {
+  const map = new Map<string, Conversation>();
+
+  // 1. Purane (cache) entries pehle daalo — order preserve karo
+  for (const c of prev) map.set(c.id, c);
+
+  // 2. Network entries se update karo (fresh fields win)
+  for (const c of next) {
+    const existing = map.get(c.id);
+    if (existing) {
+      // Sirf wahi fields override karo jo network me aaye hain
+      // Empty strings ko override mat hone do (jab tak real value na ho)
+      const merged: Conversation = { ...existing };
+      if (c.last_message) merged.last_message = c.last_message;
+      if (c.last_at) merged.last_at = c.last_at;
+      if (typeof c.unread_count === 'number') merged.unread_count = c.unread_count;
+      if (typeof c.is_muted === 'boolean') merged.is_muted = c.is_muted;
+      if (typeof c.is_locked === 'boolean') merged.is_locked = c.is_locked;
+      if (c.other_profile) merged.other_profile = c.other_profile;
+      if (c.name) merged.name = c.name;
+      if (typeof c.is_group === 'boolean') merged.is_group = c.is_group;
+      map.set(c.id, merged);
+    } else {
+      map.set(c.id, c);
+    }
+  }
+
+  // 3. Sort by last_at DESC
+  const merged = Array.from(map.values());
+  merged.sort((a, b) => {
+    const at = a.last_at || '';
+    const bt = b.last_at || '';
+    if (!at && !bt) return 0;
+    if (!at) return 1;
+    if (!bt) return -1;
+    return at < bt ? 1 : -1;
+  });
+  return merged;
 }
 
 // ---------- Skeleton ----------
@@ -328,7 +376,6 @@ export default function ChatsScreen() {
   const [loading, setLoading] = useState(true);
   const [myId, setMyId] = useState<string | null>(null);
 
-  // ✅ Network tracking
   const [online, setOnline] = useState(isOnline());
 
   const [actionSheetConvo, setActionSheetConvo] = useState<Conversation | null>(
@@ -354,11 +401,10 @@ export default function ChatsScreen() {
   const isLoadingRef = useRef(false);
   const cacheShownRef = useRef(false);
 
-  // 🔒 Locked-row pull-down refs
   const listRef = useRef<FlatList<Conversation>>(null);
-  const didHideRef = useRef(false); // list already scrolled to hide locked row
-  const scrollYRef = useRef(0); // current list scroll offset
-  const startYRef = useRef(0); // scroll offset when the pull gesture began
+  const didHideRef = useRef(false);
+  const scrollYRef = useRef(0);
+  const startYRef = useRef(0);
   const nativeGesture = useMemo(() => Gesture.Native(), []);
 
   // ✅ OFFLINE FIX: use getCurrentUserId() (reads from local session)
@@ -389,26 +435,29 @@ export default function ChatsScreen() {
     })();
   }, [myId]);
 
-  // ✅ PHASE 2: Show SQLite cache instantly (offline-first)
+  // ✅ PHASE 2: Show SQLite cache instantly (offline-first) — MERGE-safe
   useEffect(() => {
     if (!myId || cacheShownRef.current) return;
     (async () => {
       try {
         const rows = await dbGetConversations();
         if (rows.length > 0) {
-          setConversations(rows.map(dbRowToConversation));
-          setLoading(false);
+          const cached = rows.map(dbRowToConversation);
+          setConversations((prev) => mergeConversations(prev, cached));
         }
       } catch (err) {
         console.warn('[chats] SQLite read error:', err);
+      } finally {
+        // ✅ Guarantee loading=false after cache read — no spinner lock
+        setLoading(false);
+        cacheShownRef.current = true;
       }
-      cacheShownRef.current = true;
     })();
   }, [myId]);
 
   const loadConversations = useCallback(async () => {
     if (!myId) return;
-    if (!isOnline()) return; // ✅ skip network call offline
+    if (!isOnline()) return;
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
 
@@ -422,6 +471,7 @@ export default function ChatsScreen() {
 
       const convoIds = (participantRows ?? []).map((r) => r.conversation_id);
       if (convoIds.length === 0) {
+        // ✅ Server ne confirm kiya — sach me koi chat nahi
         setConversations([]);
         await dbClearAllConversations();
         return;
@@ -451,7 +501,9 @@ export default function ChatsScreen() {
 
           supabase
             .from('messages')
-            .select('conversation_id, content, message_type, created_at, is_deleted')
+            .select(
+              'conversation_id, content, message_type, created_at, is_deleted'
+            )
             .in('conversation_id', convoIds)
             .order('created_at', { ascending: false })
             .limit(Math.max(convoIds.length * 2, 40)),
@@ -485,11 +537,6 @@ export default function ChatsScreen() {
         }
       }
 
-      // ✅ FIX (wrong preview): the shared query above only returns the newest
-      // ~40 messages across ALL chats. A very active chat can push every other
-      // chat's last message out of that batch → they wrongly showed
-      // "Say hello 👋" and sank to the bottom. Fetch the real last message for
-      // just those chats (usually 0–3 extra tiny queries).
       const missingIds = convos
         .map((c) => c.id)
         .filter((id) => !lastPerConvo.has(id));
@@ -546,8 +593,8 @@ export default function ChatsScreen() {
         };
       });
 
-      rows.sort((a, b) => (a.last_at < b.last_at ? 1 : -1));
-      setConversations(rows);
+      // ✅ FIX: MERGE instead of REPLACE — list stable rahegi
+      setConversations((prev) => mergeConversations(prev, rows));
 
       await persistConversations(rows);
     } catch (err) {
@@ -572,13 +619,13 @@ export default function ChatsScreen() {
 
   useEffect(() => {
     if (!myId) return;
-    if (!online) return; // ✅ don't subscribe offline
+    if (!online) return;
 
     const scheduleReload = () => {
       if (realtimeTimeoutRef.current) clearTimeout(realtimeTimeoutRef.current);
       realtimeTimeoutRef.current = setTimeout(() => {
         loadConversations();
-      }, 500);
+      }, 800); // ✅ 500 → 800ms — rapid events debounce
     };
 
     const channel = supabase
@@ -618,17 +665,14 @@ export default function ChatsScreen() {
   const lockedConversations = conversations.filter((c) => c.is_locked);
   const hasLocked = lockedConversations.length > 0;
 
-  // 🔒 Reset "already hidden" flag when there are no locked chats left
   useEffect(() => {
     if (!hasLocked) didHideRef.current = false;
   }, [hasLocked]);
 
-  // 🔒 Scroll list so the locked row is tucked away above the first chat
   const hideLockedRow = useCallback((animated = true) => {
     listRef.current?.scrollToOffset({ offset: LOCKED_H, animated });
   }, []);
 
-  // 🔒 If row is only half visible, snap fully open or fully closed
   const snapLocked = useCallback(
     (y: number) => {
       if (!hasLocked) return;
@@ -817,7 +861,7 @@ export default function ChatsScreen() {
       hapticSuccess();
       setSessionUnlocked(true);
       setPinModalVisible(false);
-      hideLockedRow(); // 🔒 tuck the row away again (like WhatsApp)
+      hideLockedRow();
       setTimeout(() => setLockedViewOpen(true), 220);
       return;
     }
@@ -834,7 +878,7 @@ export default function ChatsScreen() {
         setPinModalVisible(false);
         setPinVerifyInput('');
         setPinVerifyError('');
-        hideLockedRow(); // 🔒 tuck the row away again (like WhatsApp)
+        hideLockedRow();
         setTimeout(() => setLockedViewOpen(true), 220);
       } else {
         hapticError();
@@ -902,7 +946,6 @@ export default function ChatsScreen() {
 
   const keyExtractor = useCallback((item: Conversation) => item.id, []);
 
-  // 🔒 header (locked row) height must be part of the offset
   const getItemLayout = useCallback(
     (_: any, index: number) => ({
       length: ROW_HEIGHT,
@@ -912,21 +955,17 @@ export default function ChatsScreen() {
     [hasLocked]
   );
 
-  // 🔒 Pull gesture: row fully revealed + keep pulling down + release => PIN prompt
   const pullGesture = Gesture.Pan()
     .runOnJS(true)
-    .activeOffsetY([-1000, 15]) // only react to downward drags
-    .failOffsetX([-25, 25]) // ignore horizontal swipes
+    .activeOffsetY([-1000, 15])
+    .failOffsetX([-25, 25])
     .onBegin(() => {
       startYRef.current = scrollYRef.current;
     })
     .onEnd((e) => {
       if (!hasLocked) return;
-      // gesture must have started with the locked row hidden or already revealed
       if (startYRef.current > LOCKED_H + 1) return;
-      // list must now be sitting at the very top (row fully revealed)
       if (scrollYRef.current > 1) return;
-      // distance pulled beyond what was needed to reveal the row
       const overPull = e.translationY - startYRef.current;
       if (overPull > PULL_OPEN_DISTANCE) {
         hapticMedium();
@@ -949,7 +988,6 @@ export default function ChatsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ✅ Offline banner */}
       {!online && (
         <View style={styles.offlineBanner}>
           <Ionicons name="cloud-offline-outline" size={14} color="#FFFFFF" />
@@ -971,7 +1009,6 @@ export default function ChatsScreen() {
             getItemLayout={getItemLayout}
             contentContainerStyle={[
               styles.listContent,
-              // keep list scrollable even with few chats so the row can be pulled in
               hasLocked && { minHeight: winH },
             ]}
             initialNumToRender={12}
@@ -992,7 +1029,6 @@ export default function ChatsScreen() {
               snapLocked(e.nativeEvent.contentOffset.y)
             }
             onContentSizeChange={() => {
-              // first time the locked row exists: start with it hidden
               if (hasLocked && !didHideRef.current) {
                 didHideRef.current = true;
                 if (scrollYRef.current < LOCKED_H) hideLockedRow(false);
@@ -1511,7 +1547,6 @@ function ActionRow({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
 
-  // ✅ Offline banner
   offlineBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1551,7 +1586,7 @@ const styles = StyleSheet.create({
   },
 
   lockedRow: {
-    height: LOCKED_H, // must match LOCKED_H (used for scroll offset math)
+    height: LOCKED_H,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
