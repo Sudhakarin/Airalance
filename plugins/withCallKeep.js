@@ -1,5 +1,6 @@
 // plugins/withCallKeep.js
 // Expo config plugin — injects react-native-callkeep native setup into AndroidManifest
+// ✅ Includes MainActivity showWhenLocked + turnScreenOn for full-screen call UI
 
 const { withAndroidManifest } = require('@expo/config-plugins');
 
@@ -8,18 +9,15 @@ module.exports = function withCallKeep(config) {
     const androidManifest = config.modResults;
     const mainApplication = androidManifest.manifest.application[0];
 
-    if (!mainApplication.service) {
-      mainApplication.service = [];
-    }
-    if (!mainApplication.receiver) {
-      mainApplication.receiver = [];
-    }
+    if (!mainApplication.service) mainApplication.service = [];
+    if (!mainApplication.receiver) mainApplication.receiver = [];
 
     // 1. VoiceConnectionService
-    const hasVoiceService = mainApplication.service.some(
-      (s) => s.$['android:name'] === 'io.wazo.callkeep.VoiceConnectionService'
-    );
-    if (!hasVoiceService) {
+    if (
+      !mainApplication.service.some(
+        (s) => s.$['android:name'] === 'io.wazo.callkeep.VoiceConnectionService'
+      )
+    ) {
       mainApplication.service.push({
         $: {
           'android:name': 'io.wazo.callkeep.VoiceConnectionService',
@@ -32,9 +30,7 @@ module.exports = function withCallKeep(config) {
         'intent-filter': [
           {
             action: [
-              {
-                $: { 'android:name': 'android.telecom.ConnectionService' },
-              },
+              { $: { 'android:name': 'android.telecom.ConnectionService' } },
             ],
           },
         ],
@@ -42,12 +38,13 @@ module.exports = function withCallKeep(config) {
     }
 
     // 2. BackgroundMessagingService
-    const hasBgService = mainApplication.service.some(
-      (s) =>
-        s.$['android:name'] ===
-        'io.wazo.callkeep.RNCallKeepBackgroundMessagingService'
-    );
-    if (!hasBgService) {
+    if (
+      !mainApplication.service.some(
+        (s) =>
+          s.$['android:name'] ===
+          'io.wazo.callkeep.RNCallKeepBackgroundMessagingService'
+      )
+    ) {
       mainApplication.service.push({
         $: {
           'android:name':
@@ -59,16 +56,16 @@ module.exports = function withCallKeep(config) {
     }
 
     // 3. IncomingCallReceiver
-    const hasReceiver = mainApplication.receiver.some(
-      (r) =>
-        r.$['android:name'] ===
-        'io.wazo.callkeep.RNCallKeepIncomingCallReceiver'
-    );
-    if (!hasReceiver) {
+    if (
+      !mainApplication.receiver.some(
+        (r) =>
+          r.$['android:name'] ===
+          'io.wazo.callkeep.RNCallKeepIncomingCallReceiver'
+      )
+    ) {
       mainApplication.receiver.push({
         $: {
-          'android:name':
-            'io.wazo.callkeep.RNCallKeepIncomingCallReceiver',
+          'android:name': 'io.wazo.callkeep.RNCallKeepIncomingCallReceiver',
           'android:enabled': 'true',
           'android:exported': 'true',
         },
@@ -76,14 +73,29 @@ module.exports = function withCallKeep(config) {
           {
             action: [
               {
-                $: {
-                  'android:name': 'io.wazo.callkeep.ACTION_INCOMING_CALL',
-                },
+                $: { 'android:name': 'io.wazo.callkeep.ACTION_INCOMING_CALL' },
               },
             ],
           },
         ],
       });
+    }
+
+    // 4. ✅ CRITICAL FIX — MainActivity attributes for full-screen intent
+    const mainActivity = (mainApplication.activity || []).find((a) =>
+      /\.MainActivity$/.test(a.$['android:name'] || '')
+    );
+    if (mainActivity) {
+      mainActivity.$['android:showWhenLocked'] = 'true';
+      mainActivity.$['android:turnScreenOn'] = 'true';
+      mainActivity.$['android:excludeFromRecents'] = 'false';
+      mainActivity.$['android:launchMode'] = 'singleTask';
+      mainActivity.$['android:taskAffinity'] = '';
+      console.log(
+        '[withCallKeep] ✅ MainActivity updated with showWhenLocked + turnScreenOn'
+      );
+    } else {
+      console.warn('[withCallKeep] ⚠️ MainActivity not found');
     }
 
     return config;
