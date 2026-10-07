@@ -1,6 +1,7 @@
 // supabase/functions/send-push/index.ts
 // Push notification bhejne wali Edge Function (FCM V1 API + Expo fallback)
-// ✅ Supports: chat messages, locked chats, incoming calls (data message)
+// ✅ Supports: chat messages, locked chats, incoming calls
+// ✅ FIX: Call uses notification + data (works on Android 11 killed apps)
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -89,22 +90,47 @@ async function sendFcmMessage(
     };
 
     if (message.isCall) {
-      // High-priority data-only message for calls
-      // Android: HIGH priority + no notification (so background JS handler runs)
+      // ============================================================
+      // ✅ CRITICAL FIX — Call message uses NOTIFICATION + DATA
+      // Android 11 killed app: data-only messages are dropped.
+      // Notification wakes the app; data passes to JS handler.
+      // ============================================================
+      fcmPayload.message.notification = {
+        title: message.title,
+        body: message.body,
+      };
+
       fcmPayload.message.android = {
         priority: 'HIGH',
         ttl: '60s',
+        notification: {
+          channelId: 'com.airalance.app.call',
+          sound: 'ringtone',
+          defaultSound: false,
+          defaultVibrateTimings: false,
+          vibrateTimingsMillis: [0, 1000, 1000, 1000],
+          tag: `call:${message.data?.callId ?? 'unknown'}`,
+          clickAction: 'OPEN_CALL',
+          visibility: 'PUBLIC',
+          // Notification category — Android uses this for call-like behavior
+          notificationPriority: 'PRIORITY_MAX',
+        },
       };
-      // iOS: voip-style push
+
       fcmPayload.message.apns = {
         headers: {
           'apns-priority': '10',
-          'apns-push-type': 'voip',
+          'apns-push-type': 'alert',
         },
         payload: {
           aps: {
-            'content-available': 1,
+            alert: {
+              title: message.title,
+              body: message.body,
+            },
+            sound: 'default',
             'interruption-level': 'time-sensitive',
+            'content-available': 1,
           },
         },
       };
@@ -163,6 +189,8 @@ async function sendExpoPush(
   body: string,
   data: any
 ): Promise<any> {
+  const isCall = data?.screen === 'call';
+
   const response = await fetch(EXPO_PUSH_URL, {
     method: 'POST',
     headers: {
@@ -172,12 +200,19 @@ async function sendExpoPush(
     },
     body: JSON.stringify({
       to: expoToken,
-      sound: 'default',
+      sound: isCall ? 'default' : 'default',
       title,
       body,
       data,
-      priority: data?.screen === 'call' ? 'high' : 'default',
-      channelId: data?.screen === 'call' ? 'calls' : 'default',
+      priority: isCall ? 'high' : 'default',
+      channelId: isCall ? 'calls' : 'default',
+      // ✅ Android 11 killed-app: full-screen intent + notification
+      ...(isCall
+        ? {
+            categoryIdentifier: 'incoming_call',
+            _displayInForeground: true,
+          }
+        : {}),
     }),
   });
   return await response.json();
@@ -226,7 +261,7 @@ serve(async (req) => {
     }
 
     // ============================================================
-    // CALL — FCM data message (triggers CallKeep in background)
+    // CALL — notification + data (works on killed apps)
     // ============================================================
     if (data?.screen === 'call' && data?.callId) {
       const fcmServiceAccountJson = Deno.env.get('FCM_SERVICE_ACCOUNT');
@@ -246,7 +281,6 @@ serve(async (req) => {
               callerId: String(data.callerId),
               callType: String(data.callType),
               role: 'receiver',
-              // ✅ For CallKeep display name
               callerName: title,
             },
           });
@@ -255,7 +289,7 @@ serve(async (req) => {
         }
       }
 
-      // Fallback to Expo (works when app is foreground/background)
+      // Fallback to Expo
       if (!fcmResult.ok && profile.expo_push_token) {
         expoResult = await sendExpoPush(
           profile.expo_push_token,
