@@ -4,6 +4,7 @@
 // ✅ Phase 2: CallKeep native UI
 // ✅ Speaker toggle via react-native-incall-manager
 // ✅ Vibration on incoming call (foreground + background)
+// ✅ Phase 12: WhatsApp-style call log insertion (caller side only)
 
 import React, {
   createContext,
@@ -26,8 +27,11 @@ import {
   endCall as apiEndCall,
   subscribeToCall,
   subscribeToIncomingCalls,
+  insertCallLog,
+  getCall,
   Call,
   CallType,
+  CallLogStatus,
 } from '../lib/call';
 import {
   createPeerConnection,
@@ -124,6 +128,76 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const myIdRef = useRef<string | null>(null);
   const audioSessionStartedRef = useRef(false);
 
+  // ✅ Call log bookkeeping
+  const loggedCallIdsRef = useRef<Set<string>>(new Set());
+  const activeSinceRef = useRef<number | null>(null);
+  // Latest call object (for CallKeep end handler which has stale closure)
+  const activeCallRef = useRef<Call | null>(null);
+
+  // ============================================================
+  // Call log helper — only caller inserts (dedup on device)
+  // ============================================================
+  const logCallOnce = useCallback(
+    async (call: Call | null, status: CallLogStatus) => {
+      if (!call) return;
+      // Only the caller logs (prevents double entries on receiver device)
+      if (call.caller_id !== myIdRef.current) return;
+      if (loggedCallIdsRef.current.has(call.id)) return;
+      loggedCallIdsRef.current.add(call.id);
+
+      let duration: number | null = null;
+      if (status === 'answered') {
+        if (activeSinceRef.current) {
+          duration = Math.max(
+            0,
+            Math.round((Date.now() - activeSinceRef.current) / 1000)
+          );
+        } else if (call.accepted_at) {
+          duration = }
+ Math.max(
+            0,
+            Math.round(
+                 (Date.now() - new Date(call.ac ifcepted_at ().getTime()) / 1000un
+            )
+          );
+        } else {
+          duration =sub 0;
+        }
+      }
+
+      try {
+        await insertCallLog({
+          callId: call.id,
+          conversationId: null, // will be resolved by findDirectConversation()
+          callerId: call.caller_id,
+          receiverId: call.receiver_id,
+          callType: call.call_type,
+          status,
+          durationSeconds: duration,
+        });
+      } catch (e) {
+        console.warn('[call] logCallOnce failed:', e);
+      }
+    },
+    []
+  );
+
+  // Fetch + log by callId (used where call object isn't in scope)
+  const logByCallId = useCallback(
+    async (callId: string | null, status: CallLogStatus) => {
+      if (!callId) return;
+      if (loggedCallIdsRef.current.has(callId)) return;
+      try {
+        const c = await getCall(callId);
+        if (!c) return;
+        await logCallOnce(c, status);
+      } catch (e) {
+        console.warn('[call] logByCallId failed:', e);
+      }
+    },
+    [logCallOnce]
+  );
+
   const cleanup = useCallback(() => {
     // ✅ Stop vibration
     try {
@@ -137,8 +211,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (disconnectGraceRef.current) {
       clearTimeout(disconnectGraceRef.current);
       disconnectGraceRef.current = null;
-    }
-    if (unsubCallRef.current) {
+   CallRef.current) {
       unsubCallRef.current();
       unsubCallRef.current = null;
     }
@@ -164,6 +237,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     iceCandidateQueueRef.current = [];
     remoteDescSetRef.current = false;
     callIdRef.current = null;
+    activeSinceRef.current = null;
+    activeCallRef.current = null;
     setLocalStream(null);
     setRemoteStream(null);
     setIsMuted(false);
@@ -186,7 +261,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const unregister = registerCallKeepEvents({
       onAnswerCall: (callId) => {
         console.log('[call] user answered via CallKeep:', callId);
-        // ✅ Stop vibration on answer
         try {
           Vibration.cancel();
         } catch {}
@@ -194,6 +268,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
       onEndCall: (callId) => {
         console.log('[call] user ended via CallKeep:', callId);
         if (callIdRef.current === callId) {
+          // Log before cleanup (if we're the caller)
+          const c = activeCallRef.current;
+          if (c) {
+            const status: CallLogStatus =
+              c.status === 'accepted' || callState === 'active'
+                ? 'answered'
+                : 'cancelled';
+            logCallOnce(c, status);
+          } else {
+            logByCallId(callId, 'cancelled');
+          }
+
           cleanup();
           setCallState('idle');
           setCurrentCall(null);
@@ -242,11 +328,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
         });
 
         setCurrentCall(incomingCall);
+        activeCallRef.current = incomingCall;
         callIdRef.current = incomingCall.id;
         setCallState('ringing');
         hapticMedium();
 
-        // ✅ Vibrate while ringing (foreground + background)
         try {
           Vibration.vibrate([0, 1000, 1000], true);
         } catch {}
@@ -332,6 +418,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
           console.log('[call] grace expired, current state:', state);
           if (state !== 'connected') {
             if (callIdRef.current) {
+              // Log before ending
+              logByCallId(callIdRef.current, 'answered');
               apiEndCall(callIdRef.current, myIdRef.current ?? '').catch(
                 () => {}
               );
@@ -350,6 +438,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const handleFailed = () => {
         console.log('[call] connection failed — ending');
         if (callIdRef.current) {
+          logByCallId(callIdRef.current, 'answered');
           apiEndCall(callIdRef.current, myIdRef.current ?? '').catch(() => {});
         }
         setCallState('ended');
@@ -363,10 +452,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       const handleConnected = () => {
         console.log('[call] connection connected');
-        // ✅ Stop vibration when connected
         try {
           Vibration.cancel();
         } catch {}
+
+        // ✅ Mark start time for duration calculation
+        if (!activeSinceRef.current) {
+          activeSinceRef.current = Date.now();
+        }
 
         if (disconnectGraceRef.current) {
           clearTimeout(disconnectGraceRef.current);
@@ -401,19 +494,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       const signalChannel = supabase
         .channel(`call-signal:${callId}`)
-        .on('broadcast', { event: 'ice-candidate' }, async ({ payload }: any) => {
-          if (!payload || payload.from === myIdRef.current) return;
-          const candidate = deserializeIce(payload.candidate);
-          if (pc.remoteDescription) {
-            try {
-              await pc.addIceCandidate(candidate);
-            } catch (err) {
-              console.warn('[call] addIceCandidate error:', err);
+        .on(
+          'broadcast',
+          { event: 'ice-candidate' },
+          async ({ payload }: any) => {
+            if (!payload || payload.from === myIdRef.current) return;
+            const candidate = deserializeIce(payload.candidate);
+            if (pc.remoteDescription) {
+              try {
+                await pc.addIceCandidate(candidate);
+              } catch (err) {
+                console.warn('[call] addIceCandidate error:', err);
+              }
+            } else {
+              iceCandidateQueueRef.current.push(candidate);
             }
-          } else {
-            iceCandidateQueueRef.current.push(candidate);
           }
-        })
+        )
         .subscribe();
 
       if (!audioSessionStartedRef.current) {
@@ -446,7 +543,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       return { pc, sdp: null };
     },
-    [cleanup]
+    [cleanup, logByCallId]
   );
 
   const startCall = useCallback(
@@ -482,6 +579,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const call = await createCall(myId, receiverId, callType, sdp);
         callIdRef.current = call.id;
         setCurrentCall(call);
+        activeCallRef.current = call;
         setIsVideoEnabled(callType === 'video');
 
         try {
@@ -525,6 +623,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
             setCallState('connecting');
           } else if (updated.status === 'rejected') {
             hapticError();
+            // ✅ Receiver rejected → declined
+            logCallOnce(call, 'declined');
             setCallState('ended');
             setTimeout(() => {
               cleanup();
@@ -536,6 +636,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
             updated.status === 'ended' ||
             updated.status === 'cancelled'
           ) {
+            // ✅ Answered if it was accepted at some point
+            const finalStatus: CallLogStatus = updated.accepted_at
+              ? 'answered'
+              : 'cancelled';
+            logCallOnce(
+              { ...call, accepted_at: updated.accepted_at ?? call.accepted_at },
+              finalStatus
+            );
             setCallState('ended');
             setTimeout(() => {
               cleanup();
@@ -545,6 +653,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
             }, 1500);
           } else if (updated.status === 'missed') {
             hapticError();
+            // ✅ Missed
+            logCallOnce(call, 'missed');
             setCallState('ended');
             setTimeout(() => {
               cleanup();
@@ -559,6 +669,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
           try {
             await apiCancelCall(call.id, myId);
           } catch {}
+          // ✅ Ring timeout → missed
+          logCallOnce(call, 'missed');
           cleanup();
           setCallState('idle');
           setCurrentCall(null);
@@ -575,13 +687,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setRemoteUserInfo(null);
       }
     },
-    [callState, cleanup, router, setupPeerConnection]
+    [callState, cleanup, router, setupPeerConnection, logCallOnce]
   );
 
   const acceptIncomingCall = useCallback(async () => {
     if (callState !== 'ringing' || !currentCall) return;
 
-    // ✅ Stop vibration on accept
     try {
       Vibration.cancel();
     } catch {}
@@ -622,6 +733,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const rejectIncomingCall = useCallback(async () => {
     if (!currentCall) return;
+    // ✅ Receiver doesn't log — caller will log 'declined' via realtime
     try {
       await apiRejectCall(currentCall.id);
     } catch {}
@@ -637,9 +749,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const call = currentCall;
     if (!call) return;
 
+    const wasRinging = call.status === 'ringing';
+    const isCaller = call.caller_id === myId;
+
     try {
-      if (call.status === 'ringing' && call.caller_id === myId) {
-        await apiCancelCall(call.id, myId);
+      if (wasRinging && isCaller) {
+        await apiCancelCall(call.id, myId ?? '');
       } else {
         await apiEndCall(call.id, myId ?? '');
       }
@@ -647,12 +762,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
       console.warn('[call] end error:', err);
     }
 
+    // ✅ Log if caller
+    if (isCaller) {
+      if (wasRinging) {
+        logCallOnce(call, 'cancelled');
+      } else {
+        logCallOnce(call, 'answered');
+      }
+    }
+
     cleanup();
     setCallState('idle');
     setCurrentCall(null);
     setRemoteUserInfo(null);
     router.back();
-  }, [currentCall, cleanup, router]);
+  }, [currentCall, cleanup, router, logCallOnce]);
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
