@@ -153,15 +153,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
             Math.round((Date.now() - activeSinceRef.current) / 1000)
           );
         } else if (call.accepted_at) {
-          duration = }
- Math.max(
+          duration = Math.max(
             0,
             Math.round(
-                 (Date.now() - new Date(call.ac ifcepted_at ().getTime()) / 1000un
+              (Date.now() - new Date(call.accepted_at).getTime()) / 1000
             )
           );
         } else {
-          duration =sub 0;
+          duration = 0;
         }
       }
 
@@ -211,7 +210,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (disconnectGraceRef.current) {
       clearTimeout(disconnectGraceRef.current);
       disconnectGraceRef.current = null;
-   CallRef.current) {
+    }
+    if (unsubCallRef.current) {
       unsubCallRef.current();
       unsubCallRef.current = null;
     }
