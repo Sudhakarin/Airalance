@@ -2,7 +2,6 @@
 // Global WebRTC call state — incoming/outgoing/active call management
 // ✅ Web-safe: react-native-webrtc is native-only
 // ✅ Phase 2: CallKeep native UI
-// ✅ FIX: Transient 'disconnected' state no longer ends call
 // ✅ Speaker toggle now uses react-native-incall-manager for real audio routing
 
 import React, {
@@ -51,12 +50,11 @@ import {
 } from '../lib/callkeep';
 import { hapticMedium, hapticSuccess, hapticError } from '../lib/haptics';
 
-// ✅ Web-safe: react-native-webrconnectingtc is native-only
-let RNWebRTC'
-: any = null;
-if  (Platform.OS !== 'web') {
-  try | {
-    RNWebRTC = require(' 'react-native-webrtc');
+// ✅ Web-safe: react-native-webrtc is native-only
+let RNWebRTC: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    RNWebRTC = require('react-native-webrtc');
   } catch (err) {
     console.warn('[CallContext] react-native-webrtc not available:', err);
   }
@@ -67,6 +65,7 @@ export type CallState =
   | 'idle'
   | 'calling'
   | 'ringing'
+  | 'connecting'
   | 'active'
   | 'ended';
 
@@ -79,7 +78,6 @@ type CallContextValue = {
   isSpeakerOn: boolean;
   isVideoEnabled: boolean;
   remoteUserInfo: { id: string; name: string; avatar: string | null } | null;
-
   startCall: (
     receiverId: string,
     callType: CallType,
@@ -123,11 +121,51 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const iceCandidateQueueRef = useRef<any[]>([]);
   const remoteDescSetRef = useRef(false);
   const myIdRef = useRef<string | null>(null);
-  const audioSessionStartedRef = useRef(false); // ✅ Track audio session
+  const audioSessionStartedRef = useRef(false);
 
-  // ------------------------------------------------------------
+  const cleanup = useCallback(() => {
+    if (ringTimeoutRef.current) {
+      clearTimeout(ringTimeoutRef.current);
+      ringTimeoutRef.current = null;
+    }
+    if (disconnectGraceRef.current) {
+      clearTimeout(disconnectGraceRef.current);
+      disconnectGraceRef.current = null;
+    }
+    if (unsubCallRef.current) {
+      unsubCallRef.current();
+      unsubCallRef.current = null;
+    }
+    if (pcRef.current) {
+      try {
+        pcRef.current.close();
+      } catch {}
+      pcRef.current = null;
+    }
+    if (localStreamRef.current) {
+      stopStream(localStreamRef.current);
+      localStreamRef.current = null;
+    }
+    if (callIdRef.current) {
+      try {
+        endCallKeep(callIdRef.current);
+      } catch {}
+    }
+    if (audioSessionStartedRef.current) {
+      stopAudioSession();
+      audioSessionStartedRef.current = false;
+    }
+    iceCandidateQueueRef.current = [];
+    remoteDescSetRef.current = false;
+    callIdRef.current = null;
+    setLocalStream(null);
+    setRemoteStream(null);
+    setIsMuted(false);
+    setIsSpeakerOn(false);
+    setIsVideoEnabled(false);
+  }, []);
+
   // Setup CallKeep
-  // ------------------------------------------------------------
   useEffect(() => {
     if (Platform.OS === 'web') return;
 
@@ -158,57 +196,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ------------------------------------------------------------
-  // Cleanup
-  // ------------------------------------------------------------
-  const cleanup = useCallback(() => {
-    if (ringTimeoutRef.current) {
-      clearTimeout(ringTimeoutRef.current);
-      ringTimeoutRef.current = null;
-    }
-    if (disconnectGraceRef.current) {
-      clearTimeout(disconnectGraceRef.current);
-      disconnectGraceRef.current = null;
-    }
-    if (unsubCallRef.current) {
-      unsubCallRef.current();
-      unsubCallRef.current = null;
-    }
-    if (pcRef.current) {
-      try {
-        pcRef.current.close();
-      } catch {}
-      pcRef.current = null;
-    }
-    if (localStreamRef.current) {
-      stopStream(localStreamRef.current);
-      localStreamRef.current = null;
-    }
-    if (callIdRef.current) {
-      try {
-        endCallKeep(callIdRef.current);
-      } catch {}
-    }
-
-    // ✅ Stop audio session (route back to normal phone audio)
-    if (audioSessionStartedRef.current) {
-      stopAudioSession();
-      audioSessionStartedRef.current = false;
-    }
-
-    iceCandidateQueueRef.current = [];
-    remoteDescSetRef.current = false;
-    callIdRef.current = null;
-    setLocalStream(null);
-    setRemoteStream(null);
-    setIsMuted(false);
-    setIsSpeakerOn(false);
-    setIsVideoEnabled(false);
-  }, []);
-
-  // ------------------------------------------------------------
   // Init — get my user id
-  // ------------------------------------------------------------
   useEffect(() => {
     (async () => {
       const uid = await getCurrentUserId();
@@ -216,9 +204,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  // ------------------------------------------------------------
   // Subscribe to incoming calls
-  // ------------------------------------------------------------
   useEffect(() => {
     let unsub: (() => void) | null = null;
 
@@ -268,9 +254,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ------------------------------------------------------------
   // Setup peer connection
-  // ------------------------------------------------------------
   const setupPeerConnection = useCallback(
     async (
       callId: string,
@@ -321,7 +305,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
       });
 
-      // Connection state monitoring
       const handleDisconnected = () => {
         console.log('[call] connection disconnected — starting grace timer');
         if (disconnectGraceRef.current) {
@@ -379,16 +362,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
           handleConnected();
         } else if (state === 'failed' || state === 'closed') {
           handleFailed();
-('        } else if (state === 'disconnected')id {
+        } else if (state === 'disconnected') {
           handleDisconnected();
         }
       });
 
       pc.addEventListener('iceconnectionstatechange', () => {
         const iceState = pc.iceConnectionState;
-        console.log('[call]', iceConnectionState:', iceState);
-        my if (iceState === 'failed') {
-          handleIdFailed();
+        console.log('[call] iceConnectionState:', iceState);
+        if (iceState === 'failed') {
+          handleFailed();
         } else if (iceState === 'disconnected') {
           handleDisconnected();
         } else if (iceState === 'connected' || iceState === 'completed') {
@@ -396,7 +379,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
       });
 
-      // Signaling channel
       const signalChannel = supabase
         .channel(`call-signal:${callId}`)
         .on('broadcast', { event: 'ice-candidate' }, async ({ payload }: any) => {
@@ -414,11 +396,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
         })
         .subscribe();
 
-      // ✅ Start audio session (proper routing)
       if (!audioSessionStartedRef.current) {
         startAudioSession(callType === 'video');
         audioSessionStartedRef.current = true;
-        // Set initial speaker state: video → ON, audio → OFF
         setIsSpeakerOn(callType === 'video');
       }
 
@@ -449,9 +429,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [cleanup]
   );
 
-  // ------------------------------------------------------------
-  // Start outgoing call
-  // ------------------------------------------------------------
   const startCall = useCallback(
     async (
       receiverId: string,
@@ -491,7 +468,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           const { data: myProfile } = await supabase
             .from('profiles')
             .select('display_name')
-            .eq)
+            .eq('id', myId)
             .single();
 
           await supabase.functions.invoke('send-push', {
@@ -581,9 +558,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [callState, cleanup, router, setupPeerConnection]
   );
 
-  // ------------------------------------------------------------
-  // Accept incoming call
-  // ------------------------------------------------------------
   const acceptIncomingCall = useCallback(async () => {
     if (callState !== 'ringing' || !currentCall) return;
 
@@ -621,9 +595,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, [callState, currentCall, cleanup, router, setupPeerConnection]);
 
-  // ------------------------------------------------------------
-  // Reject incoming call
-  // ------------------------------------------------------------
   const rejectIncomingCall = useCallback(async () => {
     if (!currentCall) return;
     try {
@@ -636,9 +607,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     router.back();
   }, [currentCall, cleanup, router]);
 
-  // ------------------------------------------------------------
-  // End current call
-  // ------------------------------------------------------------
   const endCurrentCall = useCallback(async () => {
     const myId = myIdRef.current;
     const call = currentCall;
@@ -661,9 +629,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     router.back();
   }, [currentCall, cleanup, router]);
 
-  // ------------------------------------------------------------
-  // Toggle controls
-  // ------------------------------------------------------------
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
     if (!stream) return;
@@ -672,13 +637,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       audioTrack.enabled = !audioTrack.enabled;
       const muted = !audioTrack.enabled;
       setIsMuted(muted);
-      // ✅ Sync with audio session
       setMicMuted(muted);
     }
   }, []);
 
   const toggleSpeaker = useCallback(() => {
-    // ✅ Fix: actually route audio through speaker/earpiece
     setIsSpeakerOn((prev) => {
       const next = !prev;
       setSpeakerOn(next);
@@ -696,9 +659,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // ------------------------------------------------------------
-  // Cleanup on unmount
-  // ------------------------------------------------------------
   useEffect(() => {
     return () => {
       cleanup();
