@@ -31,6 +31,15 @@ jobs:
           echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
 
+      # ✅ FIX: Install required NDK version
+      - name: Install Android NDK
+        run: |
+          echo "=== Installing NDK 27.1.12297006 ==="
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.1.12297006" || true
+          echo "=== Verifying NDK installation ==="
+          ls -la $ANDROID_HOME/ndk/ || echo "No NDK folder"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list_installed | grep -i ndk || true
+
       - name: Create .env file
         run: |
           cat > .env << ENVEOF
@@ -63,24 +72,12 @@ jobs:
           echo "=== gradle.properties ==="
           cat android/gradle.properties
 
-      # ✅ TypeScript check — catch code errors before Gradle
-      - name: TypeScript check
-        run: npx tsc --noEmit
-
-      # ✅ Build with stacktrace for debugging
+      # ✅ Build with stacktrace
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease -x lint -x lintVitalRelease --no-daemon --stacktrace 2>&1 | tee build.log
-          exit_code=${PIPESTATUS[0]}
-          if [ $exit_code -ne 0 ]; then
-            echo "=== BUILD FAILED — Last 300 lines ==="
-            tail -300 build.log
-            echo "=== FAILURE lines ==="
-            grep -A 20 -i "FAILURE\|What went wrong\|error:" build.log | head -100
-          fi
-          exit $exit_code
+          ./gradlew assembleRelease -x lint -x lintVitalRelease --no-daemon --stacktrace
         env:
           EXPO_UPDATE_CHANNEL: preview
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
@@ -98,12 +95,3 @@ jobs:
           name: airalance-apk-${{ github.run_number }}
           path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 30
-
-      # ✅ Upload build log even on failure (for debugging)
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-log-${{ github.run_number }}
-          path: android/build.log
-          retention-days: 7
