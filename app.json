@@ -2,7 +2,7 @@
   "expo": {
     "name": "Airalance",
     "slug": "airalance-new",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "airalance",
@@ -26,7 +26,7 @@
     },
     "android": {
       "package": "com.airalance.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": false,
       "permissions": [
@@ -100,7 +100,8 @@
       "@config-plugins/react-native-webrtc",
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
-      "./plugins/withCallKeep"
+      "./plugins/withCallKeep",
+      "./plugins/withCustomRingtone"
     ],
     "updates": {
       "url": "https://u.expo.dev/a29b4ab7-af7a-401f-a49d-4326fd746007",
