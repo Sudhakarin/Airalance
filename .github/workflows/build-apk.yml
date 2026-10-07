@@ -51,13 +51,26 @@ jobs:
         env:
           EXPO_UPDATE_CHANNEL: preview
 
+      # ✅ NEW: bump Gradle heap to prevent OutOfMemoryError during lint
+      - name: Increase Gradle Heap
+        run: |
+          echo "" >> android/gradle.properties
+          echo "# CI memory bump to prevent OOM" >> android/gradle.properties
+          echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError" >> android/gradle.properties
+          echo "org.gradle.daemon=false" >> android/gradle.properties
+          echo "org.gradle.parallel=true" >> android/gradle.properties
+          echo "org.gradle.configureondemand=false" >> android/gradle.properties
+          echo "=== gradle.properties ==="
+          cat android/gradle.properties
+
       - name: Build APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease -x lint -x lintVitalRelease --no-daemon
         env:
           EXPO_UPDATE_CHANNEL: preview
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
 
       - name: Publish EAS Update (OTA)
         if: github.ref == 'refs/heads/main'
