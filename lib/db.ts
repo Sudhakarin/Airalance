@@ -1,5 +1,8 @@
 // lib/db.ts
 // SQLite database for offline-first messaging (WhatsApp-style)
+// ✅ FIX 1: getDB() resets initPromise on failure (retry next call)
+// ✅ FIX 2: normalizeIso() — timestamps consistent everywhere (Z format)
+// ✅ FIX 3: dbMarkMessageSent() — no message loss (safe rename)
 
 import * as SQLite from 'expo-sqlite';
 
@@ -8,22 +11,48 @@ const DB_NAME = 'airalance.db';
 let dbInstance: SQLite.SQLiteDatabase | null = null;
 let initPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
+// ============================================================
+// ✅ FIX 2: Timestamp normalization
+// Supabase: '2026-10-07T19:06:35.831+00:00'
+// JS:       '2026-10-07T19:06:35.831Z'
+// Mixing breaks string sort → list reorders → "fresh feel"
+// ============================================================
+function normalizeIso(input: string | null | undefined): string | null {
+  if (!input) return null;
+  if (typeof input !== 'string') return null;
+  // Already canonical ISO-Z
+  if (input.endsWith('Z') && input.includes('T')) return input;
+  try {
+    const d = new Date(input);
+    if (isNaN(d.getTime())) return input;
+    return d.toISOString();
+  } catch {
+    return input;
+  }
+}
+
 export async function getDB(): Promise<SQLite.SQLiteDatabase> {
   if (dbInstance) return dbInstance;
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    const db = await SQLite.openDatabaseAsync(DB_NAME);
-    // ✅ FAST: WAL + synchronous=NORMAL = far fewer disk syncs per write (still crash-safe in WAL)
-    await db.execAsync(`
-      PRAGMA journal_mode = WAL;
-      PRAGMA synchronous = NORMAL;
-      PRAGMA foreign_keys = ON;
-    `);
-    await createTables(db);
-    await runMigrations(db);
-    dbInstance = db;
-    return db;
+    try {
+      const db = await SQLite.openDatabaseAsync(DB_NAME);
+      await db.execAsync(`
+        PRAGMA journal_mode = WAL;
+        PRAGMA synchronous = NORMAL;
+        PRAGMA foreign_keys = ON;
+      `);
+      await createTables(db);
+      await runMigrations(db);
+      dbInstance = db;
+      return db;
+    } catch (err) {
+      // ✅ FIX 1: reset so next call retries (was stuck forever)
+      initPromise = null;
+      console.warn('[db] init failed, will retry on next call:', err);
+      throw err;
+    }
   })();
 
   return initPromise;
@@ -149,7 +178,6 @@ export async function dbGetConversations(): Promise<DBConversation[]> {
   );
 }
 
-// ✅ NEW: Get single conversation by id (for offline metadata)
 export async function dbGetConversation(
   id: string
 ): Promise<DBConversation | null> {
@@ -161,9 +189,6 @@ export async function dbGetConversation(
   return row ?? null;
 }
 
-// ✅ FAST: ONE statement (no SELECT first). Same semantics as before:
-//   new row  -> defaults applied
-//   existing -> COALESCE(new, old) per column, updated_at = now
 const UPSERT_CONVERSATION_SQL = `
   INSERT INTO conversations (
     id, is_group, name, other_user_id, other_username,
@@ -209,7 +234,8 @@ function conversationParams(
     $other_avatar_url: c.other_avatar_url ?? null,
     $other_verified: c.other_verified ?? null,
     $last_message: c.last_message ?? null,
-    $last_at: c.last_at ?? null,
+    // ✅ FIX 2: normalize on write
+    $last_at: normalizeIso(c.last_at) ?? null,
     $unread_count: c.unread_count ?? null,
     $is_muted: c.is_muted ?? null,
     $is_locked: c.is_locked ?? null,
@@ -227,7 +253,6 @@ export async function dbUpsertConversation(
   );
 }
 
-// ✅ NEW: batch upsert in ONE transaction (use this instead of looping dbUpsertConversation)
 export async function dbUpsertConversations(
   list: (Partial<DBConversation> & { id: string })[]
 ) {
@@ -274,7 +299,7 @@ export async function dbGetMessages(
        WHERE conversation_id = ? AND created_at < ?
        ORDER BY created_at DESC
        LIMIT ?`,
-      [conversationId, before, limit]
+      [conversationId, normalizeIso(before) ?? before, limit]
     );
   }
   return await db.getAllAsync<DBMessage>(
@@ -286,7 +311,6 @@ export async function dbGetMessages(
   );
 }
 
-// ✅ FAST: ONE statement (no SELECT first). Same semantics as before.
 const UPSERT_MESSAGE_SQL = `
   INSERT INTO messages (
     id, conversation_id, sender_id, content, message_type,
@@ -312,7 +336,7 @@ const UPSERT_MESSAGE_SQL = `
     read_at = COALESCE($read_at, read_at),
     delivered_at = COALESCE($delivered_at, delivered_at),
     local_status = COALESCE($local_status, local_status),
-    synced_at = $now
+    synced_at = $ rownow
 `;
 
 type MessageUpsertInput = Partial<DBMessage> & {
@@ -336,9 +360,10 @@ function messageParams(m: MessageUpsertInput, now: string) {
     $is_edited: m.is_edited ?? null,
     $is_pinned: m.is_pinned ?? null,
     $reaction: m.reaction ?? null,
-    $read_at: m.read_at ?? null,
-    $delivered_at: m.delivered_at ?? null,
-    $created_at: m.created_at,
+    // ✅ FIX 2: normalize on write
+    $read_at: normalizeIso(m.read_at),
+    $delivered_at: normalizeIso(m.delivered_at),
+    $created_at: normalizeIso(m.created_at) ?? m.created_at,
     $local_status: m.local_status ?? null,
     $now: now,
   };
@@ -352,7 +377,6 @@ export async function dbUpsertMessage(m: MessageUpsertInput) {
   );
 }
 
-// ✅ NEW: batch upsert in ONE transaction (use this instead of looping dbUpsertMessage)
 export async function dbUpsertMessages(list: MessageUpsertInput[]) {
   if (list.length === 0) return;
   const db = await getDB();
@@ -379,22 +403,40 @@ export async function dbDeleteMessage(id: string) {
 // ============================================================
 export async function dbGetPendingMessages(): Promise<DBMessage[]> {
   const db = await getDB();
-  // ✅ FIX: include both pending AND failed (failed = network error, needs retry)
   return await db.getAllAsync<DBMessage>(
     `SELECT * FROM messages WHERE local_status IN ('pending', 'failed') ORDER BY created_at ASC`
   );
 }
 
+// ✅ FIX 3: Safe rename — was deleting temp before confirming server row existed
+// Old flow: delete(temp) → update(server) → if server row missing → MESSAGE LOST
+// New flow: check(server exists?) → rename OR delete
 export async function dbMarkMessageSent(id: string, serverId?: string) {
   const db = await getDB();
+  const now = new Date().toISOString();
+
   await db.withTransactionAsync(async () => {
     if (serverId && serverId !== id) {
-      await db.runAsync(`DELETE FROM messages WHERE id = ?`, [id]);
+      const existing = await db.getFirstAsync<{ id: string }>(
+        `SELECT id FROM messages WHERE id = ?`,
+        [serverId]
+      );
+      if (existing) {
+        // Server row already saved (realtime beat us) → just drop the temp
+        await db.runAsync(`DELETE FROM messages WHERE id = ?`, [id]);
+      } else {
+        // Rename temp → server id and mark synced
+        await db.runAsync(
+          `UPDATE messages SET id = ?, local_status = 'synced', synced_at = ? WHERE id = ?`,
+          [serverId, now, id]
+        );
+      }
+    } else {
+      await db.runAsync(
+        `UPDATE messages SET local_status = 'synced', synced_at = ? WHERE id = ?`,
+        [now, id]
+      );
     }
-    await db.runAsync(
-      `UPDATE messages SET local_status = 'synced', synced_at = ? WHERE id = ?`,
-      [new Date().toISOString(), serverId ?? id]
-    );
   });
 }
 
