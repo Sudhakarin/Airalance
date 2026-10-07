@@ -1,5 +1,6 @@
 // app/(tabs)/home.tsx
 // Home screen — category chips + featured carousel + Top Stories + AsyncStorage cache
+// ✅ UPDATED: TOP_LIMIT 6 → 15 (more articles visible by default)
 
 import { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react';
 import {
@@ -67,7 +68,12 @@ const GAP = 12;
 const SCREEN_W = Dimensions.get('window').width;
 const CARD_W = SCREEN_W - SIDE * 2;
 const SNAP = CARD_W + GAP;
-const TOP_LIMIT = 6;
+
+// ✅ UPDATED: was 6 → now 15 (so user sees ~18 articles with 3 featured)
+const TOP_LIMIT = 15;
+
+// ✅ UPDATED: fetch more from server so categories with many articles work
+const SERVER_LIMIT = 40;
 
 const NEWS_CACHE_KEY = 'airalance:news:feed';
 const NEWS_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
@@ -494,11 +500,10 @@ export default function HomeScreen() {
         .from('news_articles')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(20);
+        .limit(SERVER_LIMIT); // ✅ 20 → 40
 
       if (error) {
         console.warn('News fetch error:', error.message);
-        // keep showing stale cache
       } else {
         const list = (data ?? []) as NewsArticle[];
         setArticles(list);
@@ -632,9 +637,9 @@ export default function HomeScreen() {
         ListHeaderComponent={listHeader}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
-        initialNumToRender={4}
-        maxToRenderPerBatch={4}
-        windowSize={5}
+        initialNumToRender={6}
+        maxToRenderPerBatch={6}
+        windowSize={7}
         updateCellsBatchingPeriod={50}
         removeClippedSubviews={true}
         refreshControl={
@@ -656,7 +661,6 @@ const styles = StyleSheet.create({
   scroll: { paddingBottom: 40 },
   center: { alignItems: 'center', justifyContent: 'center' },
 
-  // Top bar
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -700,7 +704,6 @@ const styles = StyleSheet.create({
     lineHeight: 10,
   },
 
-  // Category chips
   categoriesRow: {
     paddingHorizontal: SIDE,
     paddingTop: 4,
@@ -738,7 +741,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Empty
   emptyWrap: { paddingVertical: 40, alignItems: 'center', gap: 8 },
   emptyText: {
     color: COLORS.text,
@@ -748,7 +750,6 @@ const styles = StyleSheet.create({
   },
   emptySubtext: { color: COLORS.mist, fontSize: 12, fontFamily: FONTS.body },
 
-  // Featured card
   featuredCard: {
     width: CARD_W,
     height: 250,
@@ -877,15 +878,14 @@ const styles = StyleSheet.create({
     borderRadius: RADII.full,
     borderWidth: 1,
     borderColor: COLORS.violet,
-    backgroundColor: 'rgba(124,92,255,0.12)',
+    backgroundColor: 'rgouselba(124,92,255,0.12 |)',
   },
-  readMoreText: {
-    color: '#FFFFFF',
+   readMoreText: {
+    color:3 '#FFFFFF',
     fontSize: 11.5,
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Carousel dots
   dotsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -900,7 +900,6 @@ const styles = StyleSheet.create({
   },
   dotActive: { backgroundColor: COLORS.violet },
 
-  // Section header
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -921,7 +920,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Top Stories row
   articleRow: {
     flexDirection: 'row',
     alignItems: 'center',
