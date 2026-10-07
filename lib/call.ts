@@ -236,6 +236,7 @@ export function subscribeToIncomingCalls(
 
 // ============================================================
 // Find direct (1-on-1) conversation between two users
+// (fallback — normally caller passes conversationId directly)
 // ============================================================
 
 async function findDirectConversation(
@@ -281,9 +282,12 @@ async function findDirectConversation(
 // ============================================================
 // Insert a WhatsApp-style call log into the chat (messages table)
 // ------------------------------------------------------------
-// - sender_id is always the caller (so direction = sender_id===me)
+// - sender_id is always the caller (so direction = sender_id === me)
 // - content is JSON: { call_id, call_type, status, duration_seconds }
 // - message_type = 'call'
+// - conversationId is REQUIRED (passed from chat screen). Fallback lookup
+//   is best-effort only — may fail if RLS is restrictive.
+// - Returns true if the log was inserted, false otherwise.
 // ============================================================
 
 export async function insertCallLog(params: {
@@ -294,7 +298,7 @@ export async function insertCallLog(params: {
   callType: CallType;
   status: CallLogStatus;
   durationSeconds: number | null;
-}): Promise<void> {
+}): Promise<boolean> {
   const {
     callId,
     conversationId,
@@ -308,14 +312,16 @@ export async function insertCallLog(params: {
   try {
     let convId = conversationId;
 
-    // Fallback: look up direct conversation if not provided
+    // Fallback lookup if conversationId not provided
     if (!convId) {
       convId = await findDirectConversation(callerId, receiverId);
     }
 
     if (!convId) {
-      console.warn('[call] insertCallLog: no conversation found, skipping');
-      return;
+      console.warn(
+        '[call] insertCallLog: no conversationId — cannot insert call log'
+      );
+      return false;
     }
 
     const content = JSON.stringify({
@@ -333,9 +339,14 @@ export async function insertCallLog(params: {
     });
 
     if (error) {
-      console.warn('[call] insertCallLog failed:', error.message);
+      console.warn('[call] insertCallLog failed:', error.message, error);
+      return false;
     }
+
+    console.log('[call] ✅ call log inserted:', callId, status);
+    return true;
   } catch (e) {
     console.warn('[call] insertCallLog error:', e);
+    return false;
   }
 }
