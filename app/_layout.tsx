@@ -255,7 +255,7 @@ export default function RootLayout() {
             importance: Notifications.AndroidImportance.MAX,
             vibrationPattern: [0, 1000, 1000, 1000],
             lightColor: '#22C55E',
-            sound: 'ringtone', // ✅ custom ringtone
+            sound: 'ringtone',
             bypassDnd: true,
             lockscreenVisibility:
               Notifications.AndroidNotificationVisibility.PUBLIC,
@@ -273,7 +273,7 @@ export default function RootLayout() {
               importance: Notifications.AndroidImportance.MAX,
               vibrationPattern: [0, 1000, 1000, 1000],
               lightColor: '#22C55E',
-              sound: 'ringtone', // ✅ custom ringtone
+              sound: 'ringtone',
               bypassDnd: true,
               lockscreenVisibility:
                 Notifications.AndroidNotificationVisibility.PUBLIC,
@@ -385,6 +385,25 @@ export default function RootLayout() {
       if (unsub) unsub();
     };
   }, [authReady, userId]);
+
+  // ============================================================
+  // ✅ Android 14+ Full-Screen Intent permission check
+  // Non-calling apps ko manually permission leni padti hai
+  // (Android doesn't allow auto-prompt for this permission)
+  // ============================================================
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    if (!authReady) return;
+    if (typeof Platform.Version !== 'number') return;
+    if (Platform.Version < 34) return; // Only Android 14+
+
+    console.log(
+      '[fsi] Android 14+ detected. Full-screen calls need manual permission grant.'
+    );
+    console.log(
+      '[fsi] Guide user to: Settings → Apps → Airalance → Special access → Full screen notifications → Allow'
+    );
+  }, [authReady]);
 
   // ============================================================
   // BLACK-SCREEN FIX — STEP 1: Notification tap STASH
