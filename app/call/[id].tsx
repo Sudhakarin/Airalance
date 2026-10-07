@@ -2,9 +2,7 @@
 // Voice/Video call screen — wired to CallContext (real WebRTC)
 // ✅ Web-safe: RTCView is native-only
 // ✅ Pulse rings, glass control bar, swipe-to-answer, edge-snapping PiP
-// ✅ BLACK-SCREEN FIX: notification tap se aaye call ka self-bootstrap
-//    fallback — context 'idle' ho toh screen khud Supabase se call
-//    fetch karke ringing → accept → WebRTC chalati hai.
+// ✅ BLACK-SCREEN FIX: notification tap se aaye call ka self-bootstrap fallback
 
 import { useEffect, useState, useRef } from 'react';
 import {
@@ -48,7 +46,6 @@ if (Platform.OS !== 'web') {
   }
 }
 
-// Optional — speaker toggle best-effort (fallback path ke liye)
 let InCallManager: any = null;
 if (Platform.OS !== 'web') {
   try {
@@ -56,12 +53,10 @@ if (Platform.OS !== 'web') {
   } catch {}
 }
 
-// ⚠️ PRODUCTION: TURN server add karo warna kai networks pe connect nahi hoga
 const RTC_CONFIG = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    // { urls: 'turn:your.turn.server:3478', username: 'user', credential: 'pass' },
   ],
 };
 
@@ -75,7 +70,6 @@ const PIP_MARGIN = 14;
 const PIP_BORDER = 2;
 const TOP_OFFSET = 110;
 
-/* ---------- Animated "Calling…" dots ---------- */
 function TypingDots() {
   const a = useRef(new Animated.Value(0.25)).current;
   const b = useRef(new Animated.Value(0.25)).current;
@@ -157,16 +151,12 @@ export default function CallScreen() {
 
   const remoteInfo = remoteUserInfo ?? cachedRemoteInfoRef.current;
 
-  // ============================================================
-  // BLACK-SCREEN FIX — FALLBACK (notification path)
-  // Context 'idle' ho + params me incoming call ho → screen khud
-  // Supabase se call bootstrap karti hai (ringing → accept → WebRTC)
-  // ============================================================
   type FbCall = {
     callId: string;
     callType: 'audio' | 'video';
     callerName: string;
     callerAvatar: string | null;
+    offer: any;
   };
 
   const [fb, setFb] = useState<FbCall | null>(null);
@@ -198,13 +188,21 @@ export default function CallScreen() {
   useEffect(() => { fbRef.current = fb; }, [fb]);
   useEffect(() => { fbPhaseRef.current = fbPhase; }, [fbPhase]);
   useEffect(() => { callStateRef.current = callState; }, [callState]);
-  useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; }; }, []);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => { aliveRef.current = false; };
+  }, []);
 
-  // ---- Fallback: teardown ----
   const fbCleanupMedia = () => {
     Vibration.cancel();
-    if (fbRingTimerRef.current) { clearTimeout(fbRingTimerRef.current); fbRingTimerRef.current = null; }
-    if (fbTickRef.current) { clearInterval(fbTickRef.current); fbTickRef.current = null; }
+    if (fbRingTimerRef.current) {
+      clearTimeout(fbRingTimerRef.current);
+      fbRingTimerRef.current = null;
+    }
+    if (fbTickRef.current) {
+      clearInterval(fbTickRef.current);
+      fbTickRef.current = null;
+    }
     try { fbLocalRef.current?.getTracks?.().forEach((t: any) => t.stop()); } catch {}
     fbLocalRef.current = null;
     try { fbPcRef.current?.close?.(); } catch {}
@@ -229,7 +227,6 @@ export default function CallScreen() {
     if (aliveRef.current) setFbPhase('ended');
   };
 
-  // ---- Fallback: ICE helpers ----
   const fbAddIce = async (candidate: any) => {
     const pc = fbPcRef.current;
     if (!pc || !candidate) return;
@@ -252,10 +249,16 @@ export default function CallScreen() {
         setFbRemoteStream(s);
         if (!fbConnectedRef.current) {
           fbConnectedRef.current = true;
-          if (fbTickRef.current) { clearInterval(fbTickRef.current); fbTickRef.current = null; }
+          if (fbTickRef.current) {
+            clearInterval(fbTickRef.current);
+            fbTickRef.current = null;
+          }
           if (aliveRef.current) {
             setFbPhase('active');
-            fbTickRef.current = setInterval(() => setFbElapsed((x) => x + 1), 1000);
+            fbTickRef.current = setInterval(
+              () => setFbElapsed((x) => x + 1),
+              1000
+            );
           }
         }
       }
@@ -264,7 +267,12 @@ export default function CallScreen() {
       if (e.candidate && myIdRef.current) {
         supabase
           .from('call_signals')
-          .insert({ call_id: callId, sender_id: myIdRef.current, kind: 'candidate', payload: e.candidate })
+          .insert({
+            call_id: callId,
+            sender_id: myIdRef.current,
+            kind: 'candidate',
+            payload: e.candidate,
+          })
           .then(() => {}, () => {});
       }
     };
@@ -277,11 +285,13 @@ export default function CallScreen() {
     return pc;
   };
 
-  // ---- Fallback: bootstrap (Supabase se call fetch) ----
   const bootstrapFallback = async (callId: string) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setFbPhase('ended'); return; }
+      if (!user) {
+        setFbPhase('ended');
+        return;
+      }
       myIdRef.current = user.id;
 
       const { data: row } = await supabase
@@ -313,27 +323,29 @@ export default function CallScreen() {
         callType: isVideo ? 'video' : 'audio',
         callerName: prof?.full_name || prof?.username || 'Unknown',
         callerAvatar: prof?.avatar_url ?? null,
+        offer: row.offer,
       });
       setFbVideoEnabled(isVideo);
       setFbPhase('ringing');
 
       Vibration.vibrate([0, 1000, 1000], true);
-      fbRingTimerRef.current = setTimeout(() => fbEnd('missed'), FB_RING_TIMEOUT_MS);
+      fbRingTimerRef.current = setTimeout(
+        () => fbEnd('missed'),
+        FB_RING_TIMEOUT_MS
+      );
     } catch (e) {
       console.warn('[call] fallback bootstrap failed:', e);
       setFbPhase('ended');
     }
   };
 
-  // Grace period — FCM background handler ko context set karne ka
-  // mauka do; agar 700ms baad bhi context 'idle' hai toh fallback chalao
   useEffect(() => {
     const id = params.id ? String(params.id) : '';
     if (!id || params.role !== 'receiver') return;
     if (Platform.OS === 'web') return;
 
     const t = setTimeout(() => {
-      if (callStateRef.current !== 'idle') return; // context ne sambhal liya
+      if (callStateRef.current !== 'idle') return;
       if (bootstrappedForRef.current === id) return;
       bootstrappedForRef.current = id;
       void bootstrapFallback(id);
@@ -343,7 +355,6 @@ export default function CallScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id, params.role]);
 
-  // ---- Fallback: realtime (answer/status + candidates) ----
   useEffect(() => {
     if (!fb || !myIdRef.current) return;
     if (fbPhase === 'ended') return;
@@ -352,7 +363,12 @@ export default function CallScreen() {
       .channel(`fb-call-${fb.callId}`)
       .on(
         'postgres_changes' as any,
-        { event: 'UPDATE', schema: 'public', table: 'calls', filter: `id=eq.${fb.callId}` },
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'calls',
+          filter: `id=eq.${fb.callId}`,
+        },
         (msg: any) => {
           const row = msg.new;
           if (['declined', 'ended', 'missed'].includes(row.status)) {
@@ -362,7 +378,12 @@ export default function CallScreen() {
       )
       .on(
         'postgres_changes' as any,
-        { event: 'INSERT', schema: 'public', table: 'call_signals', filter: `call_id=eq.${fb.callId}` },
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'call_signals',
+          filter: `call_id=eq.${fb.callId}`,
+        },
         (msg: any) => {
           const sig = msg.new;
           if (sig.sender_id === myIdRef.current) return;
@@ -380,20 +401,23 @@ export default function CallScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fb, fbPhase === 'ended']);
 
-  // ---- Fallback: Accept ----
   const fbAccept = async () => {
     const cur = fbRef.current;
     if (!cur || fbPhaseRef.current !== 'ringing') return;
     fbPhaseRef.current = 'connecting';
     Vibration.cancel();
-    if (fbRingTimerRef.current) { clearTimeout(fbRingTimerRef.current); fbRingTimerRef.current = null; }
+    if (fbRingTimerRef.current) {
+      clearTimeout(fbRingTimerRef.current);
+      fbRingTimerRef.current = null;
+    }
     setFbPhase('connecting');
 
     try {
-      if (typeof RTCPeerConnection !== 'function') throw new Error('WebRTC unavailable');
+      if (typeof RTCPeerConnection !== 'function') {
+        throw new Error('WebRTC unavailable');
+      }
 
-      // Offer retry (caller abhi write kar raha ho sakta hai)
-      let offer = cur.row?.offer;
+      let offer = cur.offer;
       for (let i = 0; i < 10 && !offer?.sdp; i++) {
         await new Promise((r) => setTimeout(r, 500));
         const { data } = await supabase
@@ -401,14 +425,20 @@ export default function CallScreen() {
           .select('offer, status')
           .eq('id', cur.callId)
           .maybeSingle();
-        if (data?.status && ['ended', 'declined', 'missed'].includes(data.status)) {
+        if (
+          data?.status &&
+          ['ended', 'declined', 'missed'].includes(data.status)
+        ) {
           throw new Error('call already ended');
         }
         offer = data?.offer ?? offer;
       }
       if (!offer?.sdp) throw new Error('offer missing');
 
-      await supabase.from('calls').update({ status: 'accepted' }).eq('id', cur.callId);
+      await supabase
+        .from('calls')
+        .update({ status: 'accepted' })
+        .eq('id', cur.callId);
 
       const stream = await mediaDevices.getUserMedia({
         audio: true,
@@ -420,7 +450,6 @@ export default function CallScreen() {
       const pc = createFbPc(stream, cur.callId);
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
-      // Pehle se aaye candidates (offer ke saath)
       try {
         const { data: sigs } = await supabase
           .from('call_signals')
@@ -437,7 +466,9 @@ export default function CallScreen() {
       const pending = fbPendingIceRef.current;
       fbPendingIceRef.current = [];
       for (const c of pending) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(c));
+        } catch {}
       }
 
       const answer = await pc.createAnswer();
@@ -452,12 +483,13 @@ export default function CallScreen() {
     }
   };
 
-  // ---- Fallback: control toggles ----
   const fbToggleMute = () => {
     const s = fbLocalRef.current;
     if (!s) return;
     const next = !fbMuted;
-    s.getAudioTracks?.().forEach((t: any) => { t.enabled = !next; });
+    s.getAudioTracks?.().forEach((t: any) => {
+      t.enabled = !next;
+    });
     setFbMuted(next);
   };
 
@@ -471,11 +503,12 @@ export default function CallScreen() {
     const s = fbLocalRef.current;
     if (!s) return;
     const next = !fbVideoEnabled;
-    s.getVideoTracks?.().forEach((t: any) => { t.enabled = next; });
+    s.getVideoTracks?.().forEach((t: any) => {
+      t.enabled = next;
+    });
     setFbVideoEnabled(next);
   };
 
-  // ---- Fallback: ended → auto-close ----
   useEffect(() => {
     if (fb && fbPhase === 'ended') {
       const t = setTimeout(() => {
@@ -489,25 +522,25 @@ export default function CallScreen() {
     }
   }, [fb, fbPhase, router]);
 
-  // ---- Fallback: unmount cleanup (back during ringing → 'missed') ----
   useEffect(() => {
     return () => {
       const wasRinging = fbPhaseRef.current === 'ringing';
       const cur = fbRef.current;
       fbCleanupMedia();
       if (cur && wasRinging && !fbEndedRef.current) {
-        supabase.from('calls').update({ status: 'missed' }).eq('id', cur.callId).then(
-          () => {},
-          () => {}
-        );
+        supabase
+          .from('calls')
+          .update({ status: 'missed' })
+          .eq('id', cur.callId)
+          .then(
+            () => {},
+            () => {}
+          );
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ============================================================
-  // Effective state — fallback context ke state ko override karta hai
-  // ============================================================
   const FB_TO_STATE: Record<string, string> = {
     loading: 'connecting',
     ringing: 'ringing',
@@ -517,8 +550,8 @@ export default function CallScreen() {
   };
   const effState = fb ? FB_TO_STATE[fbPhase] : callState;
 
-  const name = fb ? fb.callerName : (remoteInfo?.name ?? 'Unknown');
-  const avatarUrl = fb ? fb.callerAvatar : (remoteInfo?.avatar ?? null);
+  const name = fb ? fb.callerName : remoteInfo?.name ?? 'Unknown';
+  const avatarUrl = fb ? fb.callerAvatar : remoteInfo?.avatar ?? null;
   const avatarColor = COLORS.violet;
 
   const remoteStreamEff = fb ? fbRemoteStream : remoteStream;
@@ -528,9 +561,6 @@ export default function CallScreen() {
   const isVideoEnabledEff = fb ? fbVideoEnabled : isVideoEnabled;
   const elapsedEff = fb ? fbElapsed : elapsed;
 
-  // ============================================================
-  // Derived flags
-  // ============================================================
   const isVideoCall = fb
     ? fb.callType === 'video'
     : (currentCall?.call_type ?? params.type) === 'video';
@@ -548,9 +578,6 @@ export default function CallScreen() {
   const showLocalVideo =
     showVideo && !!localStreamEff && isVideoEnabledEff && !!RTCView;
 
-  // ============================================================
-  // Draggable + edge-snapping PiP
-  // ============================================================
   const pipX = useRef(
     new Animated.Value(SCREEN_W - PIP_W - PIP_MARGIN)
   ).current;
@@ -618,9 +645,6 @@ export default function CallScreen() {
     })
   ).current;
 
-  // ============================================================
-  // Timers (context path)
-  // ============================================================
   useEffect(() => {
     if (!fb && callState === 'active') {
       const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -628,15 +652,15 @@ export default function CallScreen() {
     }
     if (
       !fb &&
-      (callState === 'idle' || callState === 'calling' || callState === 'ringing')
+      (callState === 'idle' ||
+        callState === 'calling' ||
+        callState === 'ringing')
     ) {
       setElapsed(0);
     }
   }, [callState, fb]);
 
   useEffect(() => {
-    // FALLBACK GUARD: notification-driven incoming call me auto-close
-    // mat karo — bootstrap 700ms me take over karega
     if (callState === 'idle') {
       if (params.id && params.role === 'receiver') return;
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -653,9 +677,6 @@ export default function CallScreen() {
     };
   }, [callState, params.id, params.role, router]);
 
-  // ============================================================
-  // Animations
-  // ============================================================
   const pulseA = useRef(new Animated.Value(0)).current;
   const pulseB = useRef(new Animated.Value(0)).current;
 
@@ -680,7 +701,11 @@ export default function CallScreen() {
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }),
-          Animated.timing(v, { toValue: 0, duration: 0, useNativeDriver: true }),
+          Animated.timing(v, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          }),
         ])
       );
     const l1 = make(pulseA, 0);
@@ -740,8 +765,16 @@ export default function CallScreen() {
     if (effState === 'active') {
       const l = Animated.loop(
         Animated.sequence([
-          Animated.timing(liveDot, { toValue: 0.25, duration: 700, useNativeDriver: true }),
-          Animated.timing(liveDot, { toValue: 1, duration: 700, useNativeDriver: true }),
+          Animated.timing(liveDot, {
+            toValue: 0.25,
+            duration: 700,
+            useNativeDriver: true,
+          }),
+          Animated.timing(liveDot, {
+            toValue: 1,
+            duration: 700,
+            useNativeDriver: true,
+          }),
         ])
       );
       l.start();
@@ -782,7 +815,11 @@ export default function CallScreen() {
             easing: Easing.out(Easing.ease),
             useNativeDriver: true,
           }),
-          Animated.timing(acceptGlow, { toValue: 0, duration: 0, useNativeDriver: true }),
+          Animated.timing(acceptGlow, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          }),
         ])
       );
       l.start();
@@ -800,7 +837,6 @@ export default function CallScreen() {
     outputRange: [0.45, 0],
   });
 
-  // Swipe-up to answer — latest handler ref (stale closure safe)
   const acceptPressRef = useRef<() => void>(() => {});
   const acceptLift = useRef(new Animated.Value(0)).current;
   const acceptLiftY = Animated.multiply(acceptLift, -1);
@@ -833,16 +869,15 @@ export default function CallScreen() {
     })
   ).current;
 
-  // ============================================================
-  // Handlers (context ya fallback — jo active ho)
-  // ============================================================
   acceptPressRef.current = () => {
     if (fb) void fbAccept();
     else acceptIncomingCall();
   };
 
   function formatElapsed(s: number) {
-    const m = Math.floor(s / 60).toString().padStart(2, '0');
+    const m = Math.floor(s / 60)
+      .toString()
+      .padStart(2, '0');
     const sec = (s % 60).toString().padStart(2, '0');
     return `${m}:${sec}`;
   }
@@ -918,7 +953,6 @@ export default function CallScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Background — remote video OR gradient */}
       {showRemoteVideo && RTCView ? (
         <View style={StyleSheet.absoluteFill}>
           <RTCView
@@ -951,23 +985,25 @@ export default function CallScreen() {
       )}
 
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        {/* BRAND HEADER */}
         <View style={styles.brandHeader} pointerEvents="box-none">
           <Text style={styles.brandText}>Airalance!</Text>
         </View>
 
-        {/* VIDEO — top info pill */}
         {showRemoteVideo && (
           <View style={styles.topBar} pointerEvents="box-none">
             <View style={styles.topPill}>
               {effState === 'active' ? (
                 <>
-                  <Animated.View style={[styles.pillLiveDot, { opacity: liveDot }]} />
+                  <Animated.View
+                    style={[styles.pillLiveDot, { opacity: liveDot }]}
+                  />
                   <Text style={styles.topPillName} numberOfLines={1}>
                     {name}
                   </Text>
                   <View style={styles.topPillDivider} />
-                  <Text style={styles.topPillTime}>{formatElapsed(elapsedEff)}</Text>
+                  <Text style={styles.topPillTime}>
+                    {formatElapsed(elapsedEff)}
+                  </Text>
                 </>
               ) : (
                 <Text style={styles.topPillName} numberOfLines={1}>
@@ -978,7 +1014,6 @@ export default function CallScreen() {
           </View>
         )}
 
-        {/* BODY */}
         {effState === 'ended' ? (
           <View style={styles.body}>
             <View style={styles.avatarStage}>
@@ -995,7 +1030,8 @@ export default function CallScreen() {
               {name}
             </Text>
             <Text style={styles.endedText}>
-              Call ended{elapsedEff > 0 ? ` · ${formatElapsed(elapsedEff)}` : ''}
+              Call ended
+              {elapsedEff > 0 ? ` · ${formatElapsed(elapsedEff)}` : ''}
             </Text>
             <TouchableOpacity
               style={styles.doneBtn}
@@ -1015,14 +1051,20 @@ export default function CallScreen() {
                   <Animated.View
                     style={[
                       styles.pulseRing,
-                      { transform: [{ scale: ringAScale }], opacity: ringAOpacity },
+                      {
+                        transform: [{ scale: ringAScale }],
+                        opacity: ringAOpacity,
+                      },
                     ]}
                   />
                   <Animated.View
                     style={[
                       styles.pulseRing,
                       styles.pulseRingTeal,
-                      { transform: [{ scale: ringBScale }], opacity: ringBOpacity },
+                      {
+                        transform: [{ scale: ringBScale }],
+                        opacity: ringBOpacity,
+                      },
                     ]}
                   />
                 </>
@@ -1051,7 +1093,9 @@ export default function CallScreen() {
             {effState === 'active' ? (
               <View style={styles.timerChip}>
                 <Animated.View style={[styles.liveDot, { opacity: liveDot }]} />
-                <Text style={styles.timerText}>{formatElapsed(elapsedEff)}</Text>
+                <Text style={styles.timerText}>
+                  {formatElapsed(elapsedEff)}
+                </Text>
               </View>
             ) : (
               <View style={styles.statusRow}>
@@ -1071,7 +1115,6 @@ export default function CallScreen() {
           </View>
         )}
 
-        {/* DRAGGABLE + SNAP PiP */}
         {showLocalVideo && RTCView && (
           <Animated.View
             style={[
@@ -1096,11 +1139,14 @@ export default function CallScreen() {
           </Animated.View>
         )}
 
-        {/* BOTTOM CONTROLS */}
         {effState !== 'ended' && (
           <View style={styles.bottomArea}>
             <View style={styles.secureRow}>
-              <Ionicons name="lock-closed" size={11} color="rgba(255,255,255,0.45)" />
+              <Ionicons
+                name="lock-closed"
+                size={11}
+                color="rgba(255,255,255,0.45)"
+              />
               <Text style={styles.secureText}>End-to-end encrypted</Text>
             </View>
 
@@ -1128,7 +1174,10 @@ export default function CallScreen() {
                     <Animated.View
                       style={[
                         styles.acceptHalo,
-                        { transform: [{ scale: haloScale }], opacity: haloOpacity },
+                        {
+                          transform: [{ scale: haloScale }],
+                          opacity: haloOpacity,
+                        },
                       ]}
                     />
                     <TouchableOpacity
@@ -1146,12 +1195,18 @@ export default function CallScreen() {
               <Animated.View
                 style={[
                   styles.controlBar,
-                  { opacity: controlsIn, transform: [{ translateY: controlsSlide }] },
+                  {
+                    opacity: controlsIn,
+                    transform: [{ translateY: controlsSlide }],
+                  },
                 ]}
               >
                 {isVideoCall && (
                   <TouchableOpacity
-                    style={[styles.circleBtn, !isVideoEnabledEff && styles.circleBtnSolid]}
+                    style={[
+                      styles.circleBtn,
+                      !isVideoEnabledEff && styles.circleBtnSolid,
+                    ]}
                     onPress={handleVideo}
                     activeOpacity={0.85}
                   >
@@ -1164,7 +1219,10 @@ export default function CallScreen() {
                 )}
 
                 <TouchableOpacity
-                  style={[styles.circleBtn, isMutedEff && styles.circleBtnSolid]}
+                  style={[
+                    styles.circleBtn,
+                    isMutedEff && styles.circleBtnSolid,
+                  ]}
                   onPress={handleMute}
                   activeOpacity={0.85}
                 >
@@ -1189,7 +1247,10 @@ export default function CallScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.circleBtn, isSpeakerEff && styles.circleBtnTeal]}
+                  style={[
+                    styles.circleBtn,
+                    isSpeakerEff && styles.circleBtnTeal,
+                  ]}
                   onPress={handleSpeaker}
                   activeOpacity={0.85}
                 >
