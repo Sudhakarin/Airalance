@@ -6,6 +6,7 @@
 // ✅ Vibration on incoming call (foreground + background)
 // ✅ Phase 12: WhatsApp-style call log insertion (caller side only)
 // ✅ Phase 13: Remote-end auto-dismiss on receiver side
+// ✅ Phase 14: conversationId passed from chat for reliable call log insert
 
 import React, {
   createContext,
@@ -87,7 +88,8 @@ type CallContextValue = {
   startCall: (
     receiverId: string,
     callType: CallType,
-    receiverInfo: { name: string; avatar: string | null }
+    receiverInfo: { name: string; avatar: string | null },
+    conversationId?: string
   ) => Promise<void>;
   acceptIncomingCall: () => Promise<void>;
   rejectIncomingCall: () => Promise<void>;
@@ -135,8 +137,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const activeSinceRef = useRef<number | null>(null);
   const activeCallRef = useRef<Call | null>(null);
 
-  // ✅ Track whether we (as receiver) already handled an end event
+  // ✅ Phase 13: Track whether we (as receiver) already handled an end event
   const remoteEndHandledRef = useRef<string | null>(null);
+
+  // ✅ Phase 14: Remember which conversation this call belongs to
+  const conversationIdRef = useRef<string | null>(null);
 
   // ============================================================
   // Shared: safe return to previous screen
@@ -145,7 +150,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     try {
       router.back();
     } catch {
-      // ignore — if router can't go back, the call screen will handle it
+      // ignore
     }
   }, [router]);
 
@@ -181,7 +186,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       try {
         await insertCallLog({
           callId: call.id,
-          conversationId: null,
+          conversationId: conversationIdRef.current,
           callerId: call.caller_id,
           receiverId: call.receiver_id,
           callType: call.call_type,
@@ -254,6 +259,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     activeSinceRef.current = null;
     activeCallRef.current = null;
     remoteEndHandledRef.current = null;
+    conversationIdRef.current = null;
     setLocalStream(null);
     setRemoteStream(null);
     setIsMuted(false);
@@ -262,12 +268,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ============================================================
-  // ✅ Receiver-side: dismiss / end when remote (caller) acts
-  // Returns true if the update was handled (call was terminated)
+  // Receiver-side: dismiss / end when remote (caller) acts
   // ============================================================
   const handleRemoteTermination = useCallback(
     (updated: Call): boolean => {
-      // Prevent double-handling same terminal event
       const terminalStatuses: Call['status'][] = [
         'cancelled',
         'ended',
@@ -280,7 +284,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (remoteEndHandledRef.current === key) return true;
       remoteEndHandledRef.current = key;
 
-      // Caller cancelled while still ringing → dismiss immediately
       if (updated.status === 'cancelled') {
         console.log('[call] remote cancelled while ringing — dismissing');
         hapticError();
@@ -292,8 +295,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return true;
       }
 
-      // Caller rejected our call (only relevant on caller side)
-      // Or caller marked call as missed (ring timeout)
       if (updated.status === 'rejected' || updated.status === 'missed') {
         console.log('[call] remote rejected/missed — ending');
         hapticError();
@@ -308,7 +309,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return true;
       }
 
-      // Active call ended by remote → show "Call ended" then go back
       if (updated.status === 'ended') {
         console.log('[call] remote ended call — closing');
         hapticError();
@@ -382,9 +382,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ============================================================
-  // Subscribe to incoming calls
-  // ✅ Now also subscribes to updates on THAT call so we get
-  //    notified when the caller cancels or ends it.
+  // Subscribe to incoming calls + watch that call for remote end
   // ============================================================
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -433,8 +431,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           `/call/${incomingCall.id}?role=receiver&type=${incomingCall.call_type}`
         );
 
-        // ✅ NEW: watch THIS call for remote updates (cancel / end)
-        // Ensure previous sub is cleared (there shouldn't be one, but be safe)
+        // Watch this call for remote updates (cancel / end)
         if (unsubCallRef.current) {
           try {
             unsubCallRef.current();
@@ -445,9 +442,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
         unsubCallRef.current = subscribeToCall(
           incomingCall.id,
           async (updated) => {
-            // Only handle terminal states on receiver side.
-            // 'accepted' means WE accepted — ignore.
-            // 'rejected' from us — ignore (our own action).
             if (updated.status === 'cancelled') {
               handleRemoteTermination(updated);
               return;
@@ -664,7 +658,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     async (
       receiverId: string,
       callType: CallType,
-      receiverInfo: { name: string; avatar: string | null }
+      receiverInfo: { name: string; avatar: string | null },
+      conversationId?: string
     ) => {
       if (callState !== 'idle') return;
       if (Platform.OS === 'web') {
@@ -675,6 +670,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const myId = myIdRef.current ?? (await getCurrentUserId());
       if (!myId) return;
       myIdRef.current = myId;
+
+      // ✅ Phase 14: remember conversation for call log
+      conversationIdRef.current = conversationId ?? null;
 
       setRemoteUserInfo({
         id: receiverId,
