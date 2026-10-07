@@ -48,11 +48,11 @@ import {
 import { supabase } from '../../lib/supabase';
 import { getCurrentUserId } from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
-import { useCall } from '../../context '../../s/CallContextcomponents';
-import Avatar from '../../components/Avatar/';
-import AvatarPreviewHost from '../../components/AvVerifiedatarPreviewHost';
-import MessageBubble from '../../componentsBad/MessageBubble';
-import VerifiedBadge fromge';
+import { useCall } from '../../contexts/CallContext';
+import Avatar from '../../components/Avatar';
+import AvatarPreviewHost from '../../components/AvatarPreviewHost';
+import MessageBubble from '../../components/MessageBubble';
+import VerifiedBadge from '../../components/VerifiedBadge';
 import TypingDots from '../../components/TypingDots';
 import {
   dbGetMessages,
@@ -1027,7 +1027,7 @@ export default function ChatScreen() {
   const toggleReaction = useCallback(
     async (msg: Message, emoji: string) => {
       if (!myId || msg.is_deleted) return;
-      if (msg.message_type === 'call') return; // ✅ no reactions on call logs
+      if (msg.message_type === 'call') return;
       if (!isOnline()) return;
       hapticLight();
       const existing = (reactionsByMsg[msg.id] ?? []).find(
@@ -1101,14 +1101,14 @@ export default function ChatScreen() {
 
   const handleDoubleTap = useCallback(
     (msg: Message) => {
-      if (msg.message_type === 'call') return; // ✅ no reaction on call logs
+      if (msg.message_type === 'call') return;
       toggleReaction(msg, '❤️');
     },
     [toggleReaction]
   );
 
   const handleReply = useCallback((msg: Message) => {
-    if (msg.message_type === 'call') return; // ✅ no reply on call logs
+    if (msg.message_type === 'call') return;
     setActionSheetMsg(null);
     setReplyingTo(msg);
     setTimeout(() => inputRef.current?.focus(), 150);
@@ -1827,7 +1827,6 @@ export default function ChatScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* ✅ Voice call — convoId passed for call log */}
           <TouchableOpacity
             style={styles.headerActionBtn}
             onPress={() => {
@@ -1848,7 +1847,6 @@ export default function ChatScreen() {
             <Ionicons name="call-outline" size={22} color={COLORS.text} />
           </TouchableOpacity>
 
-          {/* ✅ Video call — convoId passed for call log */}
           <TouchableOpacity
             style={styles.headerActionBtn}
             onPress={() => {
