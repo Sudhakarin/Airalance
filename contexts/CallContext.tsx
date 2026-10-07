@@ -2,7 +2,8 @@
 // Global WebRTC call state — incoming/outgoing/active call management
 // ✅ Web-safe: react-native-webrtc is native-only
 // ✅ Phase 2: CallKeep native UI
-// ✅ Speaker toggle now uses react-native-incall-manager for real audio routing
+// ✅ Speaker toggle via react-native-incall-manager
+// ✅ Vibration on incoming call (foreground + background)
 
 import React, {
   createContext,
@@ -13,7 +14,7 @@ import React, {
   useCallback,
   ReactNode,
 } from 'react';
-import { Platform } from 'react-native';
+import { Platform, Vibration } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../lib/supabase';
 import { getCurrentUserId } from '../lib/auth';
@@ -124,6 +125,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const audioSessionStartedRef = useRef(false);
 
   const cleanup = useCallback(() => {
+    // ✅ Stop vibration
+    try {
+      Vibration.cancel();
+    } catch {}
+
     if (ringTimeoutRef.current) {
       clearTimeout(ringTimeoutRef.current);
       ringTimeoutRef.current = null;
@@ -180,6 +186,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const unregister = registerCallKeepEvents({
       onAnswerCall: (callId) => {
         console.log('[call] user answered via CallKeep:', callId);
+        // ✅ Stop vibration on answer
+        try {
+          Vibration.cancel();
+        } catch {}
       },
       onEndCall: (callId) => {
         console.log('[call] user ended via CallKeep:', callId);
@@ -235,6 +245,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
         callIdRef.current = incomingCall.id;
         setCallState('ringing');
         hapticMedium();
+
+        // ✅ Vibrate while ringing (foreground + background)
+        try {
+          Vibration.vibrate([0, 1000, 1000], true);
+        } catch {}
 
         displayIncomingCall(
           incomingCall.id,
@@ -348,6 +363,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       const handleConnected = () => {
         console.log('[call] connection connected');
+        // ✅ Stop vibration when connected
+        try {
+          Vibration.cancel();
+        } catch {}
+
         if (disconnectGraceRef.current) {
           clearTimeout(disconnectGraceRef.current);
           disconnectGraceRef.current = null;
@@ -560,6 +580,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const acceptIncomingCall = useCallback(async () => {
     if (callState !== 'ringing' || !currentCall) return;
+
+    // ✅ Stop vibration on accept
+    try {
+      Vibration.cancel();
+    } catch {}
 
     if (ringTimeoutRef.current) {
       clearTimeout(ringTimeoutRef.current);
