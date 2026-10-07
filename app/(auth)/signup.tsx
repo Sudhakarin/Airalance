@@ -1,5 +1,5 @@
 // app/(auth)/signup.tsx
-// Full signup — username, display name, email, DOB (scroll picker), password
+// Full signup — matches website style (compact, clean)
 
 import { useState } from 'react';
 import {
@@ -18,14 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, Link } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  COLORS,
-  FONTS,
-  RADII,
-  GRADIENTS,
-  SPACING,
-  SHADOWS,
-} from '../../constants/theme';
+import { COLORS, FONTS, GRADIENTS, SPACING } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { requestNotificationPermission } from '../../lib/push-permissions';
 import Field from '../../components/Field';
@@ -67,8 +60,6 @@ export default function SignupScreen() {
       setError('Password must be at least 6 characters.');
       return;
     }
-
-    // DOB validation
     if (!dob) {
       setError('Please select your date of birth.');
       return;
@@ -82,7 +73,6 @@ export default function SignupScreen() {
       setError('Please enter a valid date of birth.');
       return;
     }
-
     if (!agreedToPolicy) {
       setError('Please agree to the Privacy Policy to create an account.');
       return;
@@ -90,7 +80,6 @@ export default function SignupScreen() {
 
     setLoading(true);
 
-    // Format DOB as YYYY-MM-DD for DB
     const dobISO = `${dob.getFullYear()}-${String(dob.getMonth() + 1).padStart(2, '0')}-${String(dob.getDate()).padStart(2, '0')}`;
 
     const { data, error: signupErr } = await supabase.auth.signUp({
@@ -139,7 +128,7 @@ export default function SignupScreen() {
             <Link href="/" asChild>
               <Pressable style={styles.brandRow}>
                 <View style={styles.brandIcon}>
-                  <Ionicons name="chatbubble" size={20} color="#FFFFFF" />
+                  <Ionicons name="chatbubble" size={16} color="#FFFFFF" />
                 </View>
                 <Text style={styles.brandText}>
                   Aira
@@ -165,7 +154,7 @@ export default function SignupScreen() {
                   activeOpacity={0.9}
                 >
                   <LinearGradient
-                    colors={GRTextEntry={!ADIENTS.violet}
+                    colors={GRADIENTS.violet}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={styles.primaryBtnInner}
@@ -179,11 +168,11 @@ export default function SignupScreen() {
                 <Text style={styles.h1}>Create your account</Text>
                 <Text style={styles.subtitle}>Takes less than a minute.</Text>
 
-                <View style={{ marginTop: SPACING.lg }}>
+                <View style={{ marginTop: 24 }}>
                   <Field
                     label="Username"
                     icon={
-                      <Ionicons name="at-outline" size={20} color={COLORS.mist} />
+                      <Ionicons name="at-outline" size={18} color={COLORS.mist} />
                     }
                   >
                     <TextInput
@@ -194,7 +183,7 @@ export default function SignupScreen() {
                         if (error) setError(null);
                       }}
                       placeholder="janedoe"
-                      placeholderTextColor={'rgba(139,143,163,0.5)'}
+                      placeholderTextColor="rgba(139,143,163,0.5)"
                       autoCapitalize="none"
                       autoCorrect={false}
                       editable={!loading}
@@ -206,7 +195,7 @@ export default function SignupScreen() {
                     icon={
                       <Ionicons
                         name="person-outline"
-                        size={20}
+                        size={18}
                         color={COLORS.mist}
                       />
                     }
@@ -219,7 +208,7 @@ export default function SignupScreen() {
                         if (error) setError(null);
                       }}
                       placeholder="Jane Doe"
-                      placeholderTextColor={'rgba(139,143,163,0.5)'}
+                      placeholderTextColor="rgba(139,143,163,0.5)"
                       autoCapitalize="words"
                       editable={!loading}
                     />
@@ -230,7 +219,7 @@ export default function SignupScreen() {
                     icon={
                       <Ionicons
                         name="mail-outline"
-                        size={20}
+                        size={18}
                         color={COLORS.mist}
                       />
                     }
@@ -243,7 +232,7 @@ export default function SignupScreen() {
                         if (error) setError(null);
                       }}
                       placeholder="you@example.com"
-                      placeholderTextColor={'rgba(139,143,163,0.5)'}
+                      placeholderTextColor="rgba(139,143,163,0.5)"
                       keyboardType="email-address"
                       autoCapitalize="none"
                       autoCorrect={false}
@@ -251,13 +240,12 @@ export default function SignupScreen() {
                     />
                   </Field>
 
-                  {/* ✅ DOB picker field */}
                   <Field
                     label="Date of birth"
                     icon={
                       <Ionicons
                         name="calendar-outline"
-                        size={20}
+                        size={18}
                         color={COLORS.mist}
                       />
                     }
@@ -288,7 +276,7 @@ export default function SignupScreen() {
                     <View style={styles.dobChevron} pointerEvents="none">
                       <Ionicons
                         name="chevron-down"
-                        size={18}
+                        size={16}
                         color={COLORS.mist}
                       />
                     </View>
@@ -299,7 +287,7 @@ export default function SignupScreen() {
                     icon={
                       <Ionicons
                         name="lock-closed-outline"
-                        size={20}
+                        size={18}
                         color={COLORS.mist}
                       />
                     }
@@ -316,8 +304,8 @@ export default function SignupScreen() {
                         if (error) setError(null);
                       }}
                       placeholder="At least 6 characters"
-                      placeholderTextColor={'rgba(139,143,163,0.5)'}
-                      secureshowPassword}
+                      placeholderTextColor="rgba(139,143,163,0.5)"
+                      secureTextEntry={!showPassword}
                       autoCapitalize="none"
                       autoCorrect={false}
                       editable={!loading}
@@ -329,7 +317,7 @@ export default function SignupScreen() {
                     >
                       <Ionicons
                         name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                        size={20}
+                        size={18}
                         color={COLORS.mist}
                       />
                     </TouchableOpacity>
@@ -346,7 +334,7 @@ export default function SignupScreen() {
                       ]}
                     >
                       {agreedToPolicy && (
-                        <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                        <Ionicons name="checkmark" size={12} color="#FFFFFF" />
                       )}
                     </View>
                     <Text style={styles.checkboxText}>
@@ -379,7 +367,7 @@ export default function SignupScreen() {
                       style={styles.primaryBtnInner}
                     >
                       {loading ? (
-                        <ActivityIndicator color="#FFFFFF" />
+                        <ActivityIndicator color="#FFFFFF" size="small" />
                       ) : (
                         <Text style={styles.primaryBtnText}>
                           Create account
@@ -401,7 +389,6 @@ export default function SignupScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ✅ DOB Picker Modal */}
       <DobPicker
         visible={showDobPicker}
         value={dob}
@@ -421,9 +408,10 @@ const styles = StyleSheet.create({
   scroll: {
     flexGrow: 1,
     justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: SPACING.xl,
+    paddingHorizontal: 24,
+    paddingVertical: 24,
   },
+
   glowTop: {
     position: 'absolute',
     top: -150,
@@ -442,64 +430,73 @@ const styles = StyleSheet.create({
     borderRadius: 200,
     backgroundColor: 'rgba(34,211,184,0.12)',
   },
+
   card: {
     backgroundColor: 'rgba(16,19,28,0.85)',
-    borderRadius: 28,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
-    padding: 22,
-    ...SHADOWS.card,
+    padding: 24,
   },
-  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   brandIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     backgroundColor: COLORS.violet,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: COLORS.violet,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 6,
   },
   brandText: {
-    fontSize: 22,
+    fontSize: 18,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
-  brandTextGradient: { color: COLORS.violetLight },
+  brandTextGradient: {
+    color: COLORS.violetLight,
+  },
+
   h1: {
-    marginTop: SPACING.xl,
-    fontSize: 28,
+    marginTop: 24,
+    fontSize: 24,
     fontFamily: FONTS.displayBold,
     color: '#FFFFFF',
   },
   subtitle: {
-    marginTop: 6,
-    fontSize: 15,
+    marginTop: 4,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    lineHeight: 21,
+    lineHeight: 20,
   },
+
+  // ✅ COMPACT — matches website
   input: {
     width: '100%',
     backgroundColor: COLORS.ink800,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.10)',
-    borderRadius: RADII.xl,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
   },
-  inputWithIcon: { paddingLeft: 48 },
-  inputWithIconRight: { paddingRight: 48 },
+  inputWithIcon: {
+    paddingLeft: 42,
+  },
+  inputWithIconRight: {
+    paddingRight: 42,
+  },
   eyeBtn: {
     position: 'absolute',
-    right: 14,
+    right: 12,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
@@ -508,7 +505,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dobText: {
-    fontSize: 16,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: '#FFFFFF',
   },
@@ -517,28 +514,29 @@ const styles = StyleSheet.create({
   },
   dobChevron: {
     position: 'absolute',
-    right: 14,
+    right: 12,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
   },
+
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    marginTop: SPACING.sm,
-    marginBottom: SPACING.sm,
+    marginTop: 4,
+    marginBottom: 4,
   },
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 5,
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderColor: 'rgba(255,255,255,0.2)',
     backgroundColor: COLORS.ink800,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 2,
+    marginTop: 1,
   },
   checkboxChecked: {
     backgroundColor: COLORS.violet,
@@ -546,57 +544,61 @@ const styles = StyleSheet.create({
   },
   checkboxText: {
     flex: 1,
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: FONTS.body,
     color: COLORS.mist,
-    lineHeight: 20,
+    lineHeight: 18,
   },
+
   errorBox: {
     backgroundColor: 'rgba(239,68,68,0.10)',
-    borderRadius: RADII.md,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: SPACING.sm,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
   },
   errorText: {
     color: '#FCA5A5',
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: FONTS.bodyMedium,
   },
+
+  // ✅ COMPACT button — matches website
   primaryBtn: {
-    borderRadius: RADII.xl,
+    borderRadius: 12,
     overflow: 'hidden',
-    marginTop: SPACING.sm,
+    marginTop: 8,
     shadowColor: COLORS.violet,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
   },
   primaryBtnInner: {
-    paddingVertical: 16,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryBtnText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 14,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.2,
   },
+
   linkText: {
     color: COLORS.violetLight,
     fontFamily: FONTS.bodyMedium,
   },
   linkTextBold: {
-    fontSize: 15.5,
+    fontSize: 14,
     fontFamily: FONTS.bodyMedium,
     color: COLORS.violetLight,
   },
   footerText: {
-    marginTop: SPACING.xl,
+    marginTop: 24,
     textAlign: 'center',
-    fontSize: 14.5,
+    fontSize: 14,
     fontFamily: FONTS.body,
     color: COLORS.mist,
   },
