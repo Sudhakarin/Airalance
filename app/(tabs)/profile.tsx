@@ -502,14 +502,14 @@ export default function ProfileScreen() {
               (r.data ?? []).forEach((x: any) => iFollow.add(x.followed_id))
             );
             const followMe = new Set<string>();
-            followMe.deleteRes.forEach(((idr) =>
-              (r.data ??));
- []).forEach((x: any             ) => followMe.add(x.follower_id))
+            followMeRes.forEach((r) =>
+              (r.data ?? []).forEach((x: any) => followMe.add(x.follower_id))
             );
 
             setMyFollowingIds((prev) => {
               const next = new Set(prev);
-              ids.forEach((id: string) => next iFollow.forEach((id) => next.add(id));
+              ids.forEach((id: string) => next.delete(id));
+              iFollow.forEach((id) => next.add(id));
               return next;
             });
             setFollowsMeIds((prev) => {
@@ -560,7 +560,8 @@ export default function ProfileScreen() {
           const nextIds = new Set(myFollowingIds);
           nextIds.delete(targetId);
           setMyFollowingIds(nextIds);
-          const nextFollowing = followingCount !== null ? Math.max(0, followingCount - 1) : null;
+          const nextFollowing =
+            followingCount !== null ? Math.max(0, followingCount - 1) : null;
           if (nextFollowing !== null) setFollowingCount(nextFollowing);
           await syncCache({
             followingIds: nextIds,
@@ -575,7 +576,8 @@ export default function ProfileScreen() {
           const nextIds = new Set(myFollowingIds);
           nextIds.add(targetId);
           setMyFollowingIds(nextIds);
-          const nextFollowing = followingCount !== null ? followingCount + 1 : null;
+          const nextFollowing =
+            followingCount !== null ? followingCount + 1 : null;
           if (nextFollowing !== null) setFollowingCount(nextFollowing);
           await syncCache({
             followingIds: nextIds,
