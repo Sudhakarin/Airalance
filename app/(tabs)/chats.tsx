@@ -3,6 +3,7 @@
 // Locked chats: hidden above the list, pull down to reveal (WhatsApp style),
 // keep pulling + release to open PIN prompt (react-native-gesture-handler)
 // ✅ STABLE MERGE: network response replaces nothing — merges into cache
+// ✅ Call log preview: 📞/📹 + status (missed/declined/cancelled/answered)
 
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
@@ -161,8 +162,33 @@ async function patchDbConversation(
 }
 
 // ============================================================
+// ✅ Call log preview helper — JSON content ko readable text me
+// ============================================================
+function getCallPreview(rawContent: string): string {
+  try {
+    const parsed = JSON.parse(rawContent || '{}');
+    const glyph = parsed.call_type === 'video' ? '📹' : '📞';
+    const st = parsed.status as string;
+    if (st === 'missed') return `${glyph} Missed call`;
+    if (st === 'declined') return `${glyph} Declined call`;
+    if (st === 'cancelled') return `${glyph} Cancelled call`;
+    if (st === 'answered') {
+      const dur = Number(parsed.duration_seconds) || 0;
+      if (dur >= 60) {
+        const m = Math.floor(dur / 60);
+        const s = dur % 60;
+        return `${glyph} Call · ${m}:${s.toString().padStart(2, '0')}`;
+      }
+      return `${glyph} Call · ${dur}s`;
+    }
+    return `${glyph} Call`;
+  } catch {
+    return '📞 Call';
+  }
+}
+
+// ============================================================
 // ✅ STABLE MERGE — network response kabhi cache ko replace nahi karta.
-// Ye "chat list flicker" aur "chat gayab hone" ka main fix hai.
 // ============================================================
 function mergeConversations(
   prev: Conversation[],
@@ -170,15 +196,11 @@ function mergeConversations(
 ): Conversation[] {
   const map = new Map<string, Conversation>();
 
-  // 1. Purane (cache) entries pehle daalo — order preserve karo
   for (const c of prev) map.set(c.id, c);
 
-  // 2. Network entries se update karo (fresh fields win)
   for (const c of next) {
     const existing = map.get(c.id);
     if (existing) {
-      // Sirf wahi fields override karo jo network me aaye hain
-      // Empty strings ko override mat hone do (jab tak real value na ho)
       const merged: Conversation = { ...existing };
       if (c.last_message) merged.last_message = c.last_message;
       if (c.last_at) merged.last_at = c.last_at;
@@ -194,7 +216,6 @@ function mergeConversations(
     }
   }
 
-  // 3. Sort by last_at DESC
   const merged = Array.from(map.values());
   merged.sort((a, b) => {
     const at = a.last_at || '';
@@ -407,7 +428,6 @@ export default function ChatsScreen() {
   const startYRef = useRef(0);
   const nativeGesture = useMemo(() => Gesture.Native(), []);
 
-  // ✅ OFFLINE FIX: use getCurrentUserId() (reads from local session)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -419,14 +439,12 @@ export default function ChatsScreen() {
     };
   }, []);
 
-  // ✅ Subscribe to network changes
   useEffect(() => {
     setOnline(isOnline());
     const unsub = subscribeNetwork(setOnline);
     return unsub;
   }, []);
 
-  // Load stored PIN hash
   useEffect(() => {
     if (!myId) return;
     (async () => {
@@ -435,7 +453,7 @@ export default function ChatsScreen() {
     })();
   }, [myId]);
 
-  // ✅ PHASE 2: Show SQLite cache instantly (offline-first) — MERGE-safe
+  // ✅ Show SQLite cache instantly (offline-first)
   useEffect(() => {
     if (!myId || cacheShownRef.current) return;
     (async () => {
@@ -448,7 +466,6 @@ export default function ChatsScreen() {
       } catch (err) {
         console.warn('[chats] SQLite read error:', err);
       } finally {
-        // ✅ Guarantee loading=false after cache read — no spinner lock
         setLoading(false);
         cacheShownRef.current = true;
       }
@@ -471,7 +488,6 @@ export default function ChatsScreen() {
 
       const convoIds = (participantRows ?? []).map((r) => r.conversation_id);
       if (convoIds.length === 0) {
-        // ✅ Server ne confirm kiya — sach me koi chat nahi
         setConversations([]);
         await dbClearAllConversations();
         return;
@@ -570,14 +586,22 @@ export default function ChatsScreen() {
         const last = lastPerConvo.get(c.id);
         const setting = settingsMap[c.id];
 
+        // ✅ UPDATED: Call log preview support
         let preview = 'Say hello 👋';
         if (last) {
-          if (last.is_deleted) preview = 'This message was deleted';
-          else if (last.message_type === 'image') preview = '📷 Photo';
-          else if (last.message_type === 'voice') preview = '🎤 Voice message';
-          else if (last.content?.startsWith('[STATUS_REPLY]'))
+          if (last.is_deleted) {
+            preview = 'This message was deleted';
+          } else if (last.message_type === 'image') {
+            preview = '📷 Photo';
+          } else if (last.message_type === 'voice') {
+            preview = '🎤 Voice message';
+          } else if (last.message_type === 'call') {
+            preview = getCallPreview(last.content ?? '');
+          } else if (last.content?.startsWith('[STATUS_REPLY]')) {
             preview = '↩️ Replied to your status';
-          else preview = last.content || '';
+          } else {
+            preview = last.content || '';
+          }
         }
 
         return {
@@ -593,7 +617,6 @@ export default function ChatsScreen() {
         };
       });
 
-      // ✅ FIX: MERGE instead of REPLACE — list stable rahegi
       setConversations((prev) => mergeConversations(prev, rows));
 
       await persistConversations(rows);
@@ -609,7 +632,7 @@ export default function ChatsScreen() {
     loadConversations();
   }, [loadConversations]);
 
-  // ✅ AUTO-RELOAD when internet comes back
+  // Auto-reload on reconnect
   useEffect(() => {
     if (online && myId) {
       console.log('[chats] back online — reloading');
@@ -617,6 +640,7 @@ export default function ChatsScreen() {
     }
   }, [online, myId, loadConversations]);
 
+  // Realtime
   useEffect(() => {
     if (!myId) return;
     if (!online) return;
@@ -625,7 +649,7 @@ export default function ChatsScreen() {
       if (realtimeTimeoutRef.current) clearTimeout(realtimeTimeoutRef.current);
       realtimeTimeoutRef.current = setTimeout(() => {
         loadConversations();
-      }, 800); // ✅ 500 → 800ms — rapid events debounce
+      }, 800);
     };
 
     const channel = supabase
