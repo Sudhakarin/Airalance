@@ -1,7 +1,8 @@
 // app/(tabs)/_layout.tsx
 // Bottom tabs — custom SVG icons + violet active state + safe-area bottom padding
 // Redesigned bar (same as demo). Switch design with TAB_VARIANT: 'pill' | 'line' | 'raised'
-// ✅ 'pill' bar is now FLAT + full-width (no rounded edges, no side gaps) — same as the black strip below it
+// ✅ 'pill' bar is now FLAT + full-width (no rounded edges, no side gaps)
+// ✅ UPDATED: useUnreadCount does instant local refresh + debounced network sync
 
 import { useEffect, useState } from 'react';
 import { Tabs } from 'expo-router';
@@ -41,12 +42,12 @@ const INACTIVE = '#8E91A5';
 const PILL_BG = '#14161E';
 const PILL_ACTIVE_BG = 'rgba(124,92,255,0.2)';
 const BAR_H = 56;
-const NAV_OVERLAP = 16; // bigger = thinner black strip below pill
-const MIN_GAP = 4; // minimum gap below pill
-const PILL_H = 50; // grey bar height (tabs inside stay 42)
+const NAV_OVERLAP = 16;
+const MIN_GAP = 4;
+const PILL_H = 50;
 const RAISE = 26;
 
-// ───────────── ICONS (same as before, size now comes from the bar) ─────────────
+// ───────────── ICONS ─────────────
 const homeIcon = ({ color, focused, size }: { color: string; focused: boolean; size?: number }) => (
   <TabIcon tab="home" active={focused} color={color} size={size ?? 22} />
 );
@@ -88,7 +89,11 @@ function Badge({ count, style }: { count: number; style?: any }) {
   );
 }
 
-// Unread count for the Chats tab (cache first, then network + realtime)
+// Unread count for the Chats tab — cache first, then network + realtime
+// Strategy:
+//  1. Show cached count instantly (SQLite)
+//  2. Sync from network in background (500ms debounced)
+//  3. On realtime event → local refresh first + schedule network sync
 function useUnreadCount() {
   const [count, setCount] = useState(0);
 
@@ -99,6 +104,7 @@ function useUnreadCount() {
     let unsubNet: (() => void) | null = null;
     let myId: string | null = null;
 
+    // ✅ Local DB read — instant, no network
     const fromCache = async () => {
       try {
         const rows = await dbGetConversations();
@@ -112,6 +118,7 @@ function useUnreadCount() {
       } catch {}
     };
 
+    // ✅ Network read — authoritative, but slower
     const fromNetwork = async () => {
       if (!myId || !isOnline()) return;
       try {
@@ -119,11 +126,13 @@ function useUnreadCount() {
           .from('conversation_participants')
           .select('conversation_id')
           .eq('user_id', myId);
+
         const ids = (parts ?? []).map((p: any) => p.conversation_id);
         if (ids.length === 0) {
           if (mounted) setCount(0);
           return;
         }
+
         const [unreadRes, settingsRes] = await Promise.all([
           supabase
             .from('messages')
@@ -137,6 +146,7 @@ function useUnreadCount() {
             .eq('user_id', myId)
             .in('conversation_id', ids),
         ]);
+
         const muted = new Set(
           (settingsRes.data ?? [])
             .filter((s: any) => s.is_muted)
@@ -145,13 +155,18 @@ function useUnreadCount() {
         const total = (unreadRes.data ?? []).filter(
           (m: any) => !muted.has(m.conversation_id)
         ).length;
+
         if (mounted) setCount(total);
       } catch (err) {
         console.warn('[tabs] unread count error:', err);
       }
     };
 
+    // ✅ Schedule: local refresh NOW + network sync debounced
     const schedule = () => {
+      // instant local update (chat screen already wrote SQLite)
+      fromCache();
+      // debounce network call so burst events don't spam Supabase
       if (timer) clearTimeout(timer);
       timer = setTimeout(fromNetwork, 500);
     };
@@ -160,7 +175,9 @@ function useUnreadCount() {
       await fromCache();
       myId = await getCurrentUserId();
       if (!mounted || !myId) return;
+
       fromNetwork();
+
       channel = supabase
         .channel('tabs-unread-realtime')
         .on(
@@ -179,6 +196,7 @@ function useUnreadCount() {
           schedule
         )
         .subscribe();
+
       unsubNet = subscribeNetwork((on: boolean) => {
         if (on) schedule();
       });
@@ -201,14 +219,11 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const keyboardVisible = useKeyboardVisible();
   const unreadCount = useUnreadCount();
 
-  // ✅ just enough bottom gap for system nav buttons
   const bottomPad =
     Platform.OS === 'android' ? Math.max(insets.bottom, 10) : insets.bottom;
-  // flat bar: black strip below it. Part of the system nav-bar area is reused
-  // (NAV_OVERLAP) so the strip is slim; MIN_GAP is the smallest gap we ever keep.
   const pillBottom = Math.max(insets.bottom - NAV_OVERLAP, MIN_GAP);
 
-  if (keyboardVisible) return null; // same as tabBarHideOnKeyboard
+  if (keyboardVisible) return null;
 
   const items = state.routes.map((route, index) => {
     const focused = state.index === index;
@@ -430,15 +445,14 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // flat bar (was floating pill)
   pillWrap: {
     backgroundColor: '#000000',
-    paddingHorizontal: 0, // ✅ no side gap — bar touches both screen edges
+    paddingHorizontal: 0,
     paddingTop: 0,
   },
   pill: {
     height: PILL_H,
-    borderRadius: 0, // ✅ flat edges, no rounded corners
+    borderRadius: 0,
     backgroundColor: PILL_BG,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.09)',
@@ -466,7 +480,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodyMedium,
   },
 
-  // line
   lineBar: {
     flexDirection: 'row',
     backgroundColor: '#000000',
@@ -494,7 +507,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  // raised
   raisedStrip: {
     position: 'absolute',
     left: 0,
