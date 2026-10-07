@@ -1,5 +1,6 @@
 // app/(tabs)/profile.tsx
 // My profile — offline auth + network auto-reload + SQLite wipe on logout
+// ✅ FIX: invalidateUserIdCache on logout (no stale in-memory auth cache)
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -34,7 +35,11 @@ import {
   VERIFIED_USERNAMES,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
-import { getCurrentUserId, getCurrentSession } from '../../lib/auth';
+import {
+  getCurrentUserId,
+  getCurrentSession,
+  invalidateUserIdCache,
+} from '../../lib/auth'; // ✅ NEW import
 import { subscribeNetwork, isOnline } from '../../lib/network';
 import { dbWipeAll } from '../../lib/db';
 import Avatar from '../../components/Avatar';
@@ -71,12 +76,12 @@ type CustomDialog = {
   secondaryLabel?: string;
   danger?: boolean;
   onPrimary: () => void;
-  onSecondary?: () => void;
+(  onSecondary?: () => void;
 };
 
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24uid * 7;
 
-function profileCacheKey(uid: string) {
+function profileCacheKey: string) {
   return `airalance:profile:me:${uid}`;
 }
 
@@ -243,14 +248,12 @@ export default function ProfileScreen() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [notifPermission, setNotifPermission] = useState<string>('undetermined');
 
-  // ✅ Network status
   const [online, setOnline] = useState(isOnline());
 
   const [listTab, setListTab] = useState<ListTab | null>(null);
   const [listUsers, setListUsers] = useState<Profile[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [myFollowingIds, setMyFollowingIds] = useState<Set<string>>(new Set());
-  // ✅ users (in the opened list) who follow ME — decides "Follow back" vs "Follow"
   const [followsMeIds, setFollowsMeIds] = useState<Set<string>>(new Set());
   const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
 
@@ -267,21 +270,18 @@ export default function ProfileScreen() {
         p.username?.toLowerCase() ?? ''
       ));
 
-  // ✅ Network subscribe
   useEffect(() => {
     setOnline(isOnline());
     const unsub = subscribeNetwork(setOnline);
     return unsub;
   }, []);
 
-  // ✅ OFFLINE FIX: use getCurrentUserId (local session)
   useEffect(() => {
     (async () => {
       const uid = await getCurrentUserId();
       if (!uid) return;
       myIdRef.current = uid;
 
-      // load email from session (local)
       const session = await getCurrentSession();
       if (session?.user?.email) setEmail(session.user.email);
 
@@ -311,7 +311,6 @@ export default function ProfileScreen() {
       }
       myIdRef.current = uid;
 
-      // ✅ Skip network fetch if offline
       if (!isOnline()) {
         setLoading(false);
         return;
@@ -399,7 +398,6 @@ export default function ProfileScreen() {
     loadProfile();
   }, [loadProfile]);
 
-  // ✅ Auto-reload when network comes back online
   useEffect(() => {
     if (online && myIdRef.current) {
       loadProfile();
@@ -462,7 +460,6 @@ export default function ProfileScreen() {
           .eq(match, profile.id);
 
         const ids = (rows ?? []).map((r: any) => r[column]);
-        // keep the profile counters in sync with what the list really contains
         if (tab === 'followers') setFollowersCount(ids.length);
         else setFollowingCount(ids.length);
 
@@ -472,10 +469,6 @@ export default function ProfileScreen() {
           return;
         }
 
-        // ✅ FIX (wrong "Follow back"): myFollowingIds was only loaded when the profile
-        // loaded (or came from cache), so a follow done elsewhere / just now was missing
-        // → people I follow showed "Follow back". Re-read the real state from the DB
-        // for exactly the users in this list (both directions).
         try {
           const chunks: string[][] = [];
           for (let i = 0; i < ids.length; i += 100) {
@@ -794,6 +787,8 @@ export default function ProfileScreen() {
         } catch (err) {
           console.warn('[logout] SQLite wipe failed:', err);
         }
+        // ✅ NEW: clear in-memory auth cache
+        invalidateUserIdCache();
         await supabase.auth.signOut();
         router.replace('/(auth)/login');
       },
@@ -834,7 +829,6 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ✅ Offline banner */}
       {!online && (
         <View style={styles.offlineBanner}>
           <Ionicons name="cloud-offline-outline" size={14} color="#FFFFFF" />
@@ -1316,7 +1310,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000000' },
   scroll: { paddingBottom: SPACING.lg },
 
-  // ✅ Offline banner
   offlineBanner: {
     flexDirection: 'row',
     alignItems: 'center',
