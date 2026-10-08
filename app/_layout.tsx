@@ -2,6 +2,7 @@
 // Root layout — fonts, auth, theme, navigation stack, push notifications, sounds,
 // SQLite init, network tracker, stale cache cleanup, notification deep-nav
 // ✅ FIX: sync in-memory userId cache with auth state (instant cold start)
+// ✅ FIX: initialWindowMetrics on SafeAreaProvider — kills first-frame layout jump
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Stack, useRouter, usePathname } from 'expo-router';
@@ -14,7 +15,7 @@ import {
   Text,
   Pressable,
 } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Font from 'expo-font';
@@ -35,7 +36,7 @@ import {
 } from '@expo-google-fonts/poppins';
 import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono';
 import { supabase } from '../lib/supabase';
-import { setUserIdCache } from '../lib/auth'; // ✅ NEW
+import { setUserIdCache } from '../lib/auth';
 import { setSessionUnlocked } from '../lib/pin';
 import { initSounds } from '../lib/sounds';
 import { getDB } from '../lib/db';
@@ -200,7 +201,7 @@ export default function RootLayout() {
       .then(({ data: { session } }) => {
         if (!mounted) return;
         setUserId(session?.user?.id ?? null);
-        setUserIdCache(session?.user?.id ?? null); // ✅ NEW
+        setUserIdCache(session?.user?.id ?? null);
         setAuthReady(true);
       })
       .catch((err) => {
@@ -212,7 +213,7 @@ export default function RootLayout() {
       (_event, session) => {
         if (!mounted) return;
         setUserId(session?.user?.id ?? null);
-        setUserIdCache(session?.user?.id ?? null); // ✅ NEW
+        setUserIdCache(session?.user?.id ?? null);
         setAuthReady(true);
       }
     );
@@ -490,7 +491,8 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
-      <SafeAreaProvider>
+      {/* ✅ initialMetrics — first frame pe hi correct insets, no jump */}
+      <SafeAreaProvider initialMetrics={initialWindowMetrics}>
         <CallProvider>
           <StatusBar style="light" />
           <Stack
