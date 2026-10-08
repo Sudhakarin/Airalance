@@ -6,6 +6,8 @@
 //   - mergeMessages sort comparator stable (returns 0)
 //   - sendMessage: upsert server row BEFORE deleting temp (no message loss)
 //   - retryPendingMessages: same safe order
+//   - ✅ NEW: update conversations.last_message / last_at on every send/receive
+//              so the chat list preview is instant (no more "old message")
 
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import {
@@ -132,6 +134,59 @@ function normalizeIso(input: string | null | undefined): string | null {
     return d.toISOString();
   } catch {
     return input;
+  }
+}
+
+// ============================================================
+// ✅ Preview text from a message (mirrors chats.tsx)
+// ============================================================
+function previewFromMessage(msg: {
+  content?: string | null;
+  message_type?: string | null;
+  is_deleted?: boolean | null;
+}): string {
+  if (!msg) return '';
+  if (msg.is_deleted) return 'This message was deleted';
+  if (msg.message_type === 'image') return '📷 Photo';
+  if (msg.message_type === 'voice') return '🎤 Voice message';
+  if (msg.message_type === 'call') {
+    try {
+      const parsed = JSON.parse(msg.content || '{}');
+      const glyph = parsed.call_type === 'video' ? '📹' : '📞';
+      const st = parsed.status as string;
+      if (st === 'missed') return `${glyph} Missed call`;
+      if (st === 'declined') return `${glyph} Declined call`;
+      if (st === 'cancelled') return `${glyph} Cancelled call`;
+      return `${glyph} Call`;
+    } catch {
+      return '📞 Call';
+    }
+  }
+  if (msg.content?.startsWith('[STATUS_REPLY]'))
+    return '↩️ Replied to your status';
+  return msg.content || '';
+}
+
+// ============================================================
+// ✅ Update the conversation row in SQLite so the chat list
+//    shows the latest message instantly (no network wait)
+// ============================================================
+async function bumpConvoPreview(params: {
+  convoId: string;
+  preview: string;
+  atIso: string;
+}) {
+  try {
+    const db = await getDB();
+    const normalized = normalizeIso(params.atIso) ?? params.atIso;
+    await db.runAsync(
+      `UPDATE conversations
+         SET last_message = ?, last_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [params.preview, normalized, new Date().toISOString(), params.convoId]
+    );
+  } catch (err) {
+    console.warn('[chat] bumpConvoPreview error:', err);
   }
 }
 
@@ -446,6 +501,17 @@ export default function ChatScreen() {
       setStoredPinHash(pinHash);
       setMyId(uid);
 
+      // ✅ Reset unread counter for this conversation (we're inside now)
+      try {
+        const db = await getDB();
+        await db.runAsync(
+          `UPDATE conversations SET unread_count = 0 WHERE id = ?`,
+          [convoId]
+        );
+      } catch (err) {
+        console.warn('[chat] reset unread failed:', err);
+      }
+
       try {
         const cachedConvo = await dbGetConversation(convoId);
         if (cachedConvo?.other_user_id && mounted) {
@@ -552,6 +618,23 @@ export default function ChatScreen() {
 
           await persistMessages(ordered);
 
+          // ✅ Sync conversation preview with server's latest message
+          if (ordered.length > 0) {
+            const latest = ordered[ordered.length - 1];
+            bumpConvoPreview({
+              convoId,
+              preview: previewFromMessage(latest),
+              atIso: latest.created_at,
+            });
+          }
+
+          // ✅ Force scroll to end after network data lands
+          requestAnimationFrame(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+            initialScrollDoneRef.current = true;
+            isNearBottomRef.current = true;
+          });
+
           if (ordered.length > 0) {
             const { data: rx } = await supabase
               .from('message_reactions')
@@ -609,7 +692,7 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
-  // ✅ FIX: safe order — upsert server row FIRST, delete temp AFTER
+  // ✅ Retry pending messages
   const retryPendingMessages = useCallback(async () => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
@@ -639,7 +722,6 @@ export default function ChatScreen() {
 
           if (error) throw error;
           if (inserted) {
-            // ✅ FIX: upsert server row first (safe), then delete temp
             await dbUpsertMessage({
               ...messageToDbRow(inserted as Message),
               local_status: 'synced',
@@ -652,6 +734,13 @@ export default function ChatScreen() {
                   : m
               )
             );
+
+            // ✅ update convo preview after queue flush
+            bumpConvoPreview({
+              convoId,
+              preview: previewFromMessage(inserted as Message),
+              atIso: (inserted as Message).created_at,
+            });
           }
         } catch (err) {
           console.warn('[chat] retry pending failed:', err);
@@ -793,6 +882,13 @@ export default function ChatScreen() {
           }
 
           persistMessages([incoming]);
+
+          // ✅ Update convo preview immediately (chat list stays fresh)
+          bumpConvoPreview({
+            convoId,
+            preview: previewFromMessage(incoming),
+            atIso: incoming.created_at,
+          });
 
           setMessages((prev) => {
             if (prev.some((m) => m.id === incoming.id)) return prev;
@@ -1288,7 +1384,7 @@ export default function ChatScreen() {
     } catch {}
   }
 
-  // ✅ FIX: upsert server row FIRST, delete temp AFTER (no message loss)
+  // ✅ Send message — updates convo preview for instant chat list refresh
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
@@ -1305,12 +1401,13 @@ export default function ChatScreen() {
     });
 
     const tempId = `temp-${Date.now()}`;
+    const nowIso = new Date().toISOString();
     const optimistic: Message = {
       id: tempId,
       conversation_id: convoId,
       sender_id: myId,
       content,
-      created_at: new Date().toISOString(),
+      created_at: nowIso,
       read_at: null,
       delivered_at: null,
       message_type: 'text',
@@ -1323,6 +1420,9 @@ export default function ChatScreen() {
 
     setMessages((prev) => [...prev, optimistic]);
     markAnimating(tempId);
+
+    // ✅ Update convo preview immediately (before network)
+    bumpConvoPreview({ convoId, preview: content, atIso: nowIso });
 
     try {
       await dbUpsertMessage(messageToDbRow(optimistic));
@@ -1359,7 +1459,6 @@ export default function ChatScreen() {
         local_status: 'synced',
       };
 
-      // ✅ FIX: server first, then temp removed
       try {
         await dbUpsertMessage(messageToDbRow(serverMsg));
         await dbDeleteMessage(tempId);
@@ -1371,6 +1470,13 @@ export default function ChatScreen() {
         if (prev.some((m) => m.id === serverMsg.id))
           return prev.filter((m) => m.id !== tempId);
         return prev.map((m) => (m.id === tempId ? serverMsg : m));
+      });
+
+      // ✅ Refresh preview with server timestamp
+      bumpConvoPreview({
+        convoId,
+        preview: previewFromMessage(serverMsg),
+        atIso: serverMsg.created_at,
       });
 
       requestAnimationFrame(() => {
@@ -1477,6 +1583,14 @@ export default function ChatScreen() {
         setReplyingTo(null);
         hapticSuccess();
         playSend();
+
+        // ✅ Update preview
+        bumpConvoPreview({
+          convoId,
+          preview: '📷 Photo',
+          atIso: (inserted as Message).created_at,
+        });
+
         if (other?.id) triggerPushNotification(other.id, '', 'image');
       }
     } catch (err: any) {
@@ -1570,6 +1684,14 @@ export default function ChatScreen() {
         setReplyingTo(null);
         hapticSuccess();
         playSend();
+
+        // ✅ Update preview
+        bumpConvoPreview({
+          convoId,
+          preview: '🎤 Voice message',
+          atIso: (inserted as Message).created_at,
+        });
+
         if (other?.id) triggerPushNotification(other.id, '', 'voice');
       }
     } catch (err: any) {
@@ -1609,23 +1731,7 @@ export default function ChatScreen() {
 
   function getMessagePreview(msg: Message | null | undefined): string {
     if (!msg) return '';
-    if (msg.is_deleted) return 'This message was deleted';
-    if (msg.message_type === 'image') return '📷 Photo';
-    if (msg.message_type === 'voice') return '🎤 Voice message';
-    if (msg.message_type === 'call') {
-      try {
-        const parsed = JSON.parse(msg.content || '{}');
-        const glyph = parsed.call_type === 'video' ? '📹' : '📞';
-        const st = parsed.status as string;
-        if (st === 'missed') return `${glyph} Missed call`;
-        if (st === 'declined') return `${glyph} Declined call`;
-        if (st === 'cancelled') return `${glyph} Cancelled call`;
-        return `${glyph} Call`;
-      } catch {
-        return '📞 Call';
-      }
-    }
-    return msg.content || '';
+    return previewFromMessage(msg);
   }
 
   function getSenderName(msg: Message | null | undefined): string {
