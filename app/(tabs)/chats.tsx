@@ -1,17 +1,7 @@
 // app/(tabs)/chats.tsx
 // Chats list — SQLite-backed (offline-first) + SMART INCREMENTAL SYNC
-// ✅ STRATEGY:
-// 1. Instant Load from Cache (SQLite)
-// 2. Background Sync (Supabase) -> Merge only CHANGED items
-// 3. Realtime -> Update SPECIFIC row in state (No full reload)
-// 4. Focus Effect -> Light Sync (Not heavy reload)
-// 🐛 FIXES:
-//   - Realtime INSERT now persists actual preview (not "Updated via RT")
-//   - Sort comparator fixed
-//   - UPDATE / DELETE realtime handled
-//   - ChatRow memo compares profile fields too
-//   - syncBackground defined before use (TS ordering)
-//   - OtherProfile.last_seen optional added
+// ✅ FIX: delayed skeleton (250ms) — kills cold-start flash jump
+// ✅ FIX: skeletonWrap padding matches real list (no 8px jump)
 
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
@@ -69,7 +59,7 @@ type OtherProfile = {
   avatar_color: string;
   avatar_url: string | null;
   verified: boolean | null;
-  last_seen?: string | null; // ✅ FIX: optional
+  last_seen?: string | null;
 };
 
 type Conversation = {
@@ -184,7 +174,6 @@ function getCallPreview(rawContent: string): string {
   }
 }
 
-// ✅ FIX: Extract preview text from a raw message
 function previewFromMessage(msg: {
   content?: string | null;
   message_type?: string | null;
@@ -200,7 +189,6 @@ function previewFromMessage(msg: {
   return msg.content || '';
 }
 
-// ✅ FIX: Proper sort comparator (returns 0 on equality, stable-ish)
 function sortConversations(list: Conversation[]): Conversation[] {
   return [...list].sort((a, b) => {
     const at = a.last_at || '';
@@ -213,7 +201,6 @@ function sortConversations(list: Conversation[]): Conversation[] {
   });
 }
 
-// Merge new data into existing state WITHOUT replacing everything
 function mergeIntoState(
   prev: Conversation[],
   updates: Conversation[]
@@ -362,7 +349,6 @@ const ChatRow = memo(
       </View>
     );
   },
-  // ✅ FIX: also compare profile identity fields (avatar/verified/name)
   (prev, next) =>
     prev.item.id === next.item.id &&
     prev.item.last_at === next.item.last_at &&
@@ -387,6 +373,9 @@ export default function ChatsScreen() {
   const [myId, setMyId] = useState<string | null>(null);
   const [online, setOnline] = useState(isOnline());
 
+  // ✅ FIX: delayed skeleton — only show if loading > 250ms
+  const [showSkeleton, setShowSkeleton] = useState(false);
+
   // Modals State
   const [actionSheetConvo, setActionSheetConvo] = useState<Conversation | null>(null);
   const [deleteConfirmConvo, setDeleteConfirmConvo] = useState<Conversation | null>(null);
@@ -410,6 +399,16 @@ export default function ChatsScreen() {
   const startYRef = useRef(0);
   const hasFocusedOnceRef = useRef(false);
   const nativeGesture = useMemo(() => Gesture.Native(), []);
+
+  // ✅ FIX: delay skeleton visibility — avoids flash on warm start
+  useEffect(() => {
+    if (!loading || conversations.length > 0) {
+      setShowSkeleton(false);
+      return;
+    }
+    const t = setTimeout(() => setShowSkeleton(true), 250);
+    return () => clearTimeout(t);
+  }, [loading, conversations.length]);
 
   // Init User ID
   useEffect(() => {
@@ -439,7 +438,6 @@ export default function ChatsScreen() {
     })();
   }, [myId]);
 
-  // ✅ FIX: syncBackground defined BEFORE the initial-load effect that uses it
   const syncBackground = useCallback(async () => {
     if (!myId || !isOnline() || isLoadingRef.current) return;
 
@@ -580,7 +578,6 @@ export default function ChatsScreen() {
 
     const channel = supabase
       .channel('chats-list-realtime-v3')
-      // ── INSERT ──
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
@@ -592,14 +589,12 @@ export default function ChatsScreen() {
             clearTimeout(realtimeTimeoutRef.current);
 
           realtimeTimeoutRef.current = setTimeout(() => {
-            // ✅ FIX: compute the real preview (not "Updated via RT")
             const preview = previewFromMessage(msg);
             const isFromMe = msg.sender_id === myId;
 
             setConversations((prev) => {
               const idx = prev.findIndex((c) => c.id === cid);
               if (idx === -1) {
-                // Not in list (new chat) → trigger full sync instead of guessing
                 syncBackground();
                 return prev;
               }
@@ -619,18 +614,15 @@ export default function ChatsScreen() {
               return sortConversations(updated);
             });
 
-            // ✅ FIX: persist the real preview, not a placeholder
             dbUpsertConversation({
               id: cid,
               last_message: preview,
               last_at: msg.created_at,
-              // Only bump unread in DB when message is from someone else
               ...(isFromMe ? {} : { unread_count: 1 }),
             }).catch(console.warn);
           }, 300);
         }
       )
-      // ── UPDATE (edits, read receipts) ──
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
@@ -640,7 +632,6 @@ export default function ChatsScreen() {
           realtimeTimeoutRef.current = setTimeout(syncBackground, 800);
         }
       )
-      // ── DELETE ──
       .on(
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'messages' },
@@ -671,7 +662,6 @@ export default function ChatsScreen() {
     }, [myId, online, syncBackground])
   );
 
-  // Auto-reload on reconnect
   useEffect(() => {
     if (online && myId) {
       syncBackground();
@@ -895,12 +885,14 @@ export default function ChatsScreen() {
       setBlockConfirmConvo(null);
       return;
     }
-    hapticHeavy();
-    setBlockConfirmConvo(null);
+    hapticHe nativeavy();
+    setBlockConfirmConvo(nullGesture);
     try {
       await supabase
-        .from('blocked_users')
-        .insert({ blocker_id: myId, blocked_id: targetUserId });
+       );
+
+ .from('blocked_users')
+        .insert({  blocker_id: myId, blocked_id: targetUserId return });
       await supabase
         .from('conversation_participants')
         .delete()
@@ -967,9 +959,7 @@ export default function ChatsScreen() {
       }
     });
 
-  const listGesture = Gesture.Simultaneous(pullGesture, nativeGesture);
-
-  return (
+  const listGesture = Gesture.Simultaneous(pullGesture, (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Chats</Text>
@@ -991,7 +981,8 @@ export default function ChatsScreen() {
         </View>
       )}
 
-      {loading && conversations.length === 0 ? (
+      {/* ✅ FIX: skeleton only shows after 250ms — no warm-start flash */}
+      {showSkeleton ? (
         <ChatListSkeleton />
       ) : (
         <GestureDetector gesture={listGesture}>
@@ -1664,9 +1655,9 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
     lineHeight: 13,
   },
+  // ✅ FIX: paddingTop removed to match real FlatList contentContainer
   skeletonWrap: {
     paddingHorizontal: SPACING.sm,
-    paddingTop: SPACING.sm,
   },
   skeletonRow: {
     flexDirection: 'row',
