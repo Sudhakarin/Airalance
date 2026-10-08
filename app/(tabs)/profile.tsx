@@ -1,6 +1,8 @@
 // app/(tabs)/profile.tsx
 // My profile — offline auth + network auto-reload + SQLite wipe on logout
 // ✅ invalidateUserIdCache on logout
+// ✅ FIX: delayed skeleton (250ms) — kills cache-hit flash jump
+// ✅ FIX: skeleton card rows now match real (5 infoRows), padding matched
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -156,6 +158,7 @@ function SkeletonBlock({
   );
 }
 
+// ✅ FIXED: heights/paddings now match real content (5 infoRows, paddingVertical 12)
 function ProfileSkeleton() {
   return (
     <View style={styles.skeletonContainer}>
@@ -200,8 +203,9 @@ function ProfileSkeleton() {
         />
       </View>
 
+      {/* ✅ FIXED: 5 rows (matches real: Full name, Email, Username, Notifications, Account) */}
       <View style={styles.skeletonCard}>
-        {[1, 2, 3, 4].map((i) => (
+        {[1, 2, 3, 4, 5].map((i) => (
           <View key={i} style={styles.skeletonRow}>
             <SkeletonBlock width={80} height={14} borderRadius={4} />
             <SkeletonBlock width={120} height={14} borderRadius={4} />
@@ -214,9 +218,10 @@ function ProfileSkeleton() {
           <SkeletonBlock width={60} height={14} borderRadius={4} />
           <SkeletonBlock width={40} height={10} borderRadius={4} />
         </View>
+        {/* ✅ FIXED: bio input height 60 → 70 (matches real minHeight: 70) */}
         <SkeletonBlock
           width="100%"
-          height={60}
+          height={70}
           borderRadius={8}
           style={{ marginHorizontal: 18, marginBottom: 12 }}
         />
@@ -250,6 +255,9 @@ export default function ProfileScreen() {
 
   const [online, setOnline] = useState(isOnline());
 
+  // ✅ FIX: delayed skeleton — avoids cache-hit flash
+  const [showSkeleton, setShowSkeleton] = useState(false);
+
   const [listTab, setListTab] = useState<ListTab | null>(null);
   const [listUsers, setListUsers] = useState<Profile[]>([]);
   const [listLoading, setListLoading] = useState(false);
@@ -275,6 +283,16 @@ export default function ProfileScreen() {
     const unsub = subscribeNetwork(setOnline);
     return unsub;
   }, []);
+
+  // ✅ FIX: delayed skeleton — profile cache lands ~50ms, we wait 250ms before showing skeleton
+  useEffect(() => {
+    if (profile) {
+      setShowSkeleton(false);
+      return;
+    }
+    const t = setTimeout(() => setShowSkeleton(true), 250);
+    return () => clearTimeout(t);
+  }, [profile, loading]);
 
   useEffect(() => {
     (async () => {
@@ -797,7 +815,8 @@ export default function ProfileScreen() {
     });
   }
 
-  if (loading || !profile) {
+  // ✅ FIX: only show skeleton when profile is missing AND we've waited 250ms
+  if (!profile) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
@@ -808,7 +827,7 @@ export default function ProfileScreen() {
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}
         >
-          <ProfileSkeleton />
+          {showSkeleton ? <ProfileSkeleton /> : null}
         </ScrollView>
       </SafeAreaView>
     );
@@ -1721,12 +1740,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 10,
   },
+  // ✅ FIX: paddingVertical 14 → 12 (matches real infoRow)
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingVertical: 12,
   },
 
   blurBackdrop: {
