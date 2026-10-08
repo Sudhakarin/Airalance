@@ -1,5 +1,6 @@
 // app/status/[userId].tsx
 // Full-screen status viewer — offline cache + network auto-reload + Instagram music header
+// ✅ FIX: viewers sheet always opens at 50% of screen height (no jumping)
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
@@ -137,10 +138,7 @@ async function writeStatusesCache(userId: string, statuses: Status[]) {
 }
 
 // ============================================================
-// Video player
-// ============================================================
-// ============================================================
-// Conversation helpers (same logic as the profile screen's "Message")
+// Conversation helpers
 // ============================================================
 async function findSharedConversation(
   myId: string,
@@ -374,9 +372,8 @@ function MusicMarquee({ text }: { text: string }) {
   );
 }
 
-const VIEWER_ROW_HEIGHT = 62;
-const VIEWERS_HEADER_HEIGHT = 70;
-const VIEWERS_MAX_RATIO = 0.7;
+// ✅ FIXED: viewers sheet is now always 50% of screen — no jumping
+const VIEWERS_SHEET_RATIO = 0.5;
 
 export default function StatusViewerScreen() {
   const router = useRouter();
@@ -398,13 +395,11 @@ export default function StatusViewerScreen() {
   const [connectPopup, setConnectPopup] = useState<'ask' | 'pending' | 'declined' | null>(null);
   const [sendingRequest, setSendingRequest] = useState(false);
 
-  // ✅ reply to status (opens a message in the DM chat)
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // ✅ null = still checking, true = viewer does NOT follow the poster (can't see status)
   const [blocked, setBlocked] = useState<boolean | null>(null);
 
   const [paused, setPaused] = useState(false);
@@ -421,34 +416,23 @@ export default function StatusViewerScreen() {
   const rafRef = useRef<number | null>(null);
   const cacheShownRef = useRef(false);
 
-  // ✅ Network
   useEffect(() => {
     setOnline(isOnline());
     const unsub = subscribeNetwork(setOnline);
     return unsub;
   }, []);
 
+  // ✅ FIXED: always 50% — stable, never jumps as viewer count changes
   const viewersSheetHeight = useMemo(() => {
-    const rowCount = viewersLoading ? 5 : viewers.length;
-    const contentHeight =
-      VIEWERS_HEADER_HEIGHT +
-      rowCount * VIEWER_ROW_HEIGHT +
-      insets.bottom +
-      12;
-    const maxHeight = screenHeight * VIEWERS_MAX_RATIO;
-    const minHeight = 180;
-    return Math.max(minHeight, Math.min(contentHeight, maxHeight));
-  }, [viewers.length, viewersLoading, insets.bottom, screenHeight]);
+    return Math.round(screenHeight * VIEWERS_SHEET_RATIO);
+  }, [screenHeight]);
 
-  // ✅ Load statuses — cache-first + skip network if offline
   useEffect(() => {
     let mounted = true;
     async function load() {
-      // ✅ getCurrentUserId works offline
       const uid = await getCurrentUserId();
       if (mounted && uid) {
         setMyId(uid);
-        // Try local profile name from cache — else skip network call if offline
         if (isOnline()) {
           const { data: me } = await supabase
             .from('profiles')
@@ -459,7 +443,6 @@ export default function StatusViewerScreen() {
         }
       }
 
-      // ✅ Show cache instantly
       if (!cacheShownRef.current) {
         const cache = await readStatusesCache(userId);
         if (cache?.statuses?.length && mounted) {
@@ -473,7 +456,6 @@ export default function StatusViewerScreen() {
         cacheShownRef.current = true;
       }
 
-      // ✅ Skip network if offline
       if (!isOnline()) {
         if (mounted) setLoading(false);
         return;
@@ -503,7 +485,6 @@ export default function StatusViewerScreen() {
     };
   }, [userId]);
 
-  // ✅ Auto-reload when back online
   useEffect(() => {
     if (!online) return;
     if (!userId) return;
@@ -522,7 +503,6 @@ export default function StatusViewerScreen() {
     })();
   }, [online, userId]);
 
-  // Connection / follow check — skip if offline
   useEffect(() => {
     if (!myId || !userId || myId === userId) {
       setIsFollowing(false);
@@ -532,7 +512,7 @@ export default function StatusViewerScreen() {
     }
     if (!online) {
       setConnectionStatus('none');
-      setBlocked(false); // can't verify offline — server rules still protect the data
+      setBlocked(false);
       return;
     }
     let cancelled = false;
@@ -554,17 +534,14 @@ export default function StatusViewerScreen() {
         ]);
         if (cancelled) return;
         setIsFollowing(!!followRes.data);
-        // ✅ only followers may watch a status
         setBlocked(followRes.error ? false : !followRes.data);
 
-        // ✅ there can be 2 rows (each user sent one) → accepted wins over pending over declined
         const reqStatuses = ((reqRes.data ?? []) as any[]).map((r) => r.status);
         let conn: ConnectionStatus = 'none';
         if (reqStatuses.includes('accepted')) conn = 'connected';
         else if (reqStatuses.includes('pending')) conn = 'pending';
         else if (reqStatuses.includes('declined')) conn = 'declined';
 
-        // already chatting = connected (same rule as the profile screen)
         if (conn !== 'connected') {
           const shared = await findSharedConversation(myId, userId);
           if (cancelled) return;
@@ -575,7 +552,7 @@ export default function StatusViewerScreen() {
         if (!cancelled) {
           setIsFollowing(false);
           setConnectionStatus('none');
-          setBlocked(false); // network glitch: don't wrongly lock the status
+          setBlocked(false);
         }
       }
     })();
@@ -621,7 +598,6 @@ export default function StatusViewerScreen() {
 
   async function toggleLike() {
     if (!myId || likeLoading) return;
-    // ✅ like / reply only for connected users
     if (connectionStatus !== 'connected') return;
     if (!isOnline()) {
       hapticError();
@@ -673,7 +649,6 @@ export default function StatusViewerScreen() {
     resume();
   }
 
-  // ✅ Send the reply as a normal chat message that carries a snapshot of the status
   async function sendStatusReply() {
     const text = replyText.trim();
     const cur = statuses[index];
@@ -1137,7 +1112,6 @@ export default function StatusViewerScreen() {
     );
   }
 
-  // ✅ Still checking whether I follow this person
   if (blocked === null && online && myId !== userId) {
     return (
       <View style={styles.loadingWrap}>
@@ -1146,7 +1120,6 @@ export default function StatusViewerScreen() {
     );
   }
 
-  // ✅ Not following the poster → the status must not be visible at all
   if (blocked) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -1311,7 +1284,6 @@ export default function StatusViewerScreen() {
           />
         ) : (
           <>
-            {/* blurred fill behind, so non-full-screen photos look clean */}
             <Image
               source={{ uri: current.media_url! }}
               style={styles.mediaFull}
@@ -1324,7 +1296,6 @@ export default function StatusViewerScreen() {
                 { backgroundColor: 'rgba(0,0,0,0.35)' },
               ]}
             />
-            {/* the photo itself — fitted fully, never zoomed/cropped */}
             <Image
               source={{ uri: current.media_url! }}
               style={styles.mediaFull}
@@ -1938,7 +1909,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // reply composer
   replyModalWrap: { flex: 1, justifyContent: 'flex-end' },
   replyBackdrop: {
     ...StyleSheet.absoluteFillObject,
