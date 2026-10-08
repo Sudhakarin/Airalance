@@ -2,6 +2,7 @@
 // Home screen — category chips + featured carousel + Top Stories + AsyncStorage cache
 // ✅ UPDATED: shows 20+ articles by default (server fetches 60)
 // ✅ UPDATED: better FlatList perf props for longer feed
+// ✅ FIX: HomeSkeleton now matches real content heights exactly (kills skeleton→content jump)
 
 import { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react';
 import {
@@ -22,7 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
+import { COLORS, FONTS, RADII } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 
 type NewsArticle = {
@@ -70,14 +71,11 @@ const SCREEN_W = Dimensions.get('window').width;
 const CARD_W = SCREEN_W - SIDE * 2;
 const SNAP = CARD_W + GAP;
 
-// ✅ UPDATED: was 6 → 20 (main fix)
 const TOP_LIMIT = 20;
-
-// ✅ UPDATED: was hardcoded 20 → 60 (fetch more from server)
 const SERVER_LIMIT = 60;
 
 const NEWS_CACHE_KEY = 'airalance:news:feed';
-const NEWS_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
+const NEWS_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 
 type NewsCache = {
   t: number;
@@ -127,7 +125,7 @@ function initials(name: string): string {
   return letters.slice(0, 3) || 'N';
 }
 
-// ---------- Article image (photo or gradient fallback) ----------
+// ---------- Article image ----------
 function ArticleImage({
   article,
   style,
@@ -212,26 +210,43 @@ function SkeletonBlock({
   );
 }
 
+// ✅ FIXED: heights now match real content exactly
+// Featured: 250 (card) + 22 (dots) = 272
+// Section: 22 (marginTop) + 20 (title) + 12 (marginBottom) = 54
+// Rows: 88 + 10 gap × 3 = 294
+// Total ~620px (real content ~624px — negligible diff)
 function HomeSkeleton() {
   return (
     <View style={{ paddingHorizontal: SIDE }}>
-      <SkeletonBlock
-        width="100%"
-        height={250}
-        borderRadius={RADII.xxl}
-        style={{ marginBottom: SPACING.xl }}
-      />
-      <SkeletonBlock
-        width={160}
-        height={18}
-        borderRadius={6}
-        style={{ marginBottom: SPACING.md }}
-      />
+      {/* Featured card placeholder — matches FeaturedCard (height 250) */}
+      <SkeletonBlock width="100%" height={250} borderRadius={RADII.xxl} />
+
+      {/* Dots placeholder — matches dotsRow (marginTop 14 + dot height 8 = 22) */}
+      <View
+        style={{
+          marginTop: 14,
+          height: 8,
+          flexDirection: 'row',
+          justifyContent: 'center',
+          gap: 8,
+        }}
+      >
+        <SkeletonBlock width={8} height={8} borderRadius={4} />
+        <SkeletonBlock width={8} height={8} borderRadius={4} />
+        <SkeletonBlock width={8} height={8} borderRadius={4} />
+      </View>
+
+      {/* Section header placeholder — marginTop 22 + title 20 + marginBottom 12 = 54 */}
+      <View style={{ marginTop: 22, marginBottom: 12 }}>
+        <SkeletonBlock width={180} height={20} borderRadius={6} />
+      </View>
+
+      {/* Article rows — matches ArticleRow height (88) + separator (10) */}
       {[0, 1, 2].map((i) => (
         <SkeletonBlock
           key={i}
           width="100%"
-          height={84}
+          height={88}
           borderRadius={RADII.lg}
           style={{ marginBottom: 10 }}
         />
@@ -501,11 +516,10 @@ export default function HomeScreen() {
         .from('news_articles')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(SERVER_LIMIT); // ✅ was hardcoded 20
+        .limit(SERVER_LIMIT);
 
       if (error) {
         console.warn('News fetch error:', error.message);
-        // keep showing stale cache
       } else {
         const list = (data ?? []) as NewsArticle[];
         setArticles(list);
@@ -548,7 +562,6 @@ export default function HomeScreen() {
     return articles.filter((a) => a.category?.toLowerCase() === lower);
   }, [articles, selectedCategory]);
 
-  // Carousel: featured articles (max 5), else latest 3
   const featuredList = useMemo(() => {
     const feat = filteredArticles.filter((a) => a.is_featured).slice(0, 5);
     return feat.length > 0 ? feat : filteredArticles.slice(0, 3);
@@ -639,7 +652,6 @@ export default function HomeScreen() {
         ListHeaderComponent={listHeader}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
-        // ✅ UPDATED: tuned for longer feed (20+ items)
         initialNumToRender={6}
         maxToRenderPerBatch={6}
         windowSize={7}
@@ -664,7 +676,6 @@ const styles = StyleSheet.create({
   scroll: { paddingBottom: 40 },
   center: { alignItems: 'center', justifyContent: 'center' },
 
-  // Top bar
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -708,7 +719,6 @@ const styles = StyleSheet.create({
     lineHeight: 10,
   },
 
-  // Category chips
   categoriesRow: {
     paddingHorizontal: SIDE,
     paddingTop: 4,
@@ -746,7 +756,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Empty
   emptyWrap: { paddingVertical: 40, alignItems: 'center', gap: 8 },
   emptyText: {
     color: COLORS.text,
@@ -756,7 +765,6 @@ const styles = StyleSheet.create({
   },
   emptySubtext: { color: COLORS.mist, fontSize: 12, fontFamily: FONTS.body },
 
-  // Featured card
   featuredCard: {
     width: CARD_W,
     height: 250,
@@ -893,7 +901,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Carousel dots
   dotsRow: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -908,7 +915,6 @@ const styles = StyleSheet.create({
   },
   dotActive: { backgroundColor: COLORS.violet },
 
-  // Section header
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -929,7 +935,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
   },
 
-  // Top Stories row
   articleRow: {
     flexDirection: 'row',
     alignItems: 'center',
