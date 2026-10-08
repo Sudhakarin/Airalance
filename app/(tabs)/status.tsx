@@ -2,6 +2,7 @@
 // Status tab — offline cache + network auto-reload + story rings + new status popup
 // ✅ FIX: delayed skeleton (250ms) — kills cold-start flash jump
 // ✅ FIX: useFocusEffect now from @react-navigation/native (rule #5)
+// ✅ FIX: my profile fetched in loadStatuses — avatar updates after profile change
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -116,15 +117,9 @@ function SkeletonBlock({
   );
 }
 
-// ✅ FIXED: heights match real content exactly
-// My row: paddingVertical 12 × 2 + avatar 58 = 82
-// Divider: 1 + marginTop 8 + marginBottom 8 = 17
-// Section title: ~22px + paddingBottom 8 = 30
-// Row: 12 + 58 + 10 = 80 per row
 function StatusSkeleton() {
   return (
     <View style={styles.skeletonWrap}>
-      {/* My status row — matches real myStatusRow (paddingVertical 12, avatar 58) */}
       <View style={styles.myStatusRow}>
         <SkeletonBlock width={58} height={58} borderRadius={29} />
         <View style={{ flex: 1, gap: 6, marginLeft: SPACING.sm }}>
@@ -167,13 +162,12 @@ export default function StatusScreen() {
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
 
-  // ✅ FIX: delayed skeleton — avoids warm-start flash
   const [showSkeleton, setShowSkeleton] = useState(false);
 
   const [online, setOnline] = useState(isOnline());
   const cacheShownRef = useRef(false);
 
-  // ✅ FIX: delayed skeleton trigger
+  // ✅ Delayed skeleton
   useEffect(() => {
     const hasContent = myStatuses.length > 0 || otherGroups.length > 0;
     if (hasContent || !loading) {
@@ -212,6 +206,7 @@ export default function StatusScreen() {
     })();
   }, []);
 
+  // ✅ loadStatuses now ALSO fetches fresh profile (fixes stale avatar)
   const loadStatuses = useCallback(async () => {
     if (!myId) return;
     if (!isOnline()) {
@@ -221,13 +216,19 @@ export default function StatusScreen() {
     }
 
     try {
-      const [statusRes, followRes] = await Promise.all([
+      const [statusRes, followRes, myProfileRes] = await Promise.all([
         supabase
           .from('statuses')
           .select('*, profile:profiles(*)')
           .gt('expires_at', new Date().toISOString())
           .order('created_at', { ascending: true }),
         supabase.from('follows').select('followed_id').eq('follower_id', myId),
+        // ✅ FIX: fetch my fresh profile every time loadStatuses runs
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', myId)
+          .single(),
       ]);
 
       const { data: statusData, error } = statusRes;
@@ -263,6 +264,10 @@ export default function StatusScreen() {
       setMyStatuses(mine);
       setOtherGroups(Object.values(grouped));
 
+      // ✅ FIX: update my profile with fresh data
+      const freshProfile = (myProfileRes.data as Profile) ?? null;
+      if (freshProfile) setMyProfile(freshProfile);
+
       const { data: views } = await supabase
         .from('status_views')
         .select('status_id')
@@ -270,11 +275,12 @@ export default function StatusScreen() {
       const vIds = (views ?? []).map((v: any) => v.status_id);
       setViewedIds(new Set(vIds));
 
+      // ✅ FIX: cache uses fresh profile (not stale closure)
       await writeStatusCache({
         myStatuses: mine,
         otherGroups: Object.values(grouped),
         viewedIds: vIds,
-        myProfile: myProfile ?? null,
+        myProfile: freshProfile ?? myProfile ?? null,
       });
     } catch (err) {
       console.warn('Load statuses error:', err);
@@ -282,7 +288,7 @@ export default function StatusScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [myId, myProfile]);
+  }, [myId]); // ✅ FIX: removed myProfile from deps — prevents stale closure
 
   useEffect(() => {
     loadStatuses();
@@ -297,24 +303,12 @@ export default function StatusScreen() {
         focusedOnceRef.current = true;
         return;
       }
+      // ✅ FIX: focus reload will now refresh profile too
       loadStatusesRef.current();
     }, [])
   );
 
-  useEffect(() => {
-    if (!myId) return;
-    if (!isOnline()) return;
-    if (myProfile) return;
-
-    (async () => {
-      const { data: p } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', myId)
-        .single();
-      if (p) setMyProfile(p as Profile);
-    })();
-  }, [myId, myProfile, online]);
+  // ✅ FIX: separate profile effect REMOVED — profile now fetched inside loadStatuses
 
   useEffect(() => {
     if (online && myId) {
@@ -428,7 +422,6 @@ export default function StatusScreen() {
 
   const myAllViewed = myStatuses.every((s) => viewedIds.has(s.id));
 
-  // ✅ FIX: only show skeleton after 250ms delay
   if (showSkeleton) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -922,7 +915,6 @@ const styles = StyleSheet.create({
   skeletonWrap: {
     paddingBottom: SPACING.lg,
   },
-  // ✅ FIX: matches real statusRow paddingVertical: 10
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
