@@ -3,8 +3,10 @@
 // SQLite init, network tracker, stale cache cleanup, notification deep-nav
 // ✅ FIX: sync in-memory userId cache with auth state (instant cold start)
 // ✅ FIX: initialWindowMetrics on SafeAreaProvider — kills first-frame layout jump
+// ✅ FIX: SafeAreaProvider mounted IMMEDIATELY (never behind conditional null)
+//         — native insets ready before first content frame → zero jump
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Stack, useRouter, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -15,7 +17,10 @@ import {
   Text,
   Pressable,
 } from 'react-native';
-import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
+import {
+  SafeAreaProvider,
+  initialWindowMetrics,
+} from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Font from 'expo-font';
@@ -69,7 +74,13 @@ const FONT_MAP = {
 // ============================================================
 // Global Error Boundary
 // ============================================================
-export function ErrorBoundary({ error, retry }: { error: Error; retry: () => void }) {
+export function ErrorBoundary({
+  error,
+  retry,
+}: {
+  error: Error;
+  retry: () => void;
+}) {
   return (
     <View style={styles.errorContainer}>
       <Text style={styles.errorTitle}>Something went wrong</Text>
@@ -91,8 +102,15 @@ export default function RootLayout() {
   const [userId, setUserId] = useState<string | null>(null);
   const pushRegisteredForUserRef = useRef<string | null>(null);
   const fcmRegisteredForUserRef = useRef<string | null>(null);
-  const lastNotifNavRef = useRef<{ key: string; time: number }>({ key: '', time: 0 });
-  const [pendingNotif, setPendingNotif] = useState<Record<string, any> | null>(null);
+  const lastNotifNavRef = useRef<{ key: string; time: number }>({
+    key: '',
+    time: 0,
+  });
+  const [pendingNotif, setPendingNotif] = useState<Record<string, any> | null>(
+    null
+  );
+
+  const isReady = fontsLoaded && authReady;
 
   // ---------- Init sounds ----------
   useEffect(() => {
@@ -390,7 +408,7 @@ export default function RootLayout() {
   }, [authReady, userId]);
 
   // ============================================================
-  // ✅ Android 14+ Full-Screen Intent permission check
+  // Android 14+ Full-Screen Intent permission check
   // ============================================================
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -401,9 +419,6 @@ export default function RootLayout() {
     console.log(
       '[fsi] Android 14+ detected. Full-screen calls need manual permission grant.'
     );
-    console.log(
-      '[fsi] Guide user to: Settings → Apps → Airalance → Special access → Full screen notifications → Allow'
-    );
   }, [authReady]);
 
   // ============================================================
@@ -412,8 +427,9 @@ export default function RootLayout() {
   useEffect(() => {
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
-        const data = response?.notification?.request?.content
-          ?.data as Record<string, any> | undefined;
+        const data = response?.notification?.request?.content?.data as
+          | Record<string, any>
+          | undefined;
         if (data?.screen === 'call' && data.callId) {
           setPendingNotif(data);
         }
@@ -422,8 +438,9 @@ export default function RootLayout() {
 
     const sub = Notifications.addNotificationResponseReceivedListener(
       (response) => {
-        const data = response?.notification?.request?.content
-          ?.data as Record<string, any> | undefined;
+        const data = response?.notification?.request?.content?.data as
+          | Record<string, any>
+          | undefined;
         if (data?.screen === 'call' && data.callId) {
           setPendingNotif(data);
         }
@@ -472,84 +489,104 @@ export default function RootLayout() {
     return () => clearTimeout(t);
   }, [pendingNotif, authReady, userId, pathname, router]);
 
-  // ---------- Hide splash ----------
-  const onLayoutRootView = useCallback(async () => {
-    if (fontsLoaded && authReady) {
-      await SplashScreen.hideAsync().catch(() => {});
-    }
-  }, [fontsLoaded, authReady]);
-
+  // ---------- Hide splash (single consolidated effect) ----------
   useEffect(() => {
-    if (fontsLoaded && authReady) {
+    if (isReady) {
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [fontsLoaded, authReady]);
+  }, [isReady]);
 
-  if (!fontsLoaded || !authReady) {
-    return null;
-  }
-
+  // ============================================================
+  // RENDER
+  // ✅ FIX: NEVER return null here.
+  // GestureHandlerRootView + SafeAreaProvider mount IMMEDIATELY so native
+  // insets are measured before the first content frame. When isReady flips,
+  // content mounts with insets already correct → no jump.
+  // ============================================================
   return (
-    <GestureHandlerRootView style={styles.root} onLayout={onLayoutRootView}>
-      {/* ✅ initialMetrics — first frame pe hi correct insets, no jump */}
+    <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-        <CallProvider>
-          <StatusBar style="light" />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: '#0A0C12' },
-              animation: 'slide_from_right',
-              animationDuration: 220,
-            }}
-          >
-            <Stack.Screen name="index" options={{ animation: 'none' }} />
-            <Stack.Screen
-              name="(auth)"
-              options={{ animation: 'fade', animationDuration: 200 }}
-            />
-            <Stack.Screen
-              name="(tabs)"
-              options={{ animation: 'fade', animationDuration: 200 }}
-            />
-            <Stack.Screen
-              name="chat/[id]"
-              options={{ animation: 'slide_from_right', animationDuration: 220 }}
-            />
-            <Stack.Screen
-              name="profile/[id]"
-              options={{ animation: 'slide_from_right', animationDuration: 220 }}
-            />
-            <Stack.Screen
-              name="status/[userId]"
-              options={{ animation: 'fade', animationDuration: 200 }}
-            />
-            <Stack.Screen
-              name="status/create"
-              options={{ animation: 'slide_from_bottom', animationDuration: 240 }}
-            />
-            <Stack.Screen
-              name="news/[id]"
-              options={{ animation: 'slide_from_right', animationDuration: 220 }}
-            />
-            <Stack.Screen
-              name="settings/index"
-              options={{ animation: 'slide_from_right', animationDuration: 220 }}
-            />
-            <Stack.Screen
-              name="notifications"
-              options={{ animation: 'slide_from_right', animationDuration: 220 }}
-            />
-            <Stack.Screen
-              name="call/[id]"
-              options={{
-                animation: 'fade',
-                animationDuration: 200,
-                presentation: 'modal',
+        {!isReady ? (
+          // Splash is still visible on top — this placeholder is just to
+          // keep SafeAreaProvider mounted and let native insets settle.
+          <View style={styles.loadingPlaceholder} />
+        ) : (
+          <CallProvider>
+            <StatusBar style="light" />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: '#0A0C12' },
+                animation: 'slide_from_right',
+                animationDuration: 220,
               }}
-            />
-          </Stack>
-        </CallProvider>
+            >
+              <Stack.Screen name="index" options={{ animation: 'none' }} />
+              <Stack.Screen
+                name="(auth)"
+                options={{ animation: 'fade', animationDuration: 200 }}
+              />
+              <Stack.Screen
+                name="(tabs)"
+                options={{ animation: 'fade', animationDuration: 200 }}
+              />
+              <Stack.Screen
+                name="chat/[id]"
+                options={{
+                  animation: 'slide_from_right',
+                  animationDuration: 220,
+                }}
+              />
+              <Stack.Screen
+                name="profile/[id]"
+                options={{
+                  animation: 'slide_from_right',
+                  animationDuration: 220,
+                }}
+              />
+              <Stack.Screen
+                name="status/[userId]"
+                options={{ animation: 'fade', animationDuration: 200 }}
+              />
+              <Stack.Screen
+                name="status/create"
+                options={{
+                  animation: 'slide_from_bottom',
+                  animationDuration: 240,
+                }}
+              />
+              <Stack.Screen
+                name="news/[id]"
+                options={{
+                  animation: 'slide_from_right',
+                  animationDuration: 220,
+                }}
+              />
+              <Stack.Screen
+                name="settings/index"
+                options={{
+                  animation: 'slide_from_right',
+                  animationDuration: 220,
+                }}
+              />
+              <Stack.Screen
+                name="notifications"
+                options={{
+                  animation: 'slide_from_right',
+                  animationDuration: 220,
+                }}
+              />
+              <Stack.Screen
+                name="call/[id]"
+                options={{
+                  animation: 'fade',
+                  animationDuration: 200,
+                  presentation: 'modal',
+                }}
+              />
+            </Stack>
+          </CallProvider>
+        )}
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -557,6 +594,7 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0A0C12' },
+  loadingPlaceholder: { flex: 1, backgroundColor: '#0A0C12' },
   errorContainer: {
     flex: 1,
     backgroundColor: '#0A0C12',
@@ -564,8 +602,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
   },
-  errorTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  errorMsg: { color: '#9CA3AF', fontSize: 13, textAlign: 'center', marginBottom: 24 },
+  errorTitle: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  errorMsg: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
   errorBtn: {
     backgroundColor: '#7C5CFF',
     paddingHorizontal: 28,
