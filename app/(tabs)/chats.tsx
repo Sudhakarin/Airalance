@@ -885,14 +885,12 @@ export default function ChatsScreen() {
       setBlockConfirmConvo(null);
       return;
     }
-    hapticHe nativeavy();
-    setBlockConfirmConvo(nullGesture);
+    hapticHeavy();
+    setBlockConfirmConvo(null);
     try {
       await supabase
-       );
-
- .from('blocked_users')
-        .insert({  blocker_id: myId, blocked_id: targetUserId return });
+        .from('blocked_users')
+        .insert({ blocker_id: myId, blocked_id: targetUserId });
       await supabase
         .from('conversation_participants')
         .delete()
@@ -959,7 +957,9 @@ export default function ChatsScreen() {
       }
     });
 
-  const listGesture = Gesture.Simultaneous(pullGesture, (
+  const listGesture = Gesture.Simultaneous(pullGesture, nativeGesture);
+
+  return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Chats</Text>
