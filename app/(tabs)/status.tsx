@@ -1,5 +1,7 @@
 // app/(tabs)/status.tsx
 // Status tab — offline cache + network auto-reload + story rings + new status popup
+// ✅ FIX: delayed skeleton (250ms) — kills cold-start flash jump
+// ✅ FIX: useFocusEffect now from @react-navigation/native (rule #5)
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -15,7 +17,8 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
@@ -54,9 +57,8 @@ type UserStatusGroup = {
   latestAt: string;
 };
 
-// ✅ Status cache (short TTL, tiny payload)
-const STATUS_CACHE_KEY = 'airalance:status-tab:v2'; // v2: only followed users' statuses
-const STATUS_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24h
+const STATUS_CACHE_KEY = 'airalance:status-tab:v2';
+const STATUS_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 
 type StatusCache = {
   t: number;
@@ -114,12 +116,18 @@ function SkeletonBlock({
   );
 }
 
+// ✅ FIXED: heights match real content exactly
+// My row: paddingVertical 12 × 2 + avatar 58 = 82
+// Divider: 1 + marginTop 8 + marginBottom 8 = 17
+// Section title: ~22px + paddingBottom 8 = 30
+// Row: 12 + 58 + 10 = 80 per row
 function StatusSkeleton() {
   return (
     <View style={styles.skeletonWrap}>
+      {/* My status row — matches real myStatusRow (paddingVertical 12, avatar 58) */}
       <View style={styles.myStatusRow}>
-        <SkeletonBlock width={70} height={70} borderRadius={35} />
-        <View style={{ flex: 1, gap: 8 }}>
+        <SkeletonBlock width={58} height={58} borderRadius={29} />
+        <View style={{ flex: 1, gap: 6, marginLeft: SPACING.sm }}>
           <SkeletonBlock width="40%" height={16} borderRadius={6} />
           <SkeletonBlock width="60%" height={12} borderRadius={4} />
         </View>
@@ -135,8 +143,8 @@ function StatusSkeleton() {
           style={{ marginBottom: 12, marginHorizontal: 18 }}
         />
         {[1, 2, 3].map((i) => (
-          <View key={i} style={styles.statusRow}>
-            <SkeletonBlock width={70} height={70} borderRadius={35} />
+          <View key={i} style={styles.skeletonRow}>
+            <SkeletonBlock width={58} height={58} borderRadius={29} />
             <View style={{ flex: 1, gap: 6 }}>
               <SkeletonBlock width="50%" height={16} borderRadius={6} />
               <SkeletonBlock width="30%" height={12} borderRadius={4} />
@@ -159,18 +167,29 @@ export default function StatusScreen() {
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
 
-  // ✅ Network
+  // ✅ FIX: delayed skeleton — avoids warm-start flash
+  const [showSkeleton, setShowSkeleton] = useState(false);
+
   const [online, setOnline] = useState(isOnline());
   const cacheShownRef = useRef(false);
 
-  // ✅ Network subscription
+  // ✅ FIX: delayed skeleton trigger
+  useEffect(() => {
+    const hasContent = myStatuses.length > 0 || otherGroups.length > 0;
+    if (hasContent || !loading) {
+      setShowSkeleton(false);
+      return;
+    }
+    const t = setTimeout(() => setShowSkeleton(true), 250);
+    return () => clearTimeout(t);
+  }, [loading, myStatuses.length, otherGroups.length]);
+
   useEffect(() => {
     setOnline(isOnline());
     const unsub = subscribeNetwork(setOnline);
     return unsub;
   }, []);
 
-  // ✅ Load user from LOCAL session (works offline)
   useEffect(() => {
     (async () => {
       const uid = await getCurrentUserId();
@@ -178,7 +197,6 @@ export default function StatusScreen() {
     })();
   }, []);
 
-  // ✅ Show cache instantly (offline-friendly)
   useEffect(() => {
     if (cacheShownRef.current) return;
     (async () => {
@@ -203,8 +221,6 @@ export default function StatusScreen() {
     }
 
     try {
-      // ✅ Statuses are only visible to people who FOLLOW the poster.
-      // Load my follows together with the statuses and keep only followed users.
       const [statusRes, followRes] = await Promise.all([
         supabase
           .from('statuses')
@@ -216,7 +232,6 @@ export default function StatusScreen() {
 
       const { data: statusData, error } = statusRes;
       if (error) throw error;
-      // if the follow list failed, keep what is on screen (never fall back to "show all")
       if (followRes.error) throw followRes.error;
 
       const followedIds = new Set<string>(
@@ -255,7 +270,6 @@ export default function StatusScreen() {
       const vIds = (views ?? []).map((v: any) => v.status_id);
       setViewedIds(new Set(vIds));
 
-      // ✅ save cache
       await writeStatusCache({
         myStatuses: mine,
         otherGroups: Object.values(grouped),
@@ -274,21 +288,19 @@ export default function StatusScreen() {
     loadStatuses();
   }, [loadStatuses]);
 
-  // ✅ Re-check when the tab comes back into focus (e.g. after following someone)
   const loadStatusesRef = useRef(loadStatuses);
   loadStatusesRef.current = loadStatuses;
   const focusedOnceRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
       if (!focusedOnceRef.current) {
-        focusedOnceRef.current = true; // first focus is covered by the effect above
+        focusedOnceRef.current = true;
         return;
       }
       loadStatusesRef.current();
     }, [])
   );
 
-  // ✅ Load my profile (needs online; cached version shown in step above)
   useEffect(() => {
     if (!myId) return;
     if (!isOnline()) return;
@@ -304,14 +316,12 @@ export default function StatusScreen() {
     })();
   }, [myId, myProfile, online]);
 
-  // ✅ Auto-reload when back online
   useEffect(() => {
     if (online && myId) {
       loadStatuses();
     }
   }, [online, myId, loadStatuses]);
 
-  // Safe realtime — only when online
   useEffect(() => {
     if (!myId) return;
     if (!online) return;
@@ -418,7 +428,8 @@ export default function StatusScreen() {
 
   const myAllViewed = myStatuses.every((s) => viewedIds.has(s.id));
 
-  if (loading && myStatuses.length === 0 && otherGroups.length === 0) {
+  // ✅ FIX: only show skeleton after 250ms delay
+  if (showSkeleton) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
@@ -448,7 +459,6 @@ export default function StatusScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ✅ Offline banner */}
       {!online && (
         <View style={styles.offlineBanner}>
           <Ionicons name="cloud-offline-outline" size={14} color="#FFFFFF" />
@@ -912,6 +922,7 @@ const styles = StyleSheet.create({
   skeletonWrap: {
     paddingBottom: SPACING.lg,
   },
+  // ✅ FIX: matches real statusRow paddingVertical: 10
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
