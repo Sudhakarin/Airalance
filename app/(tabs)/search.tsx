@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   FlatList,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -88,6 +88,8 @@ function SearchResultsSkeleton({ count = 5 }: { count?: number }) {
 }
 
 export default function SearchScreen() {
+  // ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Profile[]>([]);
@@ -174,7 +176,7 @@ export default function SearchScreen() {
   const showResults = query.trim().length >= 2;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <View style={[styles.safe, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.headerBrand}>Airalance!</Text>
         <TouchableOpacity
@@ -331,7 +333,7 @@ export default function SearchScreen() {
           </TouchableOpacity>
         )}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
