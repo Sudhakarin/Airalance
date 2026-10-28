@@ -21,7 +21,7 @@ import {
   AppState,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -156,6 +156,8 @@ function StatusSkeleton() {
 }
 
 export default function StatusScreen() {
+  // ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [myStatuses, setMyStatuses] = useState<Status[]>([]);
   const [otherGroups, setOtherGroups] = useState<UserStatusGroup[]>([]);
@@ -433,7 +435,7 @@ export default function StatusScreen() {
 
   if (showSkeleton) {
     return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
+      <View style={[styles.safe, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Status</Text>
           <View style={styles.headerBtn} />
@@ -444,12 +446,12 @@ export default function StatusScreen() {
         >
           <StatusSkeleton />
         </ScrollView>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <View style={[styles.safe, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Status</Text>
         <TouchableOpacity
@@ -733,7 +735,7 @@ export default function StatusScreen() {
           </Pressable>
         </BlurView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
