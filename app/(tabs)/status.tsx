@@ -426,9 +426,7 @@ export default function StatusScreen() {
           <Text style={styles.headerTitle}>Status</Text>
           <View style={styles.headerBtn} />
         </View>
-        <View
-          style={styles.scroll}
-        >
+        <View style={styles.scroll}>
           <StatusSkeleton />
         </View>
       </View>
