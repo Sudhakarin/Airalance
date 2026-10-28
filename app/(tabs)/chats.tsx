@@ -4,6 +4,11 @@
 // ✅ FIX: Realtime listener now forces sync if chat is missing
 // ✅ FIX: Select sender_id in last message query
 // ✅ FIX: insets from hook, delayed skeleton, error handling
+// ✅ FIX: Unread badge clears instantly on open + re-sync after returning
+// ✅ FIX: Sync no longer skipped when busy (queued re-run)
+// ✅ FIX: List never wiped on empty/failed server response
+// ✅ FIX: Realtime INSERT no longer drops updates (separate timers)
+// ✅ FIX: removeClippedSubviews off (blank list bug)
 
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
@@ -37,7 +42,6 @@ import {
   dbUpsertConversation,
   dbUpsertConversations,
   dbDeleteConversation,
-  dbClearAllConversations,
   DBConversation,
 } from '../../lib/db';
 import {
@@ -187,7 +191,7 @@ function previewFromMessage(
 ): string {
   if (!msg) return '';
   const prefix = isFromMe ? 'You: ' : '';
-  
+
   if (msg.is_deleted) return prefix + 'This message was deleted';
   if (msg.message_type === 'image') return prefix + '📷 Photo';
   if (msg.message_type === 'voice') return prefix + '🎤 Voice message';
@@ -398,8 +402,12 @@ export default function ChatsScreen() {
   const [storedPin, setStoredPin] = useState<string | null>(null);
   const [lockedViewOpen, setLockedViewOpen] = useState(false);
 
-  const realtimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ✅ FIX: alag timers — INSERT ka update UPDATE/DELETE se cancel nahi hoga
+  const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingRef = useRef(false);
+  const pendingSyncRef = useRef(false);
+  const runSyncRef = useRef<() => void>(() => {});
+  const conversationsRef = useRef<Conversation[]>([]);
   const cacheShownRef = useRef(false);
   const listRef = useRef<FlatList<Conversation>>(null);
   const didHideRef = useRef(false);
@@ -407,6 +415,10 @@ export default function ChatsScreen() {
   const startYRef = useRef(0);
   const hasFocusedOnceRef = useRef(false);
   const nativeGesture = useMemo(() => Gesture.Native(), []);
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   useEffect(() => {
     if (!loading || conversations.length > 0) {
@@ -443,7 +455,13 @@ export default function ChatsScreen() {
   }, [myId]);
 
   const syncBackground = useCallback(async () => {
-    if (!myId || !isOnline() || isLoadingRef.current) return;
+    if (!myId || !isOnline()) return;
+
+    // ✅ FIX: busy ho toh skip mat karo, baad me dobara chalao
+    if (isLoadingRef.current) {
+      pendingSyncRef.current = true;
+      return;
+    }
 
     isLoadingRef.current = true;
     try {
@@ -458,9 +476,11 @@ export default function ChatsScreen() {
       }
 
       const ids = (participants ?? []).map((p) => p.conversation_id);
+
+      // ✅ FIX: empty result pe list kabhi wipe mat karo (session/RLS hiccup).
+      // Delete/block already local list se khud hata dete hain.
       if (ids.length === 0) {
-        setConversations([]);
-        await dbClearAllConversations();
+        console.warn('[chats] participants empty — keeping existing list');
         return;
       }
 
@@ -495,13 +515,18 @@ export default function ChatsScreen() {
         return;
       }
 
+      // ✅ FIX: server ne chats nahi diye par error bhi nahi — kuch mat badlo
+      if (!convosRes.data || convosRes.data.length === 0) {
+        console.warn('[chats] conversations empty — keeping existing list');
+        return;
+      }
+
       const lastPerConvo = new Map<string, any>();
       for (let i = 0; i < ids.length; i += 10) {
         const chunk = ids.slice(i, i + 10);
         const chunkPromises = chunk.map((id) =>
           supabase
             .from('messages')
-            // ✅ FIX: Added sender_id here
             .select('conversation_id, content, message_type, created_at, is_deleted, sender_id')
             .eq('conversation_id', id)
             .order('created_at', { ascending: false })
@@ -531,12 +556,16 @@ export default function ChatsScreen() {
         if (p.profiles) otherProfiles.set(p.conversation_id, p.profiles);
       });
 
+      const prevMap = new Map(
+        conversationsRef.current.map((c) => [c.id, c])
+      );
+
       const updatedRows: Conversation[] = (convosRes.data ?? []).map((c: any) => {
         const last = lastPerConvo.get(c.id);
         const setting = settingsMap.get(c.id);
         const profile = otherProfiles.get(c.id);
+        const prevConvo = prevMap.get(c.id);
 
-        // ✅ FIX: Determine if last message was mine
         const isFromMe = last?.sender_id === myId;
         const preview = last ? previewFromMessage(last, isFromMe) : 'Say hello 👋';
 
@@ -556,7 +585,10 @@ export default function ChatsScreen() {
             : null,
           last_message: preview,
           last_at: last?.created_at ?? '',
-          unread_count: unreadCounts.get(c.id) ?? 0,
+          // ✅ FIX: unread query fail hui toh purana count rakho (0 mat karo)
+          unread_count: unreadRes.error
+            ? prevConvo?.unread_count ?? 0
+            : unreadCounts.get(c.id) ?? 0,
           is_muted: setting?.is_muted ?? false,
           is_locked: setting?.is_locked ?? false,
         };
@@ -582,8 +614,16 @@ export default function ChatsScreen() {
       console.warn('[chats] Sync Error:', err);
     } finally {
       isLoadingRef.current = false;
+      if (pendingSyncRef.current) {
+        pendingSyncRef.current = false;
+        setTimeout(() => runSyncRef.current(), 50);
+      }
     }
   }, [myId]);
+
+  useEffect(() => {
+    runSyncRef.current = syncBackground;
+  }, [syncBackground]);
 
   useEffect(() => {
     if (!myId || cacheShownRef.current) return;
@@ -618,81 +658,78 @@ export default function ChatsScreen() {
         (payload) => {
           const msg = payload.new as any;
           const cid = msg.conversation_id;
+          const isFromMe = msg.sender_id === myId;
+          const preview = previewFromMessage(msg, isFromMe);
 
-          if (realtimeTimeoutRef.current)
-            clearTimeout(realtimeTimeoutRef.current);
+          // ✅ FIX: naya chat realtime me aaya toh full sync (queued)
+          const exists = conversationsRef.current.some((c) => c.id === cid);
+          if (!exists) {
+            syncBackground();
+            return;
+          }
 
-          realtimeTimeoutRef.current = setTimeout(() => {
-            const isFromMe = msg.sender_id === myId;
-            const preview = previewFromMessage(msg, isFromMe);
+          // ✅ FIX: debounce hata diya — alag chats ke messages drop nahi honge
+          setConversations((prev) => {
+            const idx = prev.findIndex((c) => c.id === cid);
+            if (idx === -1) return prev;
 
-            setConversations((prev) => {
-              const idx = prev.findIndex((c) => c.id === cid);
-              if (idx === -1) {
-                // ✅ FIX: Force reload if new chat appeared in realtime
-                isLoadingRef.current = false;
-                syncBackground();
-                return prev;
-              }
+            const updated = [...prev];
+            const convo = updated[idx];
 
-              const updated = [...prev];
-              const convo = updated[idx];
-
-              updated[idx] = {
-                ...convo,
-                last_message: preview,
-                last_at: msg.created_at,
-                unread_count: isFromMe
-                  ? convo.unread_count
-                  : convo.unread_count + 1,
-              };
-
-              return sortConversations(updated);
-            });
-
-            dbUpsertConversation({
-              id: cid,
+            updated[idx] = {
+              ...convo,
               last_message: preview,
               last_at: msg.created_at,
-            }).catch(console.warn);
-          }, 300);
+              unread_count: isFromMe
+                ? convo.unread_count
+                : convo.unread_count + 1,
+            };
+
+            return sortConversations(updated);
+          });
+
+          dbUpsertConversation({
+            id: cid,
+            last_message: preview,
+            last_at: msg.created_at,
+          }).catch(console.warn);
         }
       )
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'messages' },
         () => {
-          if (realtimeTimeoutRef.current)
-            clearTimeout(realtimeTimeoutRef.current);
-          realtimeTimeoutRef.current = setTimeout(syncBackground, 800);
+          if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+          syncTimeoutRef.current = setTimeout(syncBackground, 800);
         }
       )
       .on(
         'postgres_changes',
         { event: 'DELETE', schema: 'public', table: 'messages' },
         () => {
-          if (realtimeTimeoutRef.current)
-            clearTimeout(realtimeTimeoutRef.current);
-          realtimeTimeoutRef.current = setTimeout(syncBackground, 800);
+          if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+          syncTimeoutRef.current = setTimeout(syncBackground, 800);
         }
       )
       .subscribe();
 
     return () => {
-      if (realtimeTimeoutRef.current) clearTimeout(realtimeTimeoutRef.current);
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
       supabase.removeChannel(channel);
     };
   }, [myId, online, syncBackground]);
 
+  // ✅ FIX: chat se wapas aane pe 2 baar sync (read_at update ko time do)
   useFocusEffect(
     useCallback(() => {
       if (!hasFocusedOnceRef.current) {
         hasFocusedOnceRef.current = true;
         return;
       }
-      if (myId && online) {
-        syncBackground();
-      }
+      if (!(myId && online)) return;
+      syncBackground();
+      const t = setTimeout(() => syncBackground(), 1200);
+      return () => clearTimeout(t);
     }, [myId, online, syncBackground])
   );
 
@@ -728,19 +765,31 @@ export default function ChatsScreen() {
     [hasLocked]
   );
 
+  // ✅ FIX: chat kholte hi badge turant hata do
+  const clearUnreadLocal = useCallback((convoId: string) => {
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === convoId && c.unread_count > 0 ? { ...c, unread_count: 0 } : c
+      )
+    );
+    patchDbConversation(convoId, { unread_count: 0 });
+  }, []);
+
   const openChat = useCallback(
     (convoId: string) => {
+      clearUnreadLocal(convoId);
       router.push(`/chat/${convoId}`);
     },
-    [router]
+    [router, clearUnreadLocal]
   );
 
   const openLockedChat = useCallback(
     (convoId: string) => {
+      clearUnreadLocal(convoId);
       setLockedViewOpen(false);
       setTimeout(() => router.push(`/chat/${convoId}`), 320);
     },
-    [router]
+    [router, clearUnreadLocal]
   );
 
   async function deleteConversation(convoId: string) {
@@ -1040,7 +1089,7 @@ export default function ChatsScreen() {
             maxToRenderPerBatch={10}
             windowSize={7}
             updateCellsBatchingPeriod={50}
-            removeClippedSubviews={true}
+            removeClippedSubviews={false}
             keyboardShouldPersistTaps="handled"
             scrollEventThrottle={16}
             onScroll={(e) => {
