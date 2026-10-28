@@ -3,6 +3,8 @@
 // ✅ FIX: delayed skeleton (250ms) — kills cold-start flash jump
 // ✅ FIX: useFocusEffect now from @react-navigation/native (rule #5)
 // ✅ FIX: my profile fetched in loadStatuses — avatar updates after profile change
+// ✅ FIX: AppState listener — syncs when app comes to foreground (fixes background socket kill)
+// ✅ FIX: Realtime listens to ALL events ('*') — INSERT, UPDATE, DELETE
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -15,6 +17,7 @@ import {
   RefreshControl,
   Modal,
   Pressable,
+  AppState, // ✅ NEW: for foreground sync
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -206,7 +209,6 @@ export default function StatusScreen() {
     })();
   }, []);
 
-  // ✅ loadStatuses now ALSO fetches fresh profile (fixes stale avatar)
   const loadStatuses = useCallback(async () => {
     if (!myId) return;
     if (!isOnline()) {
@@ -223,7 +225,6 @@ export default function StatusScreen() {
           .gt('expires_at', new Date().toISOString())
           .order('created_at', { ascending: true }),
         supabase.from('follows').select('followed_id').eq('follower_id', myId),
-        // ✅ FIX: fetch my fresh profile every time loadStatuses runs
         supabase
           .from('profiles')
           .select('*')
@@ -264,7 +265,6 @@ export default function StatusScreen() {
       setMyStatuses(mine);
       setOtherGroups(Object.values(grouped));
 
-      // ✅ FIX: update my profile with fresh data
       const freshProfile = (myProfileRes.data as Profile) ?? null;
       if (freshProfile) setMyProfile(freshProfile);
 
@@ -275,7 +275,6 @@ export default function StatusScreen() {
       const vIds = (views ?? []).map((v: any) => v.status_id);
       setViewedIds(new Set(vIds));
 
-      // ✅ FIX: cache uses fresh profile (not stale closure)
       await writeStatusCache({
         myStatuses: mine,
         otherGroups: Object.values(grouped),
@@ -288,7 +287,7 @@ export default function StatusScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [myId]); // ✅ FIX: removed myProfile from deps — prevents stale closure
+  }, [myId]);
 
   useEffect(() => {
     loadStatuses();
@@ -296,6 +295,7 @@ export default function StatusScreen() {
 
   const loadStatusesRef = useRef(loadStatuses);
   loadStatusesRef.current = loadStatuses;
+
   const focusedOnceRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
@@ -303,12 +303,20 @@ export default function StatusScreen() {
         focusedOnceRef.current = true;
         return;
       }
-      // ✅ FIX: focus reload will now refresh profile too
       loadStatusesRef.current();
     }, [])
   );
 
-  // ✅ FIX: separate profile effect REMOVED — profile now fetched inside loadStatuses
+  // ✅ FIX: AppState listener — jab app background se foreground me aaye, sync karo
+  // Android OS background me WebSocket drop kar deta hai, isliye ye zaruri hai
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && isOnline()) {
+        loadStatusesRef.current();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     if (online && myId) {
@@ -316,6 +324,7 @@ export default function StatusScreen() {
     }
   }, [online, myId, loadStatuses]);
 
+  // ✅ FIX: Realtime listens to ALL events ('*') instead of just INSERT
   useEffect(() => {
     if (!myId) return;
     if (!online) return;
@@ -329,14 +338,14 @@ export default function StatusScreen() {
         .on(
           'postgres_changes',
           {
-            event: 'INSERT',
+            event: '*', // ✅ was 'INSERT' — now INSERT, UPDATE, DELETE
             schema: 'public',
             table: 'statuses',
           },
           () => {
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
-              loadStatuses();
+              loadStatusesRef.current();
             }, 500);
           }
         )
@@ -351,7 +360,7 @@ export default function StatusScreen() {
           () => {
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
-              loadStatuses();
+              loadStatusesRef.current();
             }, 500);
           }
         )
@@ -372,7 +381,7 @@ export default function StatusScreen() {
         } catch {}
       }
     };
-  }, [myId, loadStatuses, online]);
+  }, [myId, online]);
 
   async function onRefresh() {
     if (!isOnline()) {
