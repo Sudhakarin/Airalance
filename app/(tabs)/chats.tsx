@@ -1,10 +1,8 @@
 // app/(tabs)/chats.tsx
 // Chats list — SQLite-backed (offline-first) + SMART INCREMENTAL SYNC
-// ✅ FIX: delayed skeleton (250ms) — kills cold-start flash jump
-// ✅ FIX: skeletonWrap padding matches real list (no 8px jump)
-// ✅ FIX: Fetch last message per conversation individually — fixes "Say hello" for older chats
-// ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
-// ✅ FIX: no 'No conversations' flash on cold start; supabase errors checked; stale chats pruned
+// ✅ FIX: "You: " prefix for sent messages
+// ✅ FIX: Realtime listener now forces sync if chat is missing
+// ✅ FIX: Select sender_id in last message query
 
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
@@ -177,19 +175,25 @@ function getCallPreview(rawContent: string): string {
   }
 }
 
-function previewFromMessage(msg: {
-  content?: string | null;
-  message_type?: string | null;
-  is_deleted?: boolean | null;
-}): string {
+// ✅ FIX: Added isFromMe param to add "You: " prefix
+function previewFromMessage(
+  msg: {
+    content?: string | null;
+    message_type?: string | null;
+    is_deleted?: boolean | null;
+  },
+  isFromMe: boolean = false
+): string {
   if (!msg) return '';
-  if (msg.is_deleted) return 'This message was deleted';
-  if (msg.message_type === 'image') return '📷 Photo';
-  if (msg.message_type === 'voice') return '🎤 Voice message';
-  if (msg.message_type === 'call') return getCallPreview(msg.content ?? '');
+  const prefix = isFromMe ? 'You: ' : '';
+  
+  if (msg.is_deleted) return prefix + 'This message was deleted';
+  if (msg.message_type === 'image') return prefix + '📷 Photo';
+  if (msg.message_type === 'voice') return prefix + '🎤 Voice message';
+  if (msg.message_type === 'call') return prefix + getCallPreview(msg.content ?? '');
   if (msg.content?.startsWith('[STATUS_REPLY]'))
-    return '↩️ Replied to your status';
-  return msg.content || '';
+    return prefix + '↩️ Replied to your status';
+  return prefix + (msg.content || '');
 }
 
 function sortConversations(list: Conversation[]): Conversation[] {
@@ -369,7 +373,6 @@ const ChatRow = memo(
 );
 
 export default function ChatsScreen() {
-  // ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { height: winH } = useWindowDimensions();
@@ -378,7 +381,6 @@ export default function ChatsScreen() {
   const [myId, setMyId] = useState<string | null>(null);
   const [online, setOnline] = useState(isOnline());
 
-  // ✅ FIX: delayed skeleton — only show if loading > 250ms
   const [showSkeleton, setShowSkeleton] = useState(false);
 
   // Modals State
@@ -405,7 +407,6 @@ export default function ChatsScreen() {
   const hasFocusedOnceRef = useRef(false);
   const nativeGesture = useMemo(() => Gesture.Native(), []);
 
-  // ✅ FIX: delay skeleton visibility — avoids flash on warm start
   useEffect(() => {
     if (!loading || conversations.length > 0) {
       setShowSkeleton(false);
@@ -415,7 +416,6 @@ export default function ChatsScreen() {
     return () => clearTimeout(t);
   }, [loading, conversations.length]);
 
-  // Init User ID
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -427,14 +427,12 @@ export default function ChatsScreen() {
     };
   }, []);
 
-  // Network Listener
   useEffect(() => {
     setOnline(isOnline());
     const unsub = subscribeNetwork(setOnline);
     return unsub;
   }, []);
 
-  // Load PIN Hash
   useEffect(() => {
     if (!myId) return;
     (async () => {
@@ -453,7 +451,6 @@ export default function ChatsScreen() {
         .select('conversation_id')
         .eq('user_id', myId);
 
-      // ✅ FIX: on network/server error do NOT treat as "no chats" (would wipe local cache)
       if (partErr) {
         console.warn('[chats] participants error:', partErr.message);
         return;
@@ -466,7 +463,6 @@ export default function ChatsScreen() {
         return;
       }
 
-      // ✅ lastMsg fetched individually below (not in Promise.all)
       const [convosRes, othersRes, unreadRes, settingsRes] =
         await Promise.all([
           supabase
@@ -498,14 +494,14 @@ export default function ChatsScreen() {
         return;
       }
 
-      // ✅ FIX: Fetch latest message per conversation in chunks (fixes "Say hello" bug)
       const lastPerConvo = new Map<string, any>();
       for (let i = 0; i < ids.length; i += 10) {
         const chunk = ids.slice(i, i + 10);
         const chunkPromises = chunk.map((id) =>
           supabase
             .from('messages')
-            .select('conversation_id, content, message_type, created_at, is_deleted')
+            // ✅ FIX: Added sender_id here
+            .select('conversation_id, content, message_type, created_at, is_deleted, sender_id')
             .eq('conversation_id', id)
             .order('created_at', { ascending: false })
             .limit(1)
@@ -539,7 +535,9 @@ export default function ChatsScreen() {
         const setting = settingsMap.get(c.id);
         const profile = otherProfiles.get(c.id);
 
-        const preview = last ? previewFromMessage(last) : 'Say hello 👋';
+        // ✅ FIX: Determine if last message was mine to add "You: "
+        const isFromMe = last?.sender_id === myId;
+        const preview = last ? previewFromMessage(last, isFromMe) : 'Say hello 👋';
 
         return {
           id: c.id,
@@ -563,7 +561,6 @@ export default function ChatsScreen() {
         };
       });
 
-      // ✅ FIX: drop chats that no longer exist on server (deleted on another device)
       const idSet = new Set<string>(ids);
       setConversations((prev) =>
         mergeIntoState(
@@ -587,7 +584,6 @@ export default function ChatsScreen() {
     }
   }, [myId]);
 
-  // 1. INITIAL LOAD: CACHE FIRST (Instant)
   useEffect(() => {
     if (!myId || cacheShownRef.current) return;
     (async () => {
@@ -610,7 +606,6 @@ export default function ChatsScreen() {
     })();
   }, [myId, syncBackground]);
 
-  // 3. REALTIME UPDATES: TARGETED PATCHING
   useEffect(() => {
     if (!myId || !online) return;
 
@@ -627,12 +622,15 @@ export default function ChatsScreen() {
             clearTimeout(realtimeTimeoutRef.current);
 
           realtimeTimeoutRef.current = setTimeout(() => {
-            const preview = previewFromMessage(msg);
             const isFromMe = msg.sender_id === myId;
+            // ✅ FIX: Pass isFromMe to preview
+            const preview = previewFromMessage(msg, isFromMe);
 
             setConversations((prev) => {
               const idx = prev.findIndex((c) => c.id === cid);
               if (idx === -1) {
+                // ✅ FIX: Force reload if new chat appeared in realtime
+                isLoadingRef.current = false;
                 syncBackground();
                 return prev;
               }
@@ -656,7 +654,6 @@ export default function ChatsScreen() {
               id: cid,
               last_message: preview,
               last_at: msg.created_at,
-              ...(isFromMe ? {} : { unread_count: 1 }),
             }).catch(console.warn);
           }, 300);
         }
@@ -687,7 +684,6 @@ export default function ChatsScreen() {
     };
   }, [myId, online, syncBackground]);
 
-  // 4. FOCUS EFFECT: LIGHT SYNC WHEN RETURNING
   useFocusEffect(
     useCallback(() => {
       if (!hasFocusedOnceRef.current) {
@@ -933,7 +929,6 @@ export default function ChatsScreen() {
       const { error: blockErr } = await supabase
         .from('blocked_users')
         .insert({ blocker_id: myId, blocked_id: targetUserId });
-      // 23505 = already blocked → fine
       if (blockErr && blockErr.code !== '23505') throw blockErr;
       const { error: blkErr1 } = await supabase
         .from('conversation_participants')
@@ -1027,7 +1022,6 @@ export default function ChatsScreen() {
         </View>
       )}
 
-      {/* ✅ FIX: skeleton only shows after 250ms — no warm-start flash */}
       {showSkeleton ? (
         <ChatListSkeleton />
       ) : (
@@ -1704,7 +1698,6 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.bodySemiBold,
     lineHeight: 13,
   },
-  // ✅ FIX: paddingTop removed to match real FlatList contentContainer
   skeletonWrap: {
     paddingHorizontal: SPACING.sm,
   },
