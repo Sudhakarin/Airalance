@@ -21,7 +21,7 @@ import {
   Pressable,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -238,6 +238,8 @@ function ProfileSkeleton() {
 }
 
 export default function ProfileScreen() {
+  // ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [email, setEmail] = useState('');
@@ -818,7 +820,7 @@ export default function ProfileScreen() {
   // ✅ FIX: only show skeleton when profile is missing AND we've waited 250ms
   if (!profile) {
     return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
+      <View style={[styles.safe, { paddingTop: insets.top }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Airalance!</Text>
           <View style={styles.headerBtn} />
@@ -829,7 +831,7 @@ export default function ProfileScreen() {
         >
           {showSkeleton ? <ProfileSkeleton /> : null}
         </ScrollView>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -837,7 +839,7 @@ export default function ProfileScreen() {
   const statusShown = statusCount;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <View style={[styles.safe, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Airalance!</Text>
         <TouchableOpacity
@@ -1299,7 +1301,7 @@ export default function ProfileScreen() {
           </Pressable>
         </BlurView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
