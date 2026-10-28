@@ -1,7 +1,14 @@
 // app/(tabs)/search.tsx
 // Search screen — find users by username + suggestions (only @airalance) + skeleton
+// ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
+// ✅ FIX: Dynamic notification count + DeviceEventEmitter sync (fixes hardcoded 9+)
+// ✅ FIX: subscribeNetwork listener — auto-refresh when internet reconnects
+// ✅ FIX: reconnect uses retryTick (no more editing the TextInput value)
+// ✅ FIX: myId from cached getCurrentUserId (works offline on cold start)
+// ✅ FIX: search query sanitized (commas/brackets no longer break the filter)
+// ✅ FIX: fetchNotificationCount wrapped in try/catch
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,6 +16,7 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
+  DeviceEventEmitter,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -22,6 +30,8 @@ import {
   GRADIENTS,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { getCurrentUserId } from '../../lib/auth';
+import { subscribeNetwork } from '../../lib/network';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 
@@ -88,7 +98,6 @@ function SearchResultsSkeleton({ count = 5 }: { count?: number }) {
 }
 
 export default function SearchScreen() {
-  // ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [query, setQuery] = useState('');
@@ -97,13 +106,58 @@ export default function SearchScreen() {
   const [searching, setSearching] = useState(false);
   const [loadingSuggestion, setLoadingSuggestion] = useState(true);
   const [myId, setMyId] = useState<string | null>(null);
+
+  const [notifCount, setNotifCount] = useState(0);
+  const [retryTick, setRetryTick] = useState(0); // ✅ bumps when internet comes back
   const searchSeq = useRef(0);
 
+  // ✅ FIX: cached user id — works offline on cold start
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setMyId(data.user.id);
-    });
+    let mounted = true;
+    getCurrentUserId()
+      .then((id) => {
+        if (mounted && id) setMyId(id);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
   }, []);
+
+  const fetchNotificationCount = useCallback(async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      const { count } = await supabase
+        .from('app_notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', session.user.id)
+        .eq('read', false);
+      setNotifCount(count ?? 0);
+    } catch (err) {
+      console.warn('Notif count failed:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNotificationCount();
+    const sub = DeviceEventEmitter.addListener('REFRESH_NOTIF_COUNT', () => {
+      fetchNotificationCount();
+    });
+    return () => sub.remove();
+  }, [fetchNotificationCount]);
+
+  // ✅ FIX: Auto-reconnect — no TextInput hack, just bump retryTick
+  useEffect(() => {
+    const unsub = subscribeNetwork((online) => {
+      if (!online) return;
+      fetchNotificationCount();
+      setRetryTick((t) => t + 1);
+    });
+    return unsub;
+  }, [fetchNotificationCount]);
 
   useEffect(() => {
     if (!myId) return;
@@ -126,13 +180,21 @@ export default function SearchScreen() {
     }
 
     loadSuggestion();
-  }, [myId]);
+  }, [myId, retryTick]);
 
   useEffect(() => {
     if (!myId) return;
 
     const trimmed = query.trim();
     if (trimmed.length < 2) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+
+    // ✅ FIX: remove chars that break PostgREST .or() filter
+    const safe = trimmed.replace(/[,()%\\]/g, '');
+    if (safe.length < 2) {
       setResults([]);
       setSearching(false);
       return;
@@ -146,24 +208,28 @@ export default function SearchScreen() {
         const { data, error } = await supabase
           .from('profiles')
           .select('*')
-          .or(
-            `username.ilike.%${trimmed}%,display_name.ilike.%${trimmed}%`
-          )
+          .or(`username.ilike.%${safe}%,display_name.ilike.%${safe}%`)
           .neq('id', myId)
           .limit(15);
 
         if (seq !== searchSeq.current) return;
 
-        if (!error && data) setResults(data as Profile[]);
+        if (error) {
+          console.warn('Search error:', error.message);
+          setResults([]);
+        } else if (data) {
+          setResults(data as Profile[]);
+        }
       } catch (err) {
         console.warn('Search error:', err);
+        if (seq === searchSeq.current) setResults([]);
       } finally {
         if (seq === searchSeq.current) setSearching(false);
       }
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [query, myId]);
+  }, [query, myId, retryTick]);
 
   function openProfile(p: Profile) {
     router.push(`/profile/${p.id}`);
@@ -185,9 +251,14 @@ export default function SearchScreen() {
           onPress={() => router.push('/notifications')}
         >
           <Ionicons name="notifications-outline" size={19} color="#FFFFFF" />
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>9+</Text>
-          </View>
+
+          {notifCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>
+                {notifCount > 9 ? '9+' : notifCount}
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -419,12 +490,11 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
-  // ✅ FIXED: align suggestion header + card with search bar (18px total)
   suggestHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 10, // was 4 → 8 + 10 = 18 = matches search bar
+    paddingHorizontal: 10,
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.sm,
   },
@@ -442,7 +512,7 @@ const styles = StyleSheet.create({
     borderRadius: RADII.xl,
     paddingVertical: 4,
     paddingHorizontal: 6,
-    marginHorizontal: 10, // ✅ NEW: 8 + 10 = 18 = matches search bar
+    marginHorizontal: 10,
     marginBottom: 4,
   },
   suggestionRow: {
