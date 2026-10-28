@@ -4,7 +4,7 @@
 // ✅ FIX: delayed skeleton (250ms) — kills cache-hit flash jump
 // ✅ FIX: skeleton card rows now match real (5 infoRows), padding matched
 // ✅ FIX: Removed Cache TTL — shows cached profile instantly on cold start
-// ✅ FIX: Realtime listeners for statuses and follows (live active status ring/count)
+// ✅ FIX: Realtime listener added for statuses and follows
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -416,7 +416,10 @@ export default function ProfileScreen() {
     }
   }, [online, loadProfile]);
 
-  // ✅ NEW: Realtime listener for statuses and follows
+  // ============================================================
+  // ✅ NEW: Realtime Listener (Statuses & Follows)
+  // Is part ko dhyan se paste karna, ye line 380 ke aas paas aayega
+  // ============================================================
   const loadProfileRef = useRef(loadProfile);
   loadProfileRef.current = loadProfile;
 
@@ -463,6 +466,7 @@ export default function ProfileScreen() {
       }
     };
   }, [online]);
+  // ============================================================
 
   const syncCache = useCallback(
     async (patch: Partial<{
