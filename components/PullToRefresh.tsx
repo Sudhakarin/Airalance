@@ -1,4 +1,7 @@
 // components/PullToRefresh.tsx
+// ✅ FIX: Wrapped startRefresh/collapse calls in onFinalize with runOnJS (prevents UI thread crash)
+// ✅ FIX: Removed redundant runOnJS inside JS-thread functions (reset/finish/startRefresh)
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
@@ -67,7 +70,7 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
     ok.value = 0;
     chk.value = CHECK_LEN;
     bump.value = 0;
-    runOnJS(setLabel)('Pull to refresh');
+    setLabel('Pull to refresh'); // ✅ Direct setLabel (we're on JS thread)
   }, [arc, bump, chk, ok, rot, phase]);
 
   const collapse = useCallback(() => {
@@ -88,14 +91,14 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
       duration: 320,
       easing: Easing.out(Easing.cubic),
     });
-    runOnJS(setLabel)("You're up to date");
-    runOnJS(hapticSuccess)();
+    setLabel("You're up to date"); // ✅ Direct setLabel
+    hapticSuccess(); // ✅ Direct haptic
     later(collapse, 950);
   }, [arc, chk, collapse, later, ok, rot, phase]);
 
   const startRefresh = useCallback(() => {
     phase.value = 'refreshing';
-    runOnJS(setLabel)('Refreshing…');
+    setLabel('Refreshing…'); // ✅ Direct setLabel
     pull.value = withTiming(PULL_THRESHOLD, { duration: 200 });
     rot.value = 0;
     rot.value = withRepeat(
@@ -124,7 +127,6 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
   const gesture = useMemo(() => {
     const native = Gesture.Native();
     const pan = Gesture.Pan()
-      // ✅ FIX: Removed .runOnJS(true) so mgr.activate() works on UI thread
       .manualActivation(true)
       .onTouchesDown((e) => {
         startY.value = e.allTouches[0]?.absoluteY ?? 0;
@@ -167,11 +169,12 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
         rot.value = v * 3;
       })
       .onFinalize(() => {
+        // ✅ FIX: Wrap JS functions with runOnJS from worklet
         if (phase.value === 'armed') {
-          startRefresh();
+          runOnJS(startRefresh)();
         } else if (phase.value === 'pulling') {
           phase.value = 'idle';
-          collapse();
+          runOnJS(collapse)();
         }
       });
 
