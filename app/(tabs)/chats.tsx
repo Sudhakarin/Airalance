@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -366,6 +366,8 @@ const ChatRow = memo(
 );
 
 export default function ChatsScreen() {
+  // ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { height: winH } = useWindowDimensions();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -960,7 +962,7 @@ export default function ChatsScreen() {
   const listGesture = Gesture.Simultaneous(pullGesture, nativeGesture);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <View style={[styles.safe, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Chats</Text>
         <TouchableOpacity
@@ -1482,7 +1484,7 @@ export default function ChatsScreen() {
           />
         </SafeAreaView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
