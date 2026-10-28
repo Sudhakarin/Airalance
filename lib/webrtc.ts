@@ -1,5 +1,7 @@
 // lib/webrtc.ts
 // WebRTC core helpers — peer connection, media streams, ICE servers, audio routing
+// ✅ FIX: Added bundlePolicy & rtcpMuxPolicy for slow network bandwidth optimization
+// ✅ FIX: Enhanced InCallManager audio routing for Android
 
 import { Platform } from 'react-native';
 
@@ -26,12 +28,13 @@ const RTCPeerConnection = RNWebRTC?.RTCPeerConnection;
 const RTCIceCandidate = RNWebRTC?.RTCIceCandidate;
 const RTCSessionDescription = RNWebRTC?.RTCSessionDescription;
 const mediaDevices = RNWebRTC?.mediaDevices;
-const MediaStream: any = RNWebRTC?.MediaStream;
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
   { urls: 'stun:stun2.l.google.com:19302' },
+  // ⚠️ WARNING: openrelay is a free public server. It often fails on strict mobile networks.
+  // ✅ RECOMMENDED: Replace with a dedicated TURN server (e.g., Metered, Twilio, or self-hosted Coturn)
   {
     urls: 'turn:openrelay.metered.ca:80',
     username: 'openrelayproject',
@@ -53,6 +56,9 @@ export const peerConstraints = {
   iceServers: ICE_SERVERS,
   iceCandidatePoolSize: 10,
   iceTransportPolicy: 'all' as const,
+  // ✅ FIX: Bundle everything into a single transport channel to save bandwidth on slow networks
+  bundlePolicy: 'max-bundle' as const,
+  rtcpMuxPolicy: 'require' as const,
 };
 
 export async function getLocalStream(video: boolean): Promise<any> {
@@ -83,7 +89,15 @@ export function startAudioSession(hasVideo: boolean = false) {
     InCallManager.start({ media: hasVideo ? 'video' : 'audio' });
     InCallManager.setKeepScreenOn(true);
     InCallManager.setMicrophoneMute(false);
+    
+    // ✅ FIX: Ensure speaker is OFF for audio calls, ON for video calls
     InCallManager.setForceSpeakerphoneOn(hasVideo);
+    
+    // ✅ FIX: Route audio properly on Android
+    if (Platform.OS === 'android') {
+      InCallManager.setSpeakerphoneOn(hasVideo);
+    }
+    
     console.log('[webrtc] audio session started, video:', hasVideo);
   } catch (err) {
     console.warn('[webrtc] startAudioSession failed:', err);
