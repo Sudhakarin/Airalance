@@ -1,6 +1,4 @@
 // components/PullToRefresh.tsx
-// Custom pull-to-refresh (replaces the default Android RefreshControl loader)
-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
@@ -13,19 +11,20 @@ import Animated, {
   withRepeat,
   withSequence,
   withTiming,
+  runOnJS,
 } from 'react-native-reanimated';
 import { Gesture } from 'react-native-gesture-handler';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { COLORS, FONTS } from '../constants/theme';
 import { hapticSelection, hapticSuccess } from '../lib/haptics';
 
-export const PULL_THRESHOLD = 76; // px of pull needed to trigger refresh
-const MAX_PULL = 130; // max visual pull
-const MIN_SPIN_MS = 700; // spinner stays at least this long (no flicker on fast loads)
+export const PULL_THRESHOLD = 76;
+const MAX_PULL = 130;
+const MIN_SPIN_MS = 700;
 
 const R = 16;
-const C = 2 * Math.PI * R; // ring circumference
-const CHECK_LEN = 25; // length of the check-mark path
+const C = 2 * Math.PI * R;
+const CHECK_LEN = 25;
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const AnimatedPath = Animated.createAnimatedComponent(Path);
@@ -34,34 +33,21 @@ type Phase = 'idle' | 'pulling' | 'armed' | 'refreshing' | 'success';
 
 export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
   const pull = useSharedValue(0);
-  const arc = useSharedValue(0); // 0..1 ring fill
-  const rot = useSharedValue(0); // degrees
-  const ok = useSharedValue(0); // success state 0..1
-  const chk = useSharedValue(CHECK_LEN); // check-mark draw offset
-  const bump = useSharedValue(0); // small scale bump when armed
+  const arc = useSharedValue(0);
+  const rot = useSharedValue(0);
+  const ok = useSharedValue(0);
+  const chk = useSharedValue(CHECK_LEN);
+  const bump = useSharedValue(0);
 
-  const phase = useRef<Phase>('idle');
-  const scrollY = useRef(0);
-  const startY = useRef(0);
+  const phase = useSharedValue<Phase>('idle');
+  const scrollY = useSharedValue(0);
+  const startY = useSharedValue(0);
+  
+  const [label, setLabel] = useState('Pull to refresh');
+
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const refreshRef = useRef(onRefresh);
   refreshRef.current = onRefresh;
-
-  const labelRef = useRef('Pull to refresh');
-  const listeners = useRef(new Set<(t: string) => void>());
-
-  const setLabel = useCallback((t: string) => {
-    labelRef.current = t;
-    listeners.current.forEach((fn) => fn(t));
-  }, []);
-
-  const subscribeLabel = useCallback((fn: (t: string) => void) => {
-    listeners.current.add(fn);
-    fn(labelRef.current);
-    return () => {
-      listeners.current.delete(fn);
-    };
-  }, []);
 
   const later = useCallback((fn: () => void, ms: number) => {
     timers.current.push(setTimeout(fn, ms));
@@ -73,7 +59,7 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
   }, []);
 
   const reset = useCallback(() => {
-    phase.current = 'idle';
+    phase.value = 'idle';
     cancelAnimation(rot);
     cancelAnimation(arc);
     rot.value = 0;
@@ -81,8 +67,8 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
     ok.value = 0;
     chk.value = CHECK_LEN;
     bump.value = 0;
-    setLabel('Pull to refresh');
-  }, [arc, bump, chk, ok, rot, setLabel]);
+    runOnJS(setLabel)('Pull to refresh');
+  }, [arc, bump, chk, ok, rot, phase]);
 
   const collapse = useCallback(() => {
     pull.value = withTiming(0, {
@@ -93,8 +79,8 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
   }, [later, pull, reset]);
 
   const finish = useCallback(() => {
-    if (phase.current !== 'refreshing') return;
-    phase.current = 'success';
+    if (phase.value !== 'refreshing') return;
+    phase.value = 'success';
     cancelAnimation(rot);
     cancelAnimation(arc);
     ok.value = withTiming(1, { duration: 200 });
@@ -102,14 +88,14 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
       duration: 320,
       easing: Easing.out(Easing.cubic),
     });
-    setLabel("You're up to date");
-    hapticSuccess();
+    runOnJS(setLabel)("You're up to date");
+    runOnJS(hapticSuccess)();
     later(collapse, 950);
-  }, [arc, chk, collapse, later, ok, rot, setLabel]);
+  }, [arc, chk, collapse, later, ok, rot, phase]);
 
   const startRefresh = useCallback(() => {
-    phase.current = 'refreshing';
-    setLabel('Refreshing…');
+    phase.value = 'refreshing';
+    runOnJS(setLabel)('Refreshing…');
     pull.value = withTiming(PULL_THRESHOLD, { duration: 200 });
     rot.value = 0;
     rot.value = withRepeat(
@@ -133,47 +119,47 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
       .then(() => {
         later(finish, Math.max(0, MIN_SPIN_MS - (Date.now() - t0)));
       });
-  }, [arc, finish, later, pull, rot, setLabel]);
+  }, [arc, finish, later, pull, rot, phase]);
 
   const gesture = useMemo(() => {
     const native = Gesture.Native();
     const pan = Gesture.Pan()
-      .runOnJS(true)
+      // ✅ FIX: Removed .runOnJS(true) so mgr.activate() works on UI thread
       .manualActivation(true)
       .onTouchesDown((e) => {
-        startY.current = e.allTouches[0]?.absoluteY ?? 0;
+        startY.value = e.allTouches[0]?.absoluteY ?? 0;
       })
       .onTouchesMove((e, mgr) => {
         const t = e.allTouches[0];
         if (!t) return;
-        if (phase.current === 'refreshing' || phase.current === 'success') {
+        if (phase.value === 'refreshing' || phase.value === 'success') {
           mgr.fail();
           return;
         }
-        if (scrollY.current > 1) {
-          startY.current = t.absoluteY;
+        if (scrollY.value > 1) {
+          startY.value = t.absoluteY;
           return;
         }
-        const dy = t.absoluteY - startY.current;
+        const dy = t.absoluteY - startY.value;
         if (dy > 8) mgr.activate();
         else if (dy < -8) mgr.fail();
       })
       .onUpdate((e) => {
-        const dy = e.absoluteY - startY.current;
+        const dy = e.absoluteY - startY.value;
         const v = Math.max(0, Math.min(MAX_PULL, dy * 0.5));
         const armed = v >= PULL_THRESHOLD;
 
-        if (armed && phase.current !== 'armed') {
-          phase.current = 'armed';
-          setLabel('Release to refresh');
-          hapticSelection();
+        if (armed && phase.value !== 'armed') {
+          phase.value = 'armed';
+          runOnJS(setLabel)('Release to refresh');
+          runOnJS(hapticSelection)();
           bump.value = withSequence(
             withTiming(1, { duration: 90 }),
             withTiming(0, { duration: 160 })
           );
-        } else if (!armed && phase.current !== 'pulling') {
-          phase.current = 'pulling';
-          setLabel('Pull to refresh');
+        } else if (!armed && phase.value !== 'pulling') {
+          phase.value = 'pulling';
+          runOnJS(setLabel)('Pull to refresh');
         }
 
         pull.value = v;
@@ -181,20 +167,20 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
         rot.value = v * 3;
       })
       .onFinalize(() => {
-        if (phase.current === 'armed') {
+        if (phase.value === 'armed') {
           startRefresh();
-        } else if (phase.current === 'pulling') {
-          phase.current = 'idle';
+        } else if (phase.value === 'pulling') {
+          phase.value = 'idle';
           collapse();
         }
       });
 
     return Gesture.Simultaneous(pan, native);
-  }, [arc, bump, collapse, pull, rot, setLabel, startRefresh]);
+  }, [arc, bump, collapse, pull, rot, phase, startRefresh, scrollY, startY]);
 
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    scrollY.current = e.nativeEvent.contentOffset.y;
-  }, []);
+    scrollY.value = e.nativeEvent.contentOffset.y;
+  }, [scrollY]);
 
   const scrollProps = useMemo(
     () => ({
@@ -214,7 +200,7 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
     gesture,
     scrollProps,
     listStyle,
-    subscribeLabel,
+    label,
     pull,
     arc,
     rot,
@@ -227,10 +213,7 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void) {
 export type PullController = ReturnType<typeof usePullToRefresh>;
 
 export function PullIndicator({ ctrl }: { ctrl: PullController }) {
-  const { pull, arc, rot, ok, chk, bump, subscribeLabel } = ctrl;
-  const [label, setLabel] = useState('Pull to refresh');
-
-  useEffect(() => subscribeLabel(setLabel), [subscribeLabel]);
+  const { pull, arc, rot, ok, chk, bump, label } = ctrl;
 
   const wrapStyle = useAnimatedStyle(() => ({ height: pull.value }));
 
@@ -266,42 +249,23 @@ export function PullIndicator({ ctrl }: { ctrl: PullController }) {
         <View style={styles.box}>
           <Animated.View style={[StyleSheet.absoluteFill, ringStyle]}>
             <Svg width={44} height={44} viewBox="0 0 44 44">
-              <Circle
-                cx={22}
-                cy={22}
-                r={R}
-                fill="none"
-                stroke="rgba(255,255,255,0.12)"
-                strokeWidth={3}
-              />
+              <Circle cx={22} cy={22} r={R} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={3} />
               <AnimatedCircle
                 animatedProps={arcProps}
-                cx={22}
-                cy={22}
-                r={R}
-                fill="none"
-                stroke={COLORS.violetLight}
-                strokeWidth={3}
-                strokeLinecap="round"
-                strokeDasharray={C}
-                rotation={-90}
-                origin="22, 22"
+                cx={22} cy={22} r={R}
+                fill="none" stroke={COLORS.violetLight} strokeWidth={3}
+                strokeLinecap="round" strokeDasharray={C} rotation={-90} origin="22, 22"
               />
             </Svg>
           </Animated.View>
-
           <Animated.View style={[StyleSheet.absoluteFill, okStyle]}>
             <Svg width={44} height={44} viewBox="0 0 44 44">
               <Circle cx={22} cy={22} r={19} fill={COLORS.violet} />
               <AnimatedPath
                 animatedProps={chkProps}
                 d="M14 23 l6 6 l11 -12"
-                fill="none"
-                stroke="#FFFFFF"
-                strokeWidth={3}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeDasharray={CHECK_LEN}
+                fill="none" stroke="#FFFFFF" strokeWidth={3}
+                strokeLinecap="round" strokeLinejoin="round" strokeDasharray={CHECK_LEN}
               />
             </Svg>
           </Animated.View>
