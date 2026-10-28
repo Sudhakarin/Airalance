@@ -6,20 +6,21 @@
 // ✅ FIX: AppState listener — syncs when app comes to foreground (fixes background socket kill)
 // ✅ FIX: Realtime listens to ALL events ('*') — INSERT, UPDATE, DELETE
 // ✅ FIX: Removed Cache TTL — shows stale data instantly on cold start
+// ✅ FIX: Custom Pull-to-Refresh integrated
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  RefreshControl,
   Modal,
   Pressable,
   AppState,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -33,6 +34,7 @@ import { subscribeNetwork, isOnline } from '../../lib/network';
 import Avatar from '../../components/Avatar';
 import StatusRing from '../../components/StatusRing';
 import VerifiedBadge from '../../components/VerifiedBadge';
+import { usePullToRefresh, PullIndicator } from '../../components/PullToRefresh';
 
 type Profile = {
   id: string;
@@ -156,14 +158,12 @@ function StatusSkeleton() {
 }
 
 export default function StatusScreen() {
-  // ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [myStatuses, setMyStatuses] = useState<Status[]>([]);
   const [otherGroups, setOtherGroups] = useState<UserStatusGroup[]>([]);
   const [viewedIds, setViewedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [myId, setMyId] = useState<string | null>(null);
   const [myProfile, setMyProfile] = useState<Profile | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -173,7 +173,6 @@ export default function StatusScreen() {
   const [online, setOnline] = useState(isOnline());
   const cacheShownRef = useRef(false);
 
-  // ✅ Delayed skeleton
   useEffect(() => {
     const hasContent = myStatuses.length > 0 || otherGroups.length > 0;
     if (hasContent || !loading) {
@@ -216,7 +215,6 @@ export default function StatusScreen() {
     if (!myId) return;
     if (!isOnline()) {
       setLoading(false);
-      setRefreshing(false);
       return;
     }
 
@@ -288,7 +286,6 @@ export default function StatusScreen() {
       console.warn('Load statuses error:', err);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, [myId]);
 
@@ -310,7 +307,6 @@ export default function StatusScreen() {
     }, [])
   );
 
-  // ✅ FIX: AppState listener — jab app background se foreground me aaye, sync karo
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active' && isOnline()) {
@@ -326,7 +322,6 @@ export default function StatusScreen() {
     }
   }, [online, myId, loadStatuses]);
 
-  // ✅ FIX: Realtime listens to ALL events ('*') instead of just INSERT
   useEffect(() => {
     if (!myId) return;
     if (!online) return;
@@ -339,11 +334,7 @@ export default function StatusScreen() {
         .channel('statuses-tab-safe-realtime')
         .on(
           'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'statuses',
-          },
+          { event: '*', schema: 'public', table: 'statuses' },
           () => {
             if (debounceTimer) clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
@@ -385,14 +376,12 @@ export default function StatusScreen() {
     };
   }, [myId, online]);
 
-  async function onRefresh() {
-    if (!isOnline()) {
-      setRefreshing(false);
-      return;
-    }
-    setRefreshing(true);
+  // ✅ Custom PTR Hook
+  const onRefresh = useCallback(async () => {
     await loadStatuses();
-  }
+  }, [loadStatuses]);
+
+  const ptr = usePullToRefresh(onRefresh);
 
   function isGroupViewed(group: UserStatusGroup) {
     return group.statuses.every((s) => viewedIds.has(s.id));
@@ -418,9 +407,6 @@ export default function StatusScreen() {
 
   function navigateToCreate(mode: 'text' | 'camera' | 'music') {
     setShowAddMenu(false);
-    if (!isOnline()) {
-      // allow — queue handled at create
-    }
     router.push(`/status/create?mode=${mode}`);
   }
 
@@ -440,12 +426,11 @@ export default function StatusScreen() {
           <Text style={styles.headerTitle}>Status</Text>
           <View style={styles.headerBtn} />
         </View>
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          showsVerticalScrollIndicator={false}
+        <View
+          style={styles.scroll}
         >
           <StatusSkeleton />
-        </ScrollView>
+        </View>
       </View>
     );
   }
@@ -472,192 +457,193 @@ export default function StatusScreen() {
         </View>
       )}
 
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={COLORS.violet}
-          />
-        }
-      >
-        <TouchableOpacity
-          style={styles.myStatusRow}
-          onPress={() =>
-            myStatuses.length > 0
-              ? openStatusViewer(myId!)
-              : openAddMenu()
-          }
-          activeOpacity={0.7}
-        >
-          <View style={styles.myStatusAvatarWrap}>
-            <StatusRing
-              hasStatus={myStatuses.length > 0}
-              viewed={myAllViewed}
-              size={58}
-            >
-              <Avatar
-                name={myProfile?.display_name ?? 'You'}
-                color={myProfile?.avatar_color ?? COLORS.violet}
-                avatarUrl={myProfile?.avatar_url ?? null}
-                size={58}
-              />
-            </StatusRing>
-            {myStatuses.length === 0 && (
-              <TouchableOpacity
-                style={styles.addBadge}
-                onPress={openAddMenu}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="add" size={13} color="#FFFFFF" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.myStatusInfo}>
-            <Text style={styles.myStatusTitle}>My Status</Text>
-            <Text style={styles.myStatusSubtitle}>
-              {myStatuses.length > 0
-                ? `Tap to view · ${myStatuses.length} update${
-                    myStatuses.length > 1 ? 's' : ''
-                  }`
-                : 'Tap to add a status update'}
-            </Text>
-          </View>
-
-          <View style={styles.myStatusIcons}>
+      {/* ✅ Custom Pull to Refresh wrapper */}
+      <View style={{ flex: 1 }}>
+        <PullIndicator ctrl={ptr} />
+        <GestureDetector gesture={ptr.gesture}>
+          <Animated.ScrollView
+            {...ptr.scrollProps}
+            style={ptr.listStyle}
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+          >
             <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={openAddMenu}
+              style={styles.myStatusRow}
+              onPress={() =>
+                myStatuses.length > 0
+                  ? openStatusViewer(myId!)
+                  : openAddMenu()
+              }
               activeOpacity={0.7}
             >
-              <Ionicons
-                name="text-outline"
-                size={18}
-                color={COLORS.violetLight}
-              />
+              <View style={styles.myStatusAvatarWrap}>
+                <StatusRing
+                  hasStatus={myStatuses.length > 0}
+                  viewed={myAllViewed}
+                  size={58}
+                >
+                  <Avatar
+                    name={myProfile?.display_name ?? 'You'}
+                    color={myProfile?.avatar_color ?? COLORS.violet}
+                    avatarUrl={myProfile?.avatar_url ?? null}
+                    size={58}
+                  />
+                </StatusRing>
+                {myStatuses.length === 0 && (
+                  <TouchableOpacity
+                    style={styles.addBadge}
+                    onPress={openAddMenu}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="add" size={13} color="#FFFFFF" />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <View style={styles.myStatusInfo}>
+                <Text style={styles.myStatusTitle}>My Status</Text>
+                <Text style={styles.myStatusSubtitle}>
+                  {myStatuses.length > 0
+                    ? `Tap to view · ${myStatuses.length} update${
+                        myStatuses.length > 1 ? 's' : ''
+                      }`
+                    : 'Tap to add a status update'}
+                </Text>
+              </View>
+
+              <View style={styles.myStatusIcons}>
+                <TouchableOpacity
+                  style={styles.iconBtn}
+                  onPress={openAddMenu}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name="text-outline"
+                    size={18}
+                    color={COLORS.violetLight}
+                  />
+                </TouchableOpacity>
+              </View>
             </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
 
-        <View style={styles.thickDivider} />
+            <View style={styles.thickDivider} />
 
-        {recent.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Recent updates</Text>
-            {recent.map((group, index) => (
-              <View key={group.userId}>
-                <TouchableOpacity
-                  style={styles.statusRow}
-                  onPress={() => openStatusViewer(group.userId)}
-                  activeOpacity={0.7}
-                >
-                  <StatusRing hasStatus viewed={false} size={58}>
-                    <Avatar
-                      name={group.profile?.display_name ?? 'Unknown'}
-                      color={group.profile?.avatar_color ?? COLORS.violet}
-                      avatarUrl={group.profile?.avatar_url ?? null}
-                      size={58}
-                    />
-                  </StatusRing>
-                  <View style={styles.statusInfo}>
-                    <View style={styles.statusNameRow}>
-                      <Text style={styles.statusName} numberOfLines={1}>
-                        {group.profile?.display_name ?? 'Unknown'}
-                      </Text>
-                      {group.profile?.verified && (
-                        <VerifiedBadge size={14} />
-                      )}
-                    </View>
-                    <Text style={styles.statusTime}>
-                      {group.statuses.length > 1
-                        ? `${group.statuses.length} updates · `
-                        : ''}
-                      {formatTime(group.latestAt)}
-                    </Text>
+            {recent.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Recent updates</Text>
+                {recent.map((group, index) => (
+                  <View key={group.userId}>
+                    <TouchableOpacity
+                      style={styles.statusRow}
+                      onPress={() => openStatusViewer(group.userId)}
+                      activeOpacity={0.7}
+                    >
+                      <StatusRing hasStatus viewed={false} size={58}>
+                        <Avatar
+                          name={group.profile?.display_name ?? 'Unknown'}
+                          color={group.profile?.avatar_color ?? COLORS.violet}
+                          avatarUrl={group.profile?.avatar_url ?? null}
+                          size={58}
+                        />
+                      </StatusRing>
+                      <View style={styles.statusInfo}>
+                        <View style={styles.statusNameRow}>
+                          <Text style={styles.statusName} numberOfLines={1}>
+                            {group.profile?.display_name ?? 'Unknown'}
+                          </Text>
+                          {group.profile?.verified && (
+                            <VerifiedBadge size={14} />
+                          )}
+                        </View>
+                        <Text style={styles.statusTime}>
+                          {group.statuses.length > 1
+                            ? `${group.statuses.length} updates · `
+                            : ''}
+                          {formatTime(group.latestAt)}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                    {index < recent.length - 1 && (
+                      <View style={styles.separator} />
+                    )}
                   </View>
-                </TouchableOpacity>
-                {index < recent.length - 1 && (
-                  <View style={styles.separator} />
-                )}
+                ))}
               </View>
-            ))}
-          </View>
-        )}
+            )}
 
-        {viewed.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Viewed updates</Text>
-            {viewed.map((group, index) => (
-              <View key={group.userId}>
-                <TouchableOpacity
-                  style={styles.statusRow}
-                  onPress={() => openStatusViewer(group.userId)}
-                  activeOpacity={0.7}
-                >
-                  <StatusRing hasStatus viewed={true} size={58}>
-                    <Avatar
-                      name={group.profile?.display_name ?? 'Unknown'}
-                      color={group.profile?.avatar_color ?? COLORS.violet}
-                      avatarUrl={group.profile?.avatar_url ?? null}
-                      size={58}
-                    />
-                  </StatusRing>
-                  <View style={styles.statusInfo}>
-                    <View style={styles.statusNameRow}>
-                      <Text
-                        style={[styles.statusName, styles.statusNameViewed]}
-                        numberOfLines={1}
-                      >
-                        {group.profile?.display_name ?? 'Unknown'}
-                      </Text>
-                      {group.profile?.verified && (
-                        <VerifiedBadge size={14} />
-                      )}
-                    </View>
-                    <Text style={styles.statusTime}>
-                      {group.statuses.length > 1
-                        ? `${group.statuses.length} updates · `
-                        : ''}
-                      {formatTime(group.latestAt)}
-                    </Text>
+            {viewed.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Viewed updates</Text>
+                {viewed.map((group, index) => (
+                  <View key={group.userId}>
+                    <TouchableOpacity
+                      style={styles.statusRow}
+                      onPress={() => openStatusViewer(group.userId)}
+                      activeOpacity={0.7}
+                    >
+                      <StatusRing hasStatus viewed={true} size={58}>
+                        <Avatar
+                          name={group.profile?.display_name ?? 'Unknown'}
+                          color={group.profile?.avatar_color ?? COLORS.violet}
+                          avatarUrl={group.profile?.avatar_url ?? null}
+                          size={58}
+                        />
+                      </StatusRing>
+                      <View style={styles.statusInfo}>
+                        <View style={styles.statusNameRow}>
+                          <Text
+                            style={[styles.statusName, styles.statusNameViewed]}
+                            numberOfLines={1}
+                          >
+                            {group.profile?.display_name ?? 'Unknown'}
+                          </Text>
+                          {group.profile?.verified && (
+                            <VerifiedBadge size={14} />
+                          )}
+                        </View>
+                        <Text style={styles.statusTime}>
+                          {group.statuses.length > 1
+                            ? `${group.statuses.length} updates · `
+                            : ''}
+                          {formatTime(group.latestAt)}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                    {index < viewed.length - 1 && (
+                      <View style={styles.separator} />
+                    )}
                   </View>
-                </TouchableOpacity>
-                {index < viewed.length - 1 && (
-                  <View style={styles.separator} />
-                )}
+                ))}
               </View>
-            ))}
-          </View>
-        )}
+            )}
 
-        {recent.length === 0 &&
-          viewed.length === 0 &&
-          myStatuses.length === 0 && (
-            <View style={styles.emptyWrap}>
-              <View style={styles.emptyIconWrap}>
-                <Ionicons
-                  name="ellipse-outline"
-                  size={36}
-                  color={COLORS.mist}
-                />
-              </View>
-              <Text style={styles.emptyTitle}>No status updates</Text>
-              <Text style={styles.emptySubtitle}>
-                Statuses from people you follow will appear here.
-              </Text>
-              <TouchableOpacity
-                style={styles.emptyBtn}
-                onPress={openAddMenu}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.emptyBtnText}>Add your status</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-      </ScrollView>
+            {recent.length === 0 &&
+              viewed.length === 0 &&
+              myStatuses.length === 0 && (
+                <View style={styles.emptyWrap}>
+                  <View style={styles.emptyIconWrap}>
+                    <Ionicons
+                      name="ellipse-outline"
+                      size={36}
+                      color={COLORS.mist}
+                    />
+                  </View>
+                  <Text style={styles.emptyTitle}>No status updates</Text>
+                  <Text style={styles.emptySubtitle}>
+                    Statuses from people you follow will appear here.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.emptyBtn}
+                    onPress={openAddMenu}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.emptyBtnText}>Add your status</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+          </Animated.ScrollView>
+        </GestureDetector>
+      </View>
 
       {/* New status popup */}
       <Modal
