@@ -1,8 +1,8 @@
 // app/(tabs)/home.tsx
 // Home screen — category chips + featured carousel + Top Stories + AsyncStorage cache
 // ✅ UPDATED: shows 20+ articles by default (server fetches 60)
-// ✅ UPDATED: better FlatList perf props for longer feed
-// ✅ FIX: HomeSkeleton now matches real content heights exactly (kills skeleton→content jump)
+// ✅ FIX: HomeSkeleton now matches real content heights exactly
+// ✅ FIX: Removed Cache TTL — shows stale data instantly, updates in background
 
 import { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react';
 import {
@@ -75,7 +75,6 @@ const TOP_LIMIT = 20;
 const SERVER_LIMIT = 60;
 
 const NEWS_CACHE_KEY = 'airalance:news:feed';
-const NEWS_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 
 type NewsCache = {
   t: number;
@@ -88,7 +87,7 @@ async function readNewsCache(): Promise<NewsArticle[] | null> {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as NewsCache;
     if (!parsed?.articles || !Array.isArray(parsed.articles)) return null;
-    if (Date.now() - (parsed.t ?? 0) > NEWS_CACHE_TTL_MS) return null;
+    // ✅ FIX: TTL check removed. Stale cache is better than blank screen.
     return parsed.articles;
   } catch {
     return null;
@@ -210,18 +209,10 @@ function SkeletonBlock({
   );
 }
 
-// ✅ FIXED: heights now match real content exactly
-// Featured: 250 (card) + 22 (dots) = 272
-// Section: 22 (marginTop) + 20 (title) + 12 (marginBottom) = 54
-// Rows: 88 + 10 gap × 3 = 294
-// Total ~620px (real content ~624px — negligible diff)
 function HomeSkeleton() {
   return (
     <View style={{ paddingHorizontal: SIDE }}>
-      {/* Featured card placeholder — matches FeaturedCard (height 250) */}
       <SkeletonBlock width="100%" height={250} borderRadius={RADII.xxl} />
-
-      {/* Dots placeholder — matches dotsRow (marginTop 14 + dot height 8 = 22) */}
       <View
         style={{
           marginTop: 14,
@@ -235,13 +226,9 @@ function HomeSkeleton() {
         <SkeletonBlock width={8} height={8} borderRadius={4} />
         <SkeletonBlock width={8} height={8} borderRadius={4} />
       </View>
-
-      {/* Section header placeholder — marginTop 22 + title 20 + marginBottom 12 = 54 */}
       <View style={{ marginTop: 22, marginBottom: 12 }}>
         <SkeletonBlock width={180} height={20} borderRadius={6} />
       </View>
-
-      {/* Article rows — matches ArticleRow height (88) + separator (10) */}
       {[0, 1, 2].map((i) => (
         <SkeletonBlock
           key={i}
@@ -308,13 +295,11 @@ const FeaturedCard = memo(function FeaturedCard({
       activeOpacity={0.92}
     >
       <ArticleImage article={article} style={styles.featuredImage} emojiSize={60} />
-
       <LinearGradient
         colors={['rgba(10,12,18,0)', 'rgba(10,12,18,0.7)', 'rgba(10,12,18,0.96)']}
         locations={[0, 0.5, 1]}
         style={styles.featuredOverlay}
       />
-
       <View style={styles.featuredBadge}>
         <Ionicons name="star" size={10} color="#FFFFFF" />
         <Text style={styles.featuredBadgeText}>Featured</Text>
@@ -322,7 +307,6 @@ const FeaturedCard = memo(function FeaturedCard({
       <View style={styles.featuredTime}>
         <Text style={styles.featuredTimeText}>{timeAgo(article.created_at)}</Text>
       </View>
-
       <View style={styles.featuredContent}>
         <Text style={styles.featuredTitle} numberOfLines={3}>
           {article.title}
@@ -332,7 +316,6 @@ const FeaturedCard = memo(function FeaturedCard({
             {description}
           </Text>
         ) : null}
-
         <View style={styles.featuredFooter}>
           <View style={styles.sourceAvatar}>
             <Text style={styles.sourceAvatarText}>{initials(article.source)}</Text>
