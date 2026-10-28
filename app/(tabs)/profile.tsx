@@ -3,6 +3,7 @@
 // ✅ invalidateUserIdCache on logout
 // ✅ FIX: delayed skeleton (250ms) — kills cache-hit flash jump
 // ✅ FIX: skeleton card rows now match real (5 infoRows), padding matched
+// ✅ FIX: Removed Cache TTL — shows cached profile instantly on cold start
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -81,8 +82,6 @@ type CustomDialog = {
   onSecondary?: () => void;
 };
 
-const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
-
 function profileCacheKey(uid: string) {
   return `airalance:profile:me:${uid}`;
 }
@@ -103,7 +102,8 @@ async function readProfileCache(uid: string): Promise<ProfileCachePayload | null
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ProfileCachePayload;
     if (!parsed?.profile) return null;
-    if (Date.now() - (parsed.t ?? 0) > CACHE_TTL_MS) return null;
+    
+    // ✅ FIX: TTL check removed. Stale data is better than a loading screen.
     return parsed;
   } catch {
     return null;
@@ -158,7 +158,6 @@ function SkeletonBlock({
   );
 }
 
-// ✅ FIXED: heights/paddings now match real content (5 infoRows, paddingVertical 12)
 function ProfileSkeleton() {
   return (
     <View style={styles.skeletonContainer}>
@@ -203,7 +202,6 @@ function ProfileSkeleton() {
         />
       </View>
 
-      {/* ✅ FIXED: 5 rows (matches real: Full name, Email, Username, Notifications, Account) */}
       <View style={styles.skeletonCard}>
         {[1, 2, 3, 4, 5].map((i) => (
           <View key={i} style={styles.skeletonRow}>
@@ -218,7 +216,6 @@ function ProfileSkeleton() {
           <SkeletonBlock width={60} height={14} borderRadius={4} />
           <SkeletonBlock width={40} height={10} borderRadius={4} />
         </View>
-        {/* ✅ FIXED: bio input height 60 → 70 (matches real minHeight: 70) */}
         <SkeletonBlock
           width="100%"
           height={70}
@@ -255,7 +252,6 @@ export default function ProfileScreen() {
 
   const [online, setOnline] = useState(isOnline());
 
-  // ✅ FIX: delayed skeleton — avoids cache-hit flash
   const [showSkeleton, setShowSkeleton] = useState(false);
 
   const [listTab, setListTab] = useState<ListTab | null>(null);
@@ -284,7 +280,6 @@ export default function ProfileScreen() {
     return unsub;
   }, []);
 
-  // ✅ FIX: delayed skeleton — profile cache lands ~50ms, we wait 250ms before showing skeleton
   useEffect(() => {
     if (profile) {
       setShowSkeleton(false);
@@ -815,7 +810,6 @@ export default function ProfileScreen() {
     });
   }
 
-  // ✅ FIX: only show skeleton when profile is missing AND we've waited 250ms
   if (!profile) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -1740,7 +1734,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 10,
   },
-  // ✅ FIX: paddingVertical 14 → 12 (matches real infoRow)
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
