@@ -4,6 +4,7 @@
 // ✅ FIX: delayed skeleton (250ms) — kills cache-hit flash jump
 // ✅ FIX: skeleton card rows now match real (5 infoRows), padding matched
 // ✅ FIX: Removed Cache TTL — shows cached profile instantly on cold start
+// ✅ FIX: Realtime listeners for statuses and follows (live active status ring/count)
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -102,8 +103,6 @@ async function readProfileCache(uid: string): Promise<ProfileCachePayload | null
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ProfileCachePayload;
     if (!parsed?.profile) return null;
-    
-    // ✅ FIX: TTL check removed. Stale data is better than a loading screen.
     return parsed;
   } catch {
     return null;
@@ -158,7 +157,6 @@ function SkeletonBlock({
   );
 }
 
-// ✅ FIXED: heights/paddings now match real content (5 infoRows, paddingVertical 12)
 function ProfileSkeleton() {
   return (
     <View style={styles.skeletonContainer}>
@@ -203,7 +201,6 @@ function ProfileSkeleton() {
         />
       </View>
 
-      {/* ✅ FIXED: 5 rows (matches real: Full name, Email, Username, Notifications, Account) */}
       <View style={styles.skeletonCard}>
         {[1, 2, 3, 4, 5].map((i) => (
           <View key={i} style={styles.skeletonRow}>
@@ -218,7 +215,6 @@ function ProfileSkeleton() {
           <SkeletonBlock width={60} height={14} borderRadius={4} />
           <SkeletonBlock width={40} height={10} borderRadius={4} />
         </View>
-        {/* ✅ FIXED: bio input height 60 → 70 (matches real minHeight: 70) */}
         <SkeletonBlock
           width="100%"
           height={70}
@@ -238,7 +234,6 @@ function ProfileSkeleton() {
 }
 
 export default function ProfileScreen() {
-  // ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -256,8 +251,6 @@ export default function ProfileScreen() {
   const [notifPermission, setNotifPermission] = useState<string>('undetermined');
 
   const [online, setOnline] = useState(isOnline());
-
-  // ✅ FIX: delayed skeleton — avoids cache-hit flash
   const [showSkeleton, setShowSkeleton] = useState(false);
 
   const [listTab, setListTab] = useState<ListTab | null>(null);
@@ -286,7 +279,6 @@ export default function ProfileScreen() {
     return unsub;
   }, []);
 
-  // ✅ FIX: delayed skeleton — profile cache lands ~50ms, we wait 250ms before showing skeleton
   useEffect(() => {
     if (profile) {
       setShowSkeleton(false);
@@ -423,6 +415,54 @@ export default function ProfileScreen() {
       loadProfile();
     }
   }, [online, loadProfile]);
+
+  // ✅ NEW: Realtime listener for statuses and follows
+  const loadProfileRef = useRef(loadProfile);
+  loadProfileRef.current = loadProfile;
+
+  useEffect(() => {
+    if (!myIdRef.current || !online) return;
+    
+    let channel: any = null;
+    let debounceTimer: any = null;
+
+    const triggerReload = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadProfileRef.current();
+      }, 500);
+    };
+
+    try {
+      channel = supabase
+        .channel('profile-realtime-v1')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'statuses', filter: `user_id=eq.${myIdRef.current}` },
+          triggerReload
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'follows', filter: `followed_id=eq.${myIdRef.current}` },
+          triggerReload
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'follows', filter: `follower_id=eq.${myIdRef.current}` },
+          triggerReload
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('[profile] Realtime setup error:', err);
+    }
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (channel) {
+        try { supabase.removeChannel(channel); } catch {}
+      }
+    };
+  }, [online]);
 
   const syncCache = useCallback(
     async (patch: Partial<{
@@ -817,7 +857,6 @@ export default function ProfileScreen() {
     });
   }
 
-  // ✅ FIX: only show skeleton when profile is missing AND we've waited 250ms
   if (!profile) {
     return (
       <View style={[styles.safe, { paddingTop: insets.top }]}>
@@ -1742,7 +1781,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 10,
   },
-  // ✅ FIX: paddingVertical 14 → 12 (matches real infoRow)
   skeletonRow: {
     flexDirection: 'row',
     alignItems: 'center',
