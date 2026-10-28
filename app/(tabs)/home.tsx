@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -470,6 +470,8 @@ const ListHeader = memo(function ListHeader({
 
 // ---------- Screen ----------
 export default function HomeScreen() {
+  // ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -610,7 +612,7 @@ export default function HomeScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <View style={[styles.safe, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.brandText}>Airalance!</Text>
         <TouchableOpacity
@@ -649,7 +651,7 @@ export default function HomeScreen() {
           />
         }
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
