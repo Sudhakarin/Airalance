@@ -5,21 +5,22 @@
 // ✅ FIX: stale cache can no longer overwrite fresh network data (race)
 // ✅ FIX: fetchNotificationCount wrapped in try/catch (offline-safe)
 // ✅ FIX: subscribeNetwork listener — auto-refresh when internet reconnects
+// ✅ FIX: Custom Pull-to-Refresh integrated (Reanimated + Gesture)
 
 import { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
-  RefreshControl,
   ScrollView,
   Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
   DeviceEventEmitter,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { GestureDetector } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,7 +29,8 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
-import { subscribeNetwork } from '../../lib/network'; // ✅ NEW
+import { subscribeNetwork } from '../../lib/network';
+import { usePullToRefresh, PullIndicator } from '../../components/PullToRefresh';
 
 type NewsArticle = {
   id: string;
@@ -477,15 +479,13 @@ export default function HomeScreen() {
   const router = useRouter();
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('For you');
   const [notifCount, setNotifCount] = useState(0);
   const [showAll, setShowAll] = useState(false);
 
   const cacheShownRef = useRef(false);
-  const freshRef = useRef(false); // true once network data has arrived
+  const freshRef = useRef(false);
 
-  // Cache-first: show cached news instantly
   useEffect(() => {
     if (cacheShownRef.current) return;
     (async () => {
@@ -518,7 +518,6 @@ export default function HomeScreen() {
       console.warn('News fetch crashed:', err);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, []);
 
@@ -544,7 +543,6 @@ export default function HomeScreen() {
     fetchNotificationCount();
   }, [fetchNews, fetchNotificationCount]);
 
-  // ✅ NEW: Auto-reconnect — jab internet wapas aaye
   useEffect(() => {
     const unsub = subscribeNetwork((online) => {
       if (online) {
@@ -555,7 +553,6 @@ export default function HomeScreen() {
     return unsub;
   }, [fetchNews, fetchNotificationCount]);
 
-  // Update bell count when notifications screen deletes / marks items
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('REFRESH_NOTIF_COUNT', () => {
       fetchNotificationCount();
@@ -563,10 +560,12 @@ export default function HomeScreen() {
     return () => sub.remove();
   }, [fetchNotificationCount]);
 
+  // ✅ Custom PTR Hook
   const onRefresh = useCallback(async () => {
-    setRefreshing(true);
     await Promise.all([fetchNews(), fetchNotificationCount()]);
   }, [fetchNews, fetchNotificationCount]);
+
+  const ptr = usePullToRefresh(onRefresh);
 
   const filteredArticles = useMemo(() => {
     if (selectedCategory === 'For you') return articles;
@@ -656,28 +655,28 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={loading && articles.length === 0 ? [] : visibleRest}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        ItemSeparatorComponent={renderSeparator}
-        ListHeaderComponent={listHeader}
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        initialNumToRender={6}
-        maxToRenderPerBatch={6}
-        windowSize={7}
-        updateCellsBatchingPeriod={50}
-        removeClippedSubviews={true}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={COLORS.violet}
-            colors={[COLORS.violet]}
+      {/* ✅ Custom Pull to Refresh wrapper */}
+      <View style={{ flex: 1 }}>
+        <PullIndicator ctrl={ptr} />
+        <GestureDetector gesture={ptr.gesture}>
+          <Animated.FlatList
+            {...ptr.scrollProps}
+            style={ptr.listStyle}
+            data={loading && articles.length === 0 ? [] : visibleRest}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
+            ItemSeparatorComponent={renderSeparator}
+            ListHeaderComponent={listHeader}
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            initialNumToRender={6}
+            maxToRenderPerBatch={6}
+            windowSize={7}
+            updateCellsBatchingPeriod={50}
+            removeClippedSubviews={true}
           />
-        }
-      />
+        </GestureDetector>
+      </View>
     </View>
   );
 }
