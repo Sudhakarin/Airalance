@@ -1,10 +1,10 @@
 // app/(tabs)/home.tsx
 // Home screen — category chips + featured carousel + Top Stories + AsyncStorage cache
-// ✅ UPDATED: shows 20+ articles by default (server fetches 60)
-// ✅ FIX: HomeSkeleton now matches real content heights exactly
-// ✅ FIX: Removed Cache TTL — shows stale data instantly, updates in background
-// ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
-// ✅ FIX: DeviceEventEmitter to sync notification count when deleted/marked from Notifications screen
+// ✅ FIX: insets from hook — no first-frame header jump
+// ✅ FIX: DeviceEventEmitter to sync notification count
+// ✅ FIX: stale cache can no longer overwrite fresh network data (race)
+// ✅ FIX: fetchNotificationCount wrapped in try/catch (offline-safe)
+// ✅ FIX: subscribeNetwork listener — auto-refresh when internet reconnects
 
 import { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react';
 import {
@@ -18,7 +18,7 @@ import {
   Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
-  DeviceEventEmitter, // ✅ NEW: To sync notification count
+  DeviceEventEmitter,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -28,6 +28,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, FONTS, RADII } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { subscribeNetwork } from '../../lib/network'; // ✅ NEW
 
 type NewsArticle = {
   id: string;
@@ -90,7 +91,6 @@ async function readNewsCache(): Promise<NewsArticle[] | null> {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as NewsCache;
     if (!parsed?.articles || !Array.isArray(parsed.articles)) return null;
-    // ✅ FIX: TTL check removed. Stale cache is better than blank screen.
     return parsed.articles;
   } catch {
     return null;
@@ -473,7 +473,6 @@ const ListHeader = memo(function ListHeader({
 
 // ---------- Screen ----------
 export default function HomeScreen() {
-  // ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [articles, setArticles] = useState<NewsArticle[]>([]);
@@ -484,13 +483,14 @@ export default function HomeScreen() {
   const [showAll, setShowAll] = useState(false);
 
   const cacheShownRef = useRef(false);
+  const freshRef = useRef(false); // true once network data has arrived
 
   // Cache-first: show cached news instantly
   useEffect(() => {
     if (cacheShownRef.current) return;
     (async () => {
       const cached = await readNewsCache();
-      if (cached && cached.length > 0) {
+      if (cached && cached.length > 0 && !freshRef.current) {
         setArticles(cached);
         setLoading(false);
       }
@@ -510,6 +510,7 @@ export default function HomeScreen() {
         console.warn('News fetch error:', error.message);
       } else {
         const list = (data ?? []) as NewsArticle[];
+        freshRef.current = true;
         setArticles(list);
         await writeNewsCache(list);
       }
@@ -522,16 +523,20 @@ export default function HomeScreen() {
   }, []);
 
   const fetchNotificationCount = useCallback(async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session?.user) return;
-    const { count } = await supabase
-      .from('app_notifications')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', session.user.id)
-      .eq('read', false);
-    setNotifCount(count ?? 0);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      const { count } = await supabase
+        .from('app_notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', session.user.id)
+        .eq('read', false);
+      setNotifCount(count ?? 0);
+    } catch (err) {
+      console.warn('Notif count failed:', err);
+    }
   }, []);
 
   useEffect(() => {
@@ -539,7 +544,18 @@ export default function HomeScreen() {
     fetchNotificationCount();
   }, [fetchNews, fetchNotificationCount]);
 
-  // ✅ NEW: Event listener to update count from notifications screen
+  // ✅ NEW: Auto-reconnect — jab internet wapas aaye
+  useEffect(() => {
+    const unsub = subscribeNetwork((online) => {
+      if (online) {
+        fetchNews();
+        fetchNotificationCount();
+      }
+    });
+    return unsub;
+  }, [fetchNews, fetchNotificationCount]);
+
+  // Update bell count when notifications screen deletes / marks items
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('REFRESH_NOTIF_COUNT', () => {
       fetchNotificationCount();
