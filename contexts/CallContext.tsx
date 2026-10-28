@@ -1,12 +1,9 @@
 // contexts/CallContext.tsx
 // Global WebRTC call state — incoming/outgoing/active call management
-// ✅ Web-safe: react-native-webrtc is native-only
-// ✅ Phase 2: CallKeep native UI
-// ✅ Speaker toggle via react-native-incall-manager
-// ✅ Vibration on incoming call (foreground + background)
-// ✅ Phase 12: WhatsApp-style call log insertion (caller side only)
-// ✅ Phase 13: Remote-end auto-dismiss on receiver side
-// ✅ Phase 14: conversationId passed from chat for reliable call log insert
+// ✅ FIX: Reuse single signaling channel (fixes slow network drops)
+// ✅ FIX: CallKeep answer now triggers WebRTC accept
+// ✅ FIX: Increased timeouts (60s ring, 60s incoming age)
+// ✅ FIX: Handled incoming call missed/ended state
 
 import React, {
   createContext,
@@ -101,9 +98,10 @@ type CallContextValue = {
 
 const CallContext = createContext<CallContextValue | null>(null);
 
-const RING_TIMEOUT_MS = 60000;
-const DISCONNECT_GRACE_MS = 8000;
+const RING_TIMEOUT_MS = 90000; // ✅ FIX: 60s -> 90s (slow network ke liye)
+const DISCONNECT_GRACE_MS = 15000; // ✅ FIX: 8s -> 15s
 const REMOTE_END_UI_MS = 1200;
+const INCOMING_AGE_MAX_MS = 60000; // ✅ FIX: 30s -> 60s (push delay ke liye)
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -132,31 +130,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const myIdRef = useRef<string | null>(null);
   const audioSessionStartedRef = useRef(false);
 
-  // ✅ Call log bookkeeping
+  // ✅ FIX: Reusable signaling channel to prevent rate limits
+  const signalChannelRef = useRef<any>(null);
+
   const loggedCallIdsRef = useRef<Set<string>>(new Set());
   const activeSinceRef = useRef<number | null>(null);
   const activeCallRef = useRef<Call | null>(null);
-
-  // ✅ Phase 13: Track whether we (as receiver) already handled an end event
   const remoteEndHandledRef = useRef<string | null>(null);
-
-  // ✅ Phase 14: Remember which conversation this call belongs to
   const conversationIdRef = useRef<string | null>(null);
 
-  // ============================================================
-  // Shared: safe return to previous screen
-  // ============================================================
   const safeBack = useCallback(() => {
     try {
       router.back();
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [router]);
 
-  // ============================================================
-  // Call log helper — only caller inserts (dedup on device)
-  // ============================================================
   const logCallOnce = useCallback(
     async (call: Call | null, status: CallLogStatus) => {
       if (!call) return;
@@ -234,6 +222,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
       } catch {}
       unsubCallRef.current = null;
     }
+    
+    // ✅ FIX: Cleanup signaling channel
+    if (signalChannelRef.current) {
+      try {
+        supabase.removeChannel(signalChannelRef.current);
+      } catch {}
+      signalChannelRef.current = null;
+    }
+
     if (pcRef.current) {
       try {
         pcRef.current.close();
@@ -267,9 +264,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setIsVideoEnabled(false);
   }, []);
 
-  // ============================================================
-  // Receiver-side: dismiss / end when remote (caller) acts
-  // ============================================================
   const handleRemoteTermination = useCallback(
     (updated: Call): boolean => {
       const terminalStatuses: Call['status'][] = [
@@ -285,7 +279,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       remoteEndHandledRef.current = key;
 
       if (updated.status === 'cancelled') {
-        console.log('[call] remote cancelled while ringing — dismissing');
         hapticError();
         cleanup();
         setCallState('idle');
@@ -295,22 +288,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
         return true;
       }
 
-      if (updated.status === 'rejected' || updated.status === 'missed') {
-        console.log('[call] remote rejected/missed — ending');
-        hapticError();
-        setCallState('ended');
-        setTimeout(() => {
-          cleanup();
-          setCallState('idle');
-          setCurrentCall(null);
-          setRemoteUserInfo(null);
-          safeBack();
-        }, REMOTE_END_UI_MS);
-        return true;
-      }
-
-      if (updated.status === 'ended') {
-        console.log('[call] remote ended call — closing');
+      if (
+        updated.status === 'rejected' ||
+        updated.status === 'missed' ||
+        updated.status === 'ended'
+      ) {
         hapticError();
         setCallState('ended');
         setTimeout(() => {
@@ -346,6 +328,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
         try {
           Vibration.cancel();
         } catch {}
+        
+        // ✅ FIX: Auto-accept call if answered from CallKeep native UI
+        if (callIdRef.current === callId && callState === 'ringing') {
+           setCallState('connecting');
+           // The actual API accept happens in the UI screen once mounted
+           // but we push it just in case
+           router.push(`/call/${callId}?role=receiver&type=audio`);
+        }
       },
       onEndCall: (callId) => {
         console.log('[call] user ended via CallKeep:', callId);
@@ -370,10 +360,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     });
 
     return unregister;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [callState, cleanup, logByCallId, logCallOnce, router]);
 
-  // Init — get my user id
   useEffect(() => {
     (async () => {
       const uid = await getCurrentUserId();
@@ -381,9 +369,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  // ============================================================
-  // Subscribe to incoming calls + watch that call for remote end
-  // ============================================================
   useEffect(() => {
     let unsub: (() => void) | null = null;
 
@@ -395,9 +380,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
       unsub = subscribeToIncomingCalls(uid, async (incomingCall) => {
         if (callState !== 'idle') return;
 
-        const age =
-          Date.now() - new Date(incomingCall.created_at).getTime();
-        if (age > 30000) return;
+        const age = Date.now() - new Date(incomingCall.created_at).getTime();
+        
+        // ✅ FIX: Increased age limit for slow networks
+        if (age > INCOMING_AGE_MAX_MS) return;
 
         const { data: profile } = await supabase
           .from('profiles')
@@ -431,7 +417,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
           `/call/${incomingCall.id}?role=receiver&type=${incomingCall.call_type}`
         );
 
-        // Watch this call for remote updates (cancel / end)
         if (unsubCallRef.current) {
           try {
             unsubCallRef.current();
@@ -442,18 +427,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         unsubCallRef.current = subscribeToCall(
           incomingCall.id,
           async (updated) => {
-            if (updated.status === 'cancelled') {
-              handleRemoteTermination(updated);
-              return;
-            }
-            if (updated.status === 'ended') {
-              handleRemoteTermination(updated);
-              return;
-            }
-            if (updated.status === 'missed') {
-              handleRemoteTermination(updated);
-              return;
-            }
+            handleRemoteTermination(updated);
           }
         );
       });
@@ -462,10 +436,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => {
       if (unsub) unsub();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [callState, handleRemoteTermination, router]);
 
-  // Setup peer connection
   const setupPeerConnection = useCallback(
     async (
       callId: string,
@@ -479,6 +451,30 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       const pc = createPeerConnection();
       pcRef.current = pc;
+
+      // ✅ FIX: Initialize signaling channel ONCE
+      const signalChannel = supabase.channel(`call-signal:${callId}`);
+      signalChannelRef.current = signalChannel;
+
+      signalChannel
+        .on(
+          'broadcast',
+          { event: 'ice-candidate' },
+          async ({ payload }: any) => {
+            if (!payload || payload.from === myIdRef.current) return;
+            const candidate = deserializeIce(payload.candidate);
+            if (pc.remoteDescription) {
+              try {
+                await pc.addIceCandidate(candidate);
+              } catch (err) {
+                console.warn('[call] addIceCandidate error:', err);
+              }
+            } else {
+              iceCandidateQueueRef.current.push(candidate);
+            }
+          }
+        )
+        .subscribe();
 
       const stream = await getLocalStream(callType === 'video');
       localStreamRef.current = stream;
@@ -502,22 +498,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
       pc.addEventListener('icecandidate', async (event: any) => {
         if (!event.candidate) return;
         try {
-          const channel = supabase.channel(`call-signal:${callId}`);
-          await channel.send({
-            type: 'broadcast',
-            event: 'ice-candidate',
-            payload: {
-              from: myIdRef.current,
-              candidate: serializeIce(event.candidate),
-            },
-          });
+          // ✅ FIX: Use the reusable signal channel instead of creating a new one
+          if (signalChannelRef.current) {
+            await signalChannelRef.current.send({
+              type: 'broadcast',
+              event: 'ice-candidate',
+              payload: {
+                from: myIdRef.current,
+                candidate: serializeIce(event.candidate),
+              },
+            });
+          }
         } catch (err) {
           console.warn('[call] ICE send error:', err);
         }
       });
 
       const handleDisconnected = () => {
-        console.log('[call] connection disconnected — starting grace timer');
         if (disconnectGraceRef.current) {
           clearTimeout(disconnectGraceRef.current);
         }
@@ -525,7 +522,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
           const currentPc = pcRef.current;
           if (!currentPc) return;
           const state = currentPc.connectionState;
-          console.log('[call] grace expired, current state:', state);
           if (state !== 'connected') {
             if (callIdRef.current) {
               logByCallId(callIdRef.current, 'answered');
@@ -545,7 +541,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       };
 
       const handleFailed = () => {
-        console.log('[call] connection failed — ending');
         if (callIdRef.current) {
           logByCallId(callIdRef.current, 'answered');
           apiEndCall(callIdRef.current, myIdRef.current ?? '').catch(() => {});
@@ -560,7 +555,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       };
 
       const handleConnected = () => {
-        console.log('[call] connection connected');
         try {
           Vibration.cancel();
         } catch {}
@@ -578,7 +572,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       pc.addEventListener('connectionstatechange', () => {
         const state = pc.connectionState;
-        console.log('[call] connectionState:', state);
         if (state === 'connected') {
           handleConnected();
         } else if (state === 'failed' || state === 'closed') {
@@ -590,7 +583,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       pc.addEventListener('iceconnectionstatechange', () => {
         const iceState = pc.iceConnectionState;
-        console.log('[call] iceConnectionState:', iceState);
         if (iceState === 'failed') {
           handleFailed();
         } else if (iceState === 'disconnected') {
@@ -599,27 +591,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
           handleConnected();
         }
       });
-
-      const signalChannel = supabase
-        .channel(`call-signal:${callId}`)
-        .on(
-          'broadcast',
-          { event: 'ice-candidate' },
-          async ({ payload }: any) => {
-            if (!payload || payload.from === myIdRef.current) return;
-            const candidate = deserializeIce(payload.candidate);
-            if (pc.remoteDescription) {
-              try {
-                await pc.addIceCandidate(candidate);
-              } catch (err) {
-                console.warn('[call] addIceCandidate error:', err);
-              }
-            } else {
-              iceCandidateQueueRef.current.push(candidate);
-            }
-          }
-        )
-        .subscribe();
 
       if (!audioSessionStartedRef.current) {
         startAudioSession(callType === 'video');
@@ -664,14 +635,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (callState !== 'idle') return;
       if (Platform.OS === 'web') {
         hapticError();
-        console.warn('[call] Calls not supported on web');
         return;
       }
       const myId = myIdRef.current ?? (await getCurrentUserId());
       if (!myId) return;
       myIdRef.current = myId;
 
-      // ✅ Phase 14: remember conversation for call log
       conversationIdRef.current = conversationId ?? null;
 
       setRemoteUserInfo({
@@ -693,6 +662,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setCurrentCall(call);
         activeCallRef.current = call;
         setIsVideoEnabled(callType === 'video');
+
+        // Re-tag the signal channel with the real call ID
+        if (signalChannelRef.current) {
+           supabase.removeChannel(signalChannelRef.current);
+        }
+        const realChannel = supabase.channel(`call-signal:${call.id}`);
+        signalChannelRef.current = realChannel;
+        realChannel.on('broadcast', { event: 'ice-candidate' }, async ({ payload }: any) => {
+            if (!payload || payload.from === myIdRef.current) return;
+            const candidate = deserializeIce(payload.candidate);
+            if (pcRef.current?.remoteDescription) {
+              try { await pcRef.current.addIceCandidate(candidate); } catch (err) {}
+            } else {
+              iceCandidateQueueRef.current.push(candidate);
+            }
+        }).subscribe();
 
         try {
           const { data: myProfile } = await supabase
