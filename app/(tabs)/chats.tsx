@@ -3,6 +3,7 @@
 // ✅ FIX: "You: " prefix for sent messages
 // ✅ FIX: Realtime listener now forces sync if chat is missing
 // ✅ FIX: Select sender_id in last message query
+// ✅ FIX: insets from hook, delayed skeleton, error handling
 
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
@@ -175,7 +176,7 @@ function getCallPreview(rawContent: string): string {
   }
 }
 
-// ✅ FIX: Added isFromMe param to add "You: " prefix
+// ✅ FIX: Add isFromMe parameter
 function previewFromMessage(
   msg: {
     content?: string | null;
@@ -535,7 +536,7 @@ export default function ChatsScreen() {
         const setting = settingsMap.get(c.id);
         const profile = otherProfiles.get(c.id);
 
-        // ✅ FIX: Determine if last message was mine to add "You: "
+        // ✅ FIX: Determine if last message was mine
         const isFromMe = last?.sender_id === myId;
         const preview = last ? previewFromMessage(last, isFromMe) : 'Say hello 👋';
 
@@ -623,7 +624,6 @@ export default function ChatsScreen() {
 
           realtimeTimeoutRef.current = setTimeout(() => {
             const isFromMe = msg.sender_id === myId;
-            // ✅ FIX: Pass isFromMe to preview
             const preview = previewFromMessage(msg, isFromMe);
 
             setConversations((prev) => {
