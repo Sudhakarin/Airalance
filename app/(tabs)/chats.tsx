@@ -2,6 +2,9 @@
 // Chats list — SQLite-backed (offline-first) + SMART INCREMENTAL SYNC
 // ✅ FIX: delayed skeleton (250ms) — kills cold-start flash jump
 // ✅ FIX: skeletonWrap padding matches real list (no 8px jump)
+// ✅ FIX: Fetch last message per conversation individually — fixes "Say hello" for older chats
+// ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
+// ✅ FIX: no 'No conversations' flash on cold start; supabase errors checked; stale chats pruned
 
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
@@ -445,10 +448,16 @@ export default function ChatsScreen() {
 
     isLoadingRef.current = true;
     try {
-      const { data: participants } = await supabase
+      const { data: participants, error: partErr } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
         .eq('user_id', myId);
+
+      // ✅ FIX: on network/server error do NOT treat as "no chats" (would wipe local cache)
+      if (partErr) {
+        console.warn('[chats] participants error:', partErr.message);
+        return;
+      }
 
       const ids = (participants ?? []).map((p) => p.conversation_id);
       if (ids.length === 0) {
@@ -457,7 +466,8 @@ export default function ChatsScreen() {
         return;
       }
 
-      const [convosRes, othersRes, unreadRes, lastMsgRes, settingsRes] =
+      // ✅ lastMsg fetched individually below (not in Promise.all)
+      const [convosRes, othersRes, unreadRes, settingsRes] =
         await Promise.all([
           supabase
             .from('conversations')
@@ -477,19 +487,36 @@ export default function ChatsScreen() {
             .neq('sender_id', myId)
             .is('read_at', null),
           supabase
-            .from('messages')
-            .select(
-              'conversation_id, content, message_type, created_at, is_deleted'
-            )
-            .in('conversation_id', ids)
-            .order('created_at', { ascending: false })
-            .limit(Math.max(ids.length * 2, 40)),
-          supabase
             .from('chat_settings')
             .select('conversation_id, is_muted, is_locked')
             .eq('user_id', myId)
             .in('conversation_id', ids),
         ]);
+
+      if (convosRes.error) {
+        console.warn('[chats] conversations error:', convosRes.error.message);
+        return;
+      }
+
+      // ✅ FIX: Fetch latest message per conversation in chunks (fixes "Say hello" bug)
+      const lastPerConvo = new Map<string, any>();
+      for (let i = 0; i < ids.length; i += 10) {
+        const chunk = ids.slice(i, i + 10);
+        const chunkPromises = chunk.map((id) =>
+          supabase
+            .from('messages')
+            .select('conversation_id, content, message_type, created_at, is_deleted')
+            .eq('conversation_id', id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+        );
+        const results = await Promise.all(chunkPromises);
+        results.forEach((res, idx) => {
+          if (res.data && res.data.length > 0) {
+            lastPerConvo.set(chunk[idx], res.data[0]);
+          }
+        });
+      }
 
       const settingsMap = new Map(
         (settingsRes.data ?? []).map((s) => [s.conversation_id, s])
@@ -500,12 +527,6 @@ export default function ChatsScreen() {
           m.conversation_id,
           (unreadCounts.get(m.conversation_id) || 0) + 1
         );
-      });
-
-      const lastPerConvo = new Map<string, any>();
-      (lastMsgRes.data ?? []).forEach((m: any) => {
-        if (!lastPerConvo.has(m.conversation_id))
-          lastPerConvo.set(m.conversation_id, m);
       });
 
       const otherProfiles = new Map<string, any>();
@@ -542,8 +563,23 @@ export default function ChatsScreen() {
         };
       });
 
-      setConversations((prev) => mergeIntoState(prev, updatedRows));
+      // ✅ FIX: drop chats that no longer exist on server (deleted on another device)
+      const idSet = new Set<string>(ids);
+      setConversations((prev) =>
+        mergeIntoState(
+          prev.filter((c) => idSet.has(c.id)),
+          updatedRows
+        )
+      );
       await persistConversations(updatedRows);
+      try {
+        const localRows = await dbGetConversations();
+        for (const r of localRows) {
+          if (!idSet.has(r.id)) await dbDeleteConversation(r.id);
+        }
+      } catch (err) {
+        console.warn('[chats] prune error:', err);
+      }
     } catch (err) {
       console.warn('[chats] Sync Error:', err);
     } finally {
@@ -719,16 +755,18 @@ export default function ChatsScreen() {
     await persistConversations(next);
     await dbDeleteConversation(convoId);
     try {
-      await supabase
+      const { error: delErr1 } = await supabase
         .from('conversation_participants')
         .delete()
         .eq('conversation_id', convoId)
         .eq('user_id', myId);
-      await supabase
+      if (delErr1) throw delErr1;
+      const { error: delErr2 } = await supabase
         .from('chat_settings')
         .delete()
         .eq('conversation_id', convoId)
         .eq('user_id', myId);
+      if (delErr2) throw delErr2;
     } catch (err) {
       hapticError();
       Alert.alert('Delete failed', 'Please try again.');
@@ -748,7 +786,7 @@ export default function ChatsScreen() {
     await persistConversations(next);
     await patchDbConversation(convo.id, { is_muted: nextMuted ? 1 : 0 });
     try {
-      await supabase.from('chat_settings').upsert(
+      const { error: muteErr } = await supabase.from('chat_settings').upsert(
         {
           user_id: myId,
           conversation_id: convo.id,
@@ -757,6 +795,7 @@ export default function ChatsScreen() {
         },
         { onConflict: 'user_id,conversation_id' }
       );
+      if (muteErr) throw muteErr;
     } catch (err) {
       hapticError();
       const revert = conversations.map((c) =>
@@ -788,7 +827,7 @@ export default function ChatsScreen() {
     if (!myId) return;
     try {
       const convo = conversations.find((c) => c.id === convoId);
-      await supabase.from('chat_settings').upsert(
+      const { error: lockErr } = await supabase.from('chat_settings').upsert(
         {
           user_id: myId,
           conversation_id: convoId,
@@ -797,6 +836,7 @@ export default function ChatsScreen() {
         },
         { onConflict: 'user_id,conversation_id' }
       );
+      if (lockErr) throw lockErr;
       const next = conversations.map((c) =>
         c.id === convoId ? { ...c, is_locked: lock } : c
       );
@@ -890,19 +930,23 @@ export default function ChatsScreen() {
     hapticHeavy();
     setBlockConfirmConvo(null);
     try {
-      await supabase
+      const { error: blockErr } = await supabase
         .from('blocked_users')
         .insert({ blocker_id: myId, blocked_id: targetUserId });
-      await supabase
+      // 23505 = already blocked → fine
+      if (blockErr && blockErr.code !== '23505') throw blockErr;
+      const { error: blkErr1 } = await supabase
         .from('conversation_participants')
         .delete()
         .eq('conversation_id', convo.id)
         .eq('user_id', myId);
-      await supabase
+      if (blkErr1) throw blkErr1;
+      const { error: blkErr2 } = await supabase
         .from('chat_settings')
         .delete()
         .eq('conversation_id', convo.id)
         .eq('user_id', myId);
+      if (blkErr2) throw blkErr2;
       const next = conversations.filter((c) => c.id !== convo.id);
       setConversations(next);
       await persistConversations(next);
@@ -1048,7 +1092,10 @@ export default function ChatsScreen() {
               ) : null
             }
             ListEmptyComponent={
-              <View style={styles.emptyWrap}>
+              <View
+                style={[styles.emptyWrap, loading && { opacity: 0 }]}
+                pointerEvents={loading ? 'none' : 'auto'}
+              >
                 <View style={styles.emptyIconWrap}>
                   <Ionicons
                     name="chatbubbles-outline"
