@@ -1,7 +1,11 @@
 // app/notifications.tsx
 // Notifications screen — connection requests + app notifications
+// ✅ FIX: insets from hook instead of SafeAreaView — no first-frame header jump
+// ✅ FIX: load() never leaves the spinner stuck (try/catch/finally, offline-safe getSession)
+// ✅ FIX: supabase errors are checked (accept / decline / delete / mark all)
+// ✅ FIX: double-tap on Accept/Leave can no longer create duplicate chats
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,9 +14,10 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
-  DeviceEventEmitter, // ✅ NEW: To notify home.tsx to update count
+  Alert,
+  DeviceEventEmitter, // To notify home/search to update count
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -60,45 +65,66 @@ function stripTrailingEmoji(text: string): string {
 }
 
 export default function NotificationsScreen() {
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [myId, setMyId] = useState<string | null>(null);
   const [appNotifs, setAppNotifs] = useState<AppNotification[]>([]);
   const [requests, setRequests] = useState<ConnectionRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const busyRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
-    const { data: authData } = await supabase.auth.getUser();
-    if (!authData.user) return;
-    const uid = authData.user.id;
-    setMyId(uid);
+    try {
+      // ✅ getSession is local (works offline), getUser needs the network
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const uid = session?.user?.id;
+      if (!uid) return;
+      setMyId(uid);
 
-    const { data: n } = await supabase
-      .from('app_notifications')
-      .select(
-        '*, actor_profile:profiles!app_notifications_actor_id_fkey(*)'
-      )
-      .eq('user_id', uid)
-      .neq('type', 'message')
-      .order('created_at', { ascending: false })
-      .limit(50);
-    setAppNotifs((n ?? []) as AppNotification[]);
+      const [nRes, rRes] = await Promise.all([
+        supabase
+          .from('app_notifications')
+          .select(
+            '*, actor_profile:profiles!app_notifications_actor_id_fkey(*)'
+          )
+          .eq('user_id', uid)
+          .neq('type', 'message')
+          .order('created_at', { ascending: false })
+          .limit(50),
+        supabase
+          .from('connection_requests')
+          .select(
+            '*, from_profile:profiles!connection_requests_from_user_id_fkey(*)'
+          )
+          .eq('to_user_id', uid)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false }),
+      ]);
 
-    const { data: r } = await supabase
-      .from('connection_requests')
-      .select(
-        '*, from_profile:profiles!connection_requests_from_user_id_fkey(*)'
-      )
-      .eq('to_user_id', uid)
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false });
-    setRequests((r ?? []) as ConnectionRequest[]);
+      // keep old data on error instead of wiping the list
+      if (nRes.error) {
+        console.warn('[notifs] app_notifications error:', nRes.error.message);
+      } else {
+        setAppNotifs((nRes.data ?? []) as AppNotification[]);
+      }
 
-    setLoading(false);
-    setRefreshing(false);
-    
-    // ✅ Tell home to refresh count when screen loads (just in case)
-    DeviceEventEmitter.emit('REFRESH_NOTIF_COUNT');
+      if (rRes.error) {
+        console.warn('[notifs] requests error:', rRes.error.message);
+      } else {
+        setRequests((rRes.data ?? []) as ConnectionRequest[]);
+      }
+
+      // Tell home/search to refresh the bell count
+      DeviceEventEmitter.emit('REFRESH_NOTIF_COUNT');
+    } catch (err) {
+      console.warn('[notifs] load failed:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -141,84 +167,138 @@ export default function NotificationsScreen() {
   }
 
   async function acceptRequest(req: ConnectionRequest) {
-    await supabase
-      .from('connection_requests')
-      .update({ status: 'accepted' })
-      .eq('id', req.id);
+    if (!myId || busyRef.current.has(req.id)) return;
+    busyRef.current.add(req.id);
 
-    const { data: mine } = await supabase
-      .from('conversation_participants')
-      .select('conversation_id')
-      .eq('user_id', myId);
-    const myIds = (mine ?? []).map((r: any) => r.conversation_id);
-    let convoId: string | null = null;
-    if (myIds.length > 0) {
-      const { data: shared } = await supabase
+    try {
+      const { error: upErr } = await supabase
+        .from('connection_requests')
+        .update({ status: 'accepted' })
+        .eq('id', req.id);
+      if (upErr) throw upErr;
+
+      // remove from UI right away
+      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+
+      const { data: mine, error: mineErr } = await supabase
         .from('conversation_participants')
         .select('conversation_id')
-        .eq('user_id', req.from_user_id)
-        .in('conversation_id', myIds);
-      if (shared && shared.length > 0) convoId = shared[0].conversation_id;
-    }
-    if (!convoId && myId) {
-      const { data: convo } = await supabase
-        .from('conversations')
-        .insert({ is_group: false, created_by: myId })
-        .select()
-        .single();
-      if (convo) {
-        convoId = convo.id;
-        await supabase.from('conversation_participants').insert([
-          { conversation_id: convoId, user_id: myId },
-          { conversation_id: convoId, user_id: req.from_user_id },
-        ]);
+        .eq('user_id', myId);
+      if (mineErr) throw mineErr;
+
+      const myIds = (mine ?? []).map((r: any) => r.conversation_id);
+      let convoId: string | null = null;
+      if (myIds.length > 0) {
+        const { data: shared, error: sharedErr } = await supabase
+          .from('conversation_participants')
+          .select('conversation_id')
+          .eq('user_id', req.from_user_id)
+          .in('conversation_id', myIds);
+        if (sharedErr) throw sharedErr;
+        if (shared && shared.length > 0) convoId = shared[0].conversation_id;
       }
-    }
 
-    if (myId) {
-      const { data: me } = await supabase
-        .from('profiles')
-        .select('display_name')
-        .eq('id', myId)
-        .single();
+      if (!convoId) {
+        const { data: convo, error: convoErr } = await supabase
+          .from('conversations')
+          .insert({ is_group: false, created_by: myId })
+          .select()
+          .single();
+        if (convoErr) throw convoErr;
+        if (convo) {
+          convoId = convo.id;
+          const { error: partErr } = await supabase
+            .from('conversation_participants')
+            .insert([
+              { conversation_id: convoId, user_id: myId },
+              { conversation_id: convoId, user_id: req.from_user_id },
+            ]);
+          if (partErr) throw partErr;
+        }
+      }
 
-      await supabase.functions.invoke('send-push', {
-        body: {
-          userId: req.from_user_id,
-          title: 'Request accepted',
-          body: `${me?.display_name || 'Someone'} accepted your connection request`,
-          data: { screen: 'profile', userId: myId },
-        },
-      });
+      // Push is best-effort — never block the accept flow
+      try {
+        const { data: me } = await supabase
+          .from('profiles')
+          .select('display_name')
+          .eq('id', myId)
+          .single();
+
+        await supabase.functions.invoke('send-push', {
+          body: {
+            userId: req.from_user_id,
+            title: 'Request accepted',
+            body: `${me?.display_name || 'Someone'} accepted your connection request`,
+            data: { screen: 'profile', userId: myId },
+          },
+        });
+      } catch (pushErr) {
+        console.warn('[notifs] push failed:', pushErr);
+      }
+    } catch (err) {
+      console.warn('[notifs] accept failed:', err);
+      Alert.alert('Failed', 'Could not accept the request. Please try again.');
+    } finally {
+      busyRef.current.delete(req.id);
+      load();
     }
-    load();
   }
 
   async function declineRequest(req: ConnectionRequest) {
-    await supabase
-      .from('connection_requests')
-      .update({ status: 'declined' })
-      .eq('id', req.id);
-    load();
+    if (busyRef.current.has(req.id)) return;
+    busyRef.current.add(req.id);
+
+    try {
+      const { error } = await supabase
+        .from('connection_requests')
+        .update({ status: 'declined' })
+        .eq('id', req.id);
+      if (error) throw error;
+      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+    } catch (err) {
+      console.warn('[notifs] decline failed:', err);
+      Alert.alert('Failed', 'Could not update the request. Please try again.');
+    } finally {
+      busyRef.current.delete(req.id);
+      load();
+    }
   }
 
   async function markAllRead() {
     if (!myId) return;
-    await supabase
-      .from('app_notifications')
-      .update({ read: true })
-      .eq('user_id', myId)
-      .eq('read', false);
-      
-    DeviceEventEmitter.emit('REFRESH_NOTIF_COUNT'); // ✅ Signal home
-    load();
+    // optimistic
+    setAppNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
+    try {
+      const { error } = await supabase
+        .from('app_notifications')
+        .update({ read: true })
+        .eq('user_id', myId)
+        .eq('read', false);
+      if (error) throw error;
+    } catch (err) {
+      console.warn('[notifs] markAllRead failed:', err);
+      Alert.alert('Failed', 'Could not mark as read.');
+    } finally {
+      load(); // also emits REFRESH_NOTIF_COUNT
+    }
   }
 
   async function deleteNotification(id: string) {
     setAppNotifs((prev) => prev.filter((n) => n.id !== id));
-    await supabase.from('app_notifications').delete().eq('id', id);
-    
-    DeviceEventEmitter.emit('REFRESH_NOTIF_COUNT'); // ✅ Signal home to reduce count
+    try {
+      const { error } = await supabase
+        .from('app_notifications')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+    } catch (err) {
+      console.warn('[notifs] delete failed:', err);
+      Alert.alert('Failed', 'Could not delete the notification.');
+      load(); // restore the item
+      return;
+    }
+    DeviceEventEmitter.emit('REFRESH_NOTIF_COUNT'); // reduce count
   }
 
   function formatTime(iso: string) {
@@ -233,18 +313,18 @@ export default function NotificationsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
+      <View style={[styles.safe, { paddingTop: insets.top }]}>
         <View style={styles.loadingWrap}>
           <ActivityIndicator color={COLORS.violet} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   const isEmpty = requests.length === 0 && appNotifs.length === 0;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <View style={[styles.safe, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerBtn}
@@ -361,8 +441,12 @@ export default function NotificationsScreen() {
           const hasName = nameIndex >= 0;
 
           const beforeName = hasName ? bodyText.slice(0, nameIndex) : '';
-          const namePart = hasName ? bodyText.slice(nameIndex, nameIndex + actorName.length) : '';
-          const afterName = hasName ? bodyText.slice(nameIndex + actorName.length) : bodyText;
+          const namePart = hasName
+            ? bodyText.slice(nameIndex, nameIndex + actorName.length)
+            : '';
+          const afterName = hasName
+            ? bodyText.slice(nameIndex + actorName.length)
+            : bodyText;
 
           const renderRightActions = () => (
             <TouchableOpacity
@@ -434,7 +518,7 @@ export default function NotificationsScreen() {
           );
         }}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
