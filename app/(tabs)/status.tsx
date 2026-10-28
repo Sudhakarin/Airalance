@@ -5,6 +5,7 @@
 // ✅ FIX: my profile fetched in loadStatuses — avatar updates after profile change
 // ✅ FIX: AppState listener — syncs when app comes to foreground (fixes background socket kill)
 // ✅ FIX: Realtime listens to ALL events ('*') — INSERT, UPDATE, DELETE
+// ✅ FIX: Removed Cache TTL — shows stale data instantly on cold start
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -17,7 +18,7 @@ import {
   RefreshControl,
   Modal,
   Pressable,
-  AppState, // ✅ NEW: for foreground sync
+  AppState,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -62,7 +63,6 @@ type UserStatusGroup = {
 };
 
 const STATUS_CACHE_KEY = 'airalance:status-tab:v2';
-const STATUS_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 
 type StatusCache = {
   t: number;
@@ -78,7 +78,8 @@ async function readStatusCache(): Promise<StatusCache | null> {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as StatusCache;
     if (!parsed?.myStatuses && !parsed?.otherGroups) return null;
-    if (Date.now() - (parsed.t ?? 0) > STATUS_CACHE_TTL_MS) return null;
+    
+    // ✅ FIX: TTL check removed. Always show cached data instantly, update in background.
     return parsed;
   } catch {
     return null;
@@ -308,7 +309,6 @@ export default function StatusScreen() {
   );
 
   // ✅ FIX: AppState listener — jab app background se foreground me aaye, sync karo
-  // Android OS background me WebSocket drop kar deta hai, isliye ye zaruri hai
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active' && isOnline()) {
@@ -338,7 +338,7 @@ export default function StatusScreen() {
         .on(
           'postgres_changes',
           {
-            event: '*', // ✅ was 'INSERT' — now INSERT, UPDATE, DELETE
+            event: '*',
             schema: 'public',
             table: 'statuses',
           },
