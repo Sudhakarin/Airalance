@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  DeviceEventEmitter, // ✅ NEW: To notify home.tsx to update count
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -95,6 +96,9 @@ export default function NotificationsScreen() {
 
     setLoading(false);
     setRefreshing(false);
+    
+    // ✅ Tell home to refresh count when screen loads (just in case)
+    DeviceEventEmitter.emit('REFRESH_NOTIF_COUNT');
   }, []);
 
   useEffect(() => {
@@ -171,7 +175,6 @@ export default function NotificationsScreen() {
       }
     }
 
-    // ✅ Notify: Request accepted
     if (myId) {
       const { data: me } = await supabase
         .from('profiles')
@@ -188,7 +191,6 @@ export default function NotificationsScreen() {
         },
       });
     }
-
     load();
   }
 
@@ -207,12 +209,16 @@ export default function NotificationsScreen() {
       .update({ read: true })
       .eq('user_id', myId)
       .eq('read', false);
+      
+    DeviceEventEmitter.emit('REFRESH_NOTIF_COUNT'); // ✅ Signal home
     load();
   }
 
   async function deleteNotification(id: string) {
     setAppNotifs((prev) => prev.filter((n) => n.id !== id));
     await supabase.from('app_notifications').delete().eq('id', id);
+    
+    DeviceEventEmitter.emit('REFRESH_NOTIF_COUNT'); // ✅ Signal home to reduce count
   }
 
   function formatTime(iso: string) {
@@ -317,7 +323,6 @@ export default function NotificationsScreen() {
                   </Text>
                   <Text style={styles.cardSub}>@{p?.username}</Text>
                   <View style={styles.requestActions}>
-                    {/* ✅ Shadow wrapper (no clip) */}
                     <View style={styles.acceptShadowWrap}>
                       <TouchableOpacity
                         onPress={() => acceptRequest(req)}
@@ -355,15 +360,9 @@ export default function NotificationsScreen() {
           const nameIndex = actorName ? bodyText.indexOf(actorName) : -1;
           const hasName = nameIndex >= 0;
 
-          const beforeName = hasName
-            ? bodyText.slice(0, nameIndex)
-            : '';
-          const namePart = hasName
-            ? bodyText.slice(nameIndex, nameIndex + actorName.length)
-            : '';
-          const afterName = hasName
-            ? bodyText.slice(nameIndex + actorName.length)
-            : bodyText;
+          const beforeName = hasName ? bodyText.slice(0, nameIndex) : '';
+          const namePart = hasName ? bodyText.slice(nameIndex, nameIndex + actorName.length) : '';
+          const afterName = hasName ? bodyText.slice(nameIndex + actorName.length) : bodyText;
 
           const renderRightActions = () => (
             <TouchableOpacity
@@ -476,7 +475,6 @@ const styles = StyleSheet.create({
 
   list: { paddingHorizontal: 14, paddingBottom: SPACING.lg, flexGrow: 1 },
 
-  // ---------- Card ----------
   card: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -532,8 +530,6 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
 
-  // ---------- Accept button (with shadow wrapper) ----------
-  // ✅ Outer: shadow, no clip
   acceptShadowWrap: {
     flex: 1,
     borderRadius: 999,
@@ -543,7 +539,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
-  // ✅ Inner: pill shape with clip
   acceptBtn: {
     borderRadius: 999,
     overflow: 'hidden',
@@ -560,7 +555,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-  // ---------- Leave button ----------
   declineBtn: {
     flex: 1,
     minHeight: 32,
