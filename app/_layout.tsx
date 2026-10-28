@@ -491,9 +491,18 @@ export default function RootLayout() {
 
   // ---------- Hide splash (single consolidated effect) ----------
   useEffect(() => {
-    if (isReady) {
-      SplashScreen.hideAsync().catch(() => {});
-    }
+    if (!isReady) return;
+    // ✅ FIX: let content lay out 2 frames before hiding splash
+    let id2 = 0;
+    const id1 = requestAnimationFrame(() => {
+      id2 = requestAnimationFrame(() => {
+        SplashScreen.hideAsync().catch(() => {});
+      });
+    });
+    return () => {
+      cancelAnimationFrame(id1);
+      if (id2) cancelAnimationFrame(id2);
+    };
   }, [isReady]);
 
   // ============================================================
@@ -528,7 +537,7 @@ export default function RootLayout() {
               />
               <Stack.Screen
                 name="(tabs)"
-                options={{ animation: 'fade', animationDuration: 200 }}
+                options={{ animation: 'none' }}
               />
               <Stack.Screen
                 name="chat/[id]"
