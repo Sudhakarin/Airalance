@@ -3,6 +3,8 @@
 // ✅ UPDATED: shows 20+ articles by default (server fetches 60)
 // ✅ FIX: HomeSkeleton now matches real content heights exactly
 // ✅ FIX: Removed Cache TTL — shows stale data instantly, updates in background
+// ✅ FIX: insets from hook (uses initialWindowMetrics) — no first-frame header jump
+// ✅ FIX: DeviceEventEmitter to sync notification count when deleted/marked from Notifications screen
 
 import { useEffect, useState, useCallback, useMemo, memo, useRef } from 'react';
 import {
@@ -16,6 +18,7 @@ import {
   Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  DeviceEventEmitter, // ✅ NEW: To sync notification count
 } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -535,6 +538,14 @@ export default function HomeScreen() {
     fetchNews();
     fetchNotificationCount();
   }, [fetchNews, fetchNotificationCount]);
+
+  // ✅ NEW: Event listener to update count from notifications screen
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('REFRESH_NOTIF_COUNT', () => {
+      fetchNotificationCount();
+    });
+    return () => sub.remove();
+  }, [fetchNotificationCount]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
