@@ -1,5 +1,6 @@
 // lib/network.ts
 // Global network status tracker (online/offline) with pub/sub
+// ✅ FIX: initial NetInfo.fetch() now notifies listeners too (same path as the event listener)
 
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 
@@ -17,29 +18,29 @@ function computeOnline(state: NetInfoState): boolean {
   return true;
 }
 
+// Single place that updates `online` and notifies listeners (only on change)
+function apply(state: NetInfoState) {
+  const next = computeOnline(state);
+  if (next === online) return;
+  online = next;
+  listeners.forEach((fn) => {
+    try {
+      fn(online);
+    } catch {}
+  });
+}
+
 export function initNetwork() {
   if (initialized) return;
   initialized = true;
 
   // Initial fetch
   NetInfo.fetch()
-    .then((state) => {
-      online = computeOnline(state);
-    })
+    .then(apply)
     .catch(() => {});
 
   // Subscribe
-  unsubscribeNetInfo = NetInfo.addEventListener((state) => {
-    const nextOnline = computeOnline(state);
-    if (nextOnline !== online) {
-      online = nextOnline;
-      listeners.forEach((fn) => {
-        try {
-          fn(online);
-        } catch {}
-      });
-    }
-  });
+  unsubscribeNetInfo = NetInfo.addEventListener(apply);
 }
 
 export function isOnline(): boolean {
