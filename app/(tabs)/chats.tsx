@@ -775,21 +775,44 @@ export default function ChatsScreen() {
     patchDbConversation(convoId, { unread_count: 0 });
   }, []);
 
+  // ✅ FIX: purane unread messages DB me bhi read mark karo (read_at set)
+  const markConversationRead = useCallback(
+    async (convoId: string) => {
+      if (!myId || !isOnline()) return;
+      try {
+        const { error } = await supabase
+          .from('messages')
+          .update({ read_at: new Date().toISOString() })
+          .eq('conversation_id', convoId)
+          .neq('sender_id', myId)
+          .is('read_at', null);
+        if (error) {
+          console.warn('[chats] markConversationRead error:', error.message);
+        }
+      } catch (err) {
+        console.warn('[chats] markConversationRead failed:', err);
+      }
+    },
+    [myId]
+  );
+
   const openChat = useCallback(
     (convoId: string) => {
       clearUnreadLocal(convoId);
+      markConversationRead(convoId);
       router.push(`/chat/${convoId}`);
     },
-    [router, clearUnreadLocal]
+    [router, clearUnreadLocal, markConversationRead]
   );
 
   const openLockedChat = useCallback(
     (convoId: string) => {
       clearUnreadLocal(convoId);
+      markConversationRead(convoId);
       setLockedViewOpen(false);
       setTimeout(() => router.push(`/chat/${convoId}`), 320);
     },
-    [router, clearUnreadLocal]
+    [router, clearUnreadLocal, markConversationRead]
   );
 
   async function deleteConversation(convoId: string) {
