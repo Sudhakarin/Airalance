@@ -34,6 +34,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as MediaLibrary from 'expo-media-library';
 import * as Clipboard from 'expo-clipboard';
 import {
   useAudioRecorder,
@@ -58,6 +60,7 @@ import { useCall } from '../../contexts/CallContext';
 import Avatar from '../../components/Avatar';
 import AvatarPreviewHost from '../../components/AvatarPreviewHost';
 import MessageBubble from '../../components/MessageBubble';
+import ImageEditor, { EditedImage } from '../../components/ImageEditor';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import TypingDots from '../../components/TypingDots';
 import {
@@ -386,6 +389,9 @@ export default function ChatScreen() {
   const [isMutedForConvo, setIsMutedForConvo] = useState(false);
 
   const [viewerImage, setViewerImage] = useState<Message | null>(null);
+  // ✅ NEW: picked photo waiting in the editor (crop / draw / caption)
+  const [editorUri, setEditorUri] = useState<string | null>(null);
+  const [savingImage, setSavingImage] = useState(false);
   const { width: screenW, height: screenH } = useWindowDimensions();
   const handleImagePress = useCallback((msg: Message) => {
     if (msg.media_url && !msg.is_deleted) setViewerImage(msg);
@@ -1543,6 +1549,7 @@ export default function ChatScreen() {
     }
   }
 
+  // ✅ Step 1: pick -> open editor (NOT sent directly anymore)
   async function pickImage() {
     if (!myId || !convoId || uploading) return;
     if (!isOnline()) {
@@ -1556,25 +1563,32 @@ export default function ChatScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
+      quality: 1,
+      allowsEditing: false,
     });
     if (result.canceled || !result.assets?.[0]) return;
+    setEditorUri(result.assets[0].uri);
+  }
 
-    const asset = result.assets[0];
+  // ✅ Step 2: editor "Send" -> upload edited (cropped) image to Supabase
+  async function sendEditedImage(img: EditedImage) {
+    if (!myId || !convoId) return;
+    if (!isOnline()) {
+      Alert.alert('Offline', 'Cannot upload photos while offline.');
+      return;
+    }
+    const caption = img.caption.trim();
     setUploading(true);
     try {
-      const response = await fetch(asset.uri);
+      const response = await fetch(img.uri);
       const arrayBuffer = await response.arrayBuffer();
-      const ext = (asset.uri.split('.').pop() ?? 'jpg')
-        .toLowerCase()
-        .slice(0, 5);
-      const path = `${convoId}/${myId}-${Date.now()}.${ext}`;
+      // width x height is encoded in the file name so the chat bubble
+      // can size itself instantly (no DB column / migration needed)
+      const path = `${convoId}/${myId}-${Date.now()}-${img.width}x${img.height}.jpg`;
 
       const { error: uploadError } = await supabase.storage
         .from(CONSTANTS.CHAT_MEDIA_BUCKET)
-        .upload(path, arrayBuffer, {
-          contentType: asset.mimeType ?? 'image/jpeg',
-        });
+        .upload(path, arrayBuffer, { contentType: 'image/jpeg' });
 
       if (uploadError) throw uploadError;
 
@@ -1587,7 +1601,7 @@ export default function ChatScreen() {
         .insert({
           conversation_id: convoId,
           sender_id: myId,
-          content: '',
+          content: caption,
           message_type: 'image',
           media_url: urlData.publicUrl,
           reply_to_id: replyingTo?.id ?? null,
@@ -1612,11 +1626,15 @@ export default function ChatScreen() {
         // ✅ Update preview
         bumpConvoPreview({
           convoId,
-          preview: '📷 Photo',
+          preview: caption ? `📷 ${caption}` : '📷 Photo',
           atIso: (inserted as Message).created_at,
         });
 
-        if (other?.id) triggerPushNotification(other.id, '', 'image');
+        requestAnimationFrame(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        });
+
+        if (other?.id) triggerPushNotification(other.id, caption, 'image');
       }
     } catch (err: any) {
       console.warn('Image upload error:', err);
@@ -1624,6 +1642,34 @@ export default function ChatScreen() {
       Alert.alert('Upload failed', err?.message ?? 'Please try again.');
     } finally {
       setUploading(false);
+    }
+  }
+
+  // ✅ Save photo from the viewer to the phone gallery
+  async function saveViewerImage() {
+    if (!viewerImage?.media_url || savingImage) return;
+    setSavingImage(true);
+    try {
+      const perm = await MediaLibrary.requestPermissionsAsync(true);
+      if (!perm.granted) {
+        Alert.alert('Permission needed', 'Please allow access to save photos.');
+        return;
+      }
+      // manipulateAsync downloads a remote image to a local file for us
+      const local = await ImageManipulator.manipulateAsync(
+        viewerImage.media_url,
+        [],
+        { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      await MediaLibrary.saveToLibraryAsync(local.uri);
+      hapticSuccess();
+      Alert.alert('Saved', 'Photo saved to your gallery.');
+    } catch (err) {
+      console.warn('Save image error:', err);
+      hapticError();
+      Alert.alert('Could not save', 'Please try again.');
+    } finally {
+      setSavingImage(false);
     }
   }
 
@@ -2458,9 +2504,40 @@ export default function ChatScreen() {
                 </Text>
               )}
             </View>
+            <TouchableOpacity
+              style={styles.viewerClose}
+              onPress={saveViewerImage}
+              disabled={savingImage}
+              activeOpacity={0.7}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              {savingImage ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="download-outline" size={26} color="#FFFFFF" />
+              )}
+            </TouchableOpacity>
           </SafeAreaView>
+
+          {!!viewerImage?.content?.trim() && (
+            <SafeAreaView edges={['bottom']} style={styles.viewerCaptionWrap}>
+              <Text style={styles.viewerCaption}>{viewerImage.content}</Text>
+            </SafeAreaView>
+          )}
         </View>
       </Modal>
+
+      {/* ✅ NEW: WhatsApp-style editor shown after picking a photo */}
+      <ImageEditor
+        visible={!!editorUri}
+        uri={editorUri}
+        recipientName={other?.display_name}
+        onClose={() => setEditorUri(null)}
+        onSend={(img) => {
+          setEditorUri(null);
+          sendEditedImage(img);
+        }}
+      />
 
       <AvatarPreviewHost />
     </SafeAreaView>
@@ -3009,7 +3086,22 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  viewerClose: { padding: 4 },
+  viewerClose: { padding: 4, marginLeft: 6 },
+  viewerCaptionWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  viewerCaption: {
+    fontSize: 15,
+    fontFamily: FONTS.body,
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
   viewerTitle: {
     fontSize: 16,
     fontFamily: FONTS.bodySemiBold,
