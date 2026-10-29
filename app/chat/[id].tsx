@@ -55,7 +55,11 @@ import {
 import { supabase } from '../../lib/supabase';
 import { getCurrentUserId } from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
-import { isUserOnline, subscribePresence } from '../../lib/presence';
+import {
+  isUserOnline,
+  subscribePresence,
+  lastSeenLabel,
+} from '../../lib/presence';
 import { useCall } from '../../contexts/CallContext';
 import Avatar from '../../components/Avatar';
 import AvatarPreviewHost from '../../components/AvatarPreviewHost';
@@ -376,6 +380,7 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
   const [otherOnline, setOtherOnline] = useState(false);
+  const [, setStatusTick] = useState(0); // "Last seen Xm ago" re-render ke liye
   const [uploading, setUploading] = useState(false);
 
   const [online, setOnline] = useState(isOnline());
@@ -1004,10 +1009,14 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!other?.id) return;
     if (lockRequired) return;
-    if (!online) return;
+    if (!online) {
+      // Apna net band hai -> doosre ka status pata nahi; purana "Active now" mat dikhao
+      setOtherOnline(false);
+      return;
+    }
     const otherId = other.id;
     let cancelled = false;
-    let fetchTimer: ReturnType<typeof setTimeout> | null = null;
+    let fetchTimers: ReturnType<typeof setTimeout>[] = [];
 
     // "Last seen X ago" label ke liye last_seen refresh
     const refreshLastSeen = async () => {
@@ -1033,15 +1042,24 @@ export default function ChatScreen() {
       const nowOnline = isUserOnline(otherId);
       setOtherOnline(nowOnline);
       if (wasOnline && !nowOnline) {
-        if (fetchTimer) clearTimeout(fetchTimer);
-        fetchTimer = setTimeout(refreshLastSeen, 1500);
+        // Last seen presence 'leave' se LOCALLY turant set ho chuka hai (lastSeenLabel).
+        // DB value baad me sirf confirm karne ke liye (2 baar, kyunki write thoda late ho sakta hai)
+        fetchTimers.forEach(clearTimeout);
+        fetchTimers = [
+          setTimeout(refreshLastSeen, 1200),
+          setTimeout(refreshLastSeen, 5000),
+        ];
       }
       wasOnline = nowOnline;
     });
 
+    // "Last seen 3m ago" label har 30s me khud tick kare
+    const tick = setInterval(() => setStatusTick((t) => t + 1), 30000);
+
     return () => {
       cancelled = true;
-      if (fetchTimer) clearTimeout(fetchTimer);
+      fetchTimers.forEach(clearTimeout);
+      clearInterval(tick);
       unsub();
     };
   }, [other?.id, lockRequired, online]);
@@ -1789,15 +1807,10 @@ export default function ChatScreen() {
     return `${m}:${s}`;
   }
 
+  // ✅ FIX: pehle yahan <1 min par "Active now" aata tha -> app close karne ke baad
+  // bhi ek minute tak online dikhta tha. Ab "Active now" sirf live presence se aata hai.
   function formatLastSeen(iso: string | null | undefined) {
-    if (!iso) return 'Offline';
-    const diff = Date.now() - new Date(iso).getTime();
-    const min = Math.floor(diff / 60000);
-    if (min < 1) return 'Active now';
-    if (min < 60) return `Last seen ${min}m ago`;
-    const hr = Math.floor(min / 60);
-    if (hr < 24) return `Last seen ${hr}h ago`;
-    return `Last seen ${Math.floor(hr / 24)}d ago`;
+    return lastSeenLabel(other?.id, iso);
   }
 
   function getMessagePreview(msg: Message | null | undefined): string {
@@ -2014,7 +2027,7 @@ export default function ChatScreen() {
                 </View>
               ) : (
                 <Text style={styles.headerSub} numberOfLines={1}>
-                  {otherOnline ? (
+                  {!online ? null : otherOnline ? (
                     <Text style={{ color: COLORS.teal }}>Active now</Text>
                   ) : (
                     formatLastSeen(other?.last_seen)
