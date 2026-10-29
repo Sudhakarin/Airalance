@@ -661,21 +661,20 @@ export default function ChatScreen() {
           );
           setHiddenForMeIds(hiddenIds);
 
-          const unreadIds = msgs
-            .filter(
-              (m: any) =>
-                m.sender_id !== uid &&
-                !m.read_at &&
-                m.message_type !== 'call'
-            )
-            .map((m: any) => m.id);
-          if (unreadIds.length > 0) {
-            supabase
-              .from('messages')
-              .update({ read_at: new Date().toISOString() })
-              .in('id', unreadIds)
-              .then(() => {});
-          }
+          // ✅ FIX: poori conversation ke unread messages read mark karo
+          // (sirf loaded page nahi, aur call messages bhi — warna chat list
+          // me badge hamesha unread dikhta rehta hai)
+          supabase
+            .from('messages')
+            .update({ read_at: new Date().toISOString() })
+            .eq('conversation_id', convoId)
+            .neq('sender_id', uid)
+            .is('read_at', null)
+            .then(({ error: readErr }) => {
+              if (readErr) {
+                console.warn('[chat] mark read failed:', readErr.message);
+              }
+            });
         } else {
           setHasMore(false);
         }
@@ -907,12 +906,17 @@ export default function ChatScreen() {
             setNewMessagesCount((c) => c + 1);
           }
 
-          if (incoming.sender_id !== myId && !isCallLog) {
+          // ✅ FIX: call log bhi read mark karo (chat list unread count ke liye)
+          if (incoming.sender_id !== myId) {
             supabase
               .from('messages')
               .update({ read_at: new Date().toISOString() })
               .eq('id', incoming.id)
-              .then(() => {});
+              .then(({ error: readErr }) => {
+                if (readErr) {
+                  console.warn('[chat] mark read failed:', readErr.message);
+                }
+              });
           }
         }
       )
