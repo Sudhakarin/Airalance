@@ -53,6 +53,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { getCurrentUserId } from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
+import { isUserOnline, subscribePresence } from '../../lib/presence';
 import { useCall } from '../../contexts/CallContext';
 import Avatar from '../../components/Avatar';
 import AvatarPreviewHost from '../../components/AvatarPreviewHost';
@@ -998,24 +999,44 @@ export default function ChatScreen() {
     if (!other?.id) return;
     if (lockRequired) return;
     if (!online) return;
+    const otherId = other.id;
     let cancelled = false;
-    const check = async () => {
+    let fetchTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // "Last seen X ago" label ke liye last_seen refresh
+    const refreshLastSeen = async () => {
       const { data } = await supabase
         .from('profiles')
         .select('last_seen')
-        .eq('id', other.id)
+        .eq('id', otherId)
         .single();
-      if (cancelled) return;
-      if (data?.last_seen) {
-        const diff = Date.now() - new Date(data.last_seen).getTime();
-        setOtherOnline(diff < 60000);
-      }
+      if (cancelled || !data?.last_seen) return;
+      setOther((prev) =>
+        prev && prev.id === otherId
+          ? { ...prev, last_seen: data.last_seen }
+          : prev
+      );
     };
-    check();
-    const interval = setInterval(check, 20000);
+
+    // ✅ REALTIME: Supabase Presence se online/offline turant update
+    setOtherOnline(isUserOnline(otherId));
+    refreshLastSeen();
+
+    let wasOnline = isUserOnline(otherId);
+    const unsub = subscribePresence(() => {
+      const nowOnline = isUserOnline(otherId);
+      setOtherOnline(nowOnline);
+      if (wasOnline && !nowOnline) {
+        if (fetchTimer) clearTimeout(fetchTimer);
+        fetchTimer = setTimeout(refreshLastSeen, 1500);
+      }
+      wasOnline = nowOnline;
+    });
+
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (fetchTimer) clearTimeout(fetchTimer);
+      unsub();
     };
   }, [other?.id, lockRequired, online]);
 
