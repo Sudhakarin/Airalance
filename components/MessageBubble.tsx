@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   Animated,
   Easing,
+  useWindowDimensions,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
@@ -55,6 +56,63 @@ type Props = {
   reactions?: Reaction[];
   animate?: boolean;
 };
+
+// ============================================================
+// ✅ WhatsApp-style image bubble
+//   - size follows the photo's aspect ratio (small stays small,
+//     big is capped), width x height is read from the file name
+//     "...-{w}x{h}.jpg"; old photos fall back to the real size on load
+//   - optional caption below the photo
+// ============================================================
+function parseImageDims(url?: string | null): { w: number; h: number } | null {
+  if (!url) return null;
+  const m = url.match(/-(\d{2,5})x(\d{2,5})\.[a-zA-Z0-9]+(?:\?|$)/);
+  if (!m) return null;
+  const w = parseInt(m[1], 10);
+  const h = parseInt(m[2], 10);
+  return w > 0 && h > 0 ? { w, h } : null;
+}
+
+function ImageContent({ message, isMine }: { message: Message; isMine: boolean }) {
+  const { width: screenW } = useWindowDimensions();
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(() =>
+    parseImageDims(message.media_url)
+  );
+  const caption = (message.content ?? '').trim();
+
+  const maxW = Math.min(280, Math.round(screenW * 0.66));
+  const maxH = 360;
+  const w0 = dims?.w ?? 220;
+  const h0 = dims?.h ?? 220;
+  const k = Math.min(1, maxW / w0, maxH / h0); // never upscale small photos
+  const w = Math.max(90, Math.round(w0 * k));
+  const h = Math.max(90, Math.round(h0 * k));
+
+  return (
+    <View
+      style={[
+        styles.imageWrap,
+        { width: w },
+        !!caption && (isMine ? styles.imageCapMine : styles.imageCapOther),
+      ]}
+    >
+      <Image
+        source={{ uri: message.media_url! }}
+        style={{ width: w, height: h }}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        transition={150}
+        recyclingKey={message.id}
+        onLoad={(e) => {
+          if (!dims && e?.source?.width && e?.source?.height) {
+            setDims({ w: e.source.width, h: e.source.height });
+          }
+        }}
+      />
+      {!!caption && <Text style={styles.imageCaption}>{caption}</Text>}
+    </View>
+  );
+}
 
 const DOUBLE_TAP_MS = 300;
 const WAVE_BAR_COUNT = 32;
@@ -680,16 +738,7 @@ function MessageBubbleBase({
                   time={formatTime(message.created_at)}
                 />
               ) : isImage ? (
-                <View style={styles.imageWrap}>
-                  <Image
-                    source={{ uri: message.media_url! }}
-                    style={styles.image}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    transition={150}
-                    recyclingKey={message.id}
-                  />
-                </View>
+                <ImageContent message={message} isMine={isMine} />
               ) : isVoice ? (
                 <View
                   style={[
@@ -961,6 +1010,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.03)',
   },
   image: { width: 220, height: 220, borderRadius: 16 },
+  imageCapMine: { backgroundColor: '#2A2D3A' },
+  imageCapOther: {
+    backgroundColor: '#171A24',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  imageCaption: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontFamily: FONTS.bodyMedium,
+    lineHeight: 22,
+    paddingHorizontal: 10,
+    paddingTop: 7,
+    paddingBottom: 8,
+  },
 
   voiceWrap: {
     flexDirection: 'row',
