@@ -50,7 +50,10 @@
         "WAKE_LOCK",
         "DISABLE_KEYGUARD",
         "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-        "SYSTEM_ALERT_WINDOW"
+        "SYSTEM_ALERT_WINDOW",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -67,6 +70,14 @@
         "expo-audio",
         {
           "microphonePermission": "Allow Airalance to access your microphone."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Airalance to access your photos.",
+          "savePhotosPermission": "Allow Airalance to save photos.",
+          "isAccessMediaLocationEnabled": true
         }
       ],
       [
