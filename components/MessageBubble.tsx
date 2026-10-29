@@ -73,6 +73,8 @@ function parseImageDims(url?: string | null): { w: number; h: number } | null {
   return w > 0 && h > 0 ? { w, h } : null;
 }
 
+const IMAGE_FRAME_EXTRA = 10; // 2 x (1px border + 4px padding)
+
 function ImageContent({ message, isMine }: { message: Message; isMine: boolean }) {
   const { width: screenW } = useWindowDimensions();
   const [dims, setDims] = useState<{ w: number; h: number } | null>(() =>
@@ -80,37 +82,62 @@ function ImageContent({ message, isMine }: { message: Message; isMine: boolean }
   );
   const caption = (message.content ?? '').trim();
 
-  const maxW = Math.min(280, Math.round(screenW * 0.66));
+  // frame = 1px gradient hairline + 4px inner padding on each side
+  const maxW = Math.min(280, Math.round(screenW * 0.66)) - IMAGE_FRAME_EXTRA;
   const maxH = 360;
   const w0 = dims?.w ?? 220;
   const h0 = dims?.h ?? 220;
   const k = Math.min(1, maxW / w0, maxH / h0); // never upscale small photos
   const w = Math.max(90, Math.round(w0 * k));
   const h = Math.max(90, Math.round(h0 * k));
+  const time = formatTime(message.created_at);
 
   return (
-    <View
-      style={[
-        styles.imageWrap,
-        { width: w },
-        !!caption && (isMine ? styles.imageCapMine : styles.imageCapOther),
-      ]}
+    <LinearGradient
+      colors={['rgba(255,255,255,0.22)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.14)']}
+      locations={[0, 0.5, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[styles.imageFrame, { width: w + IMAGE_FRAME_EXTRA }]}
     >
-      <Image
-        source={{ uri: message.media_url! }}
-        style={{ width: w, height: h }}
-        contentFit="cover"
-        cachePolicy="memory-disk"
-        transition={150}
-        recyclingKey={message.id}
-        onLoad={(e) => {
-          if (!dims && e?.source?.width && e?.source?.height) {
-            setDims({ w: e.source.width, h: e.source.height });
-          }
-        }}
-      />
-      {!!caption && <Text style={styles.imageCaption}>{caption}</Text>}
-    </View>
+      <View style={styles.imageInner}>
+        <View style={[styles.imageBox, { width: w, height: h }]}>
+          <Image
+            source={{ uri: message.media_url! }}
+            style={{ width: w, height: h }}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={150}
+            recyclingKey={message.id}
+            onLoad={(e) => {
+              if (!dims && e?.source?.width && e?.source?.height) {
+                setDims({ w: e.source.width, h: e.source.height });
+              }
+            }}
+          />
+          <View pointerEvents="none" style={styles.imageRing} />
+
+          {/* No caption → time + ticks float on the photo */}
+          {!caption && (
+            <View style={styles.imageTimePill}>
+              <Text style={styles.imageTimePillText}>{time}</Text>
+              {isMine && <DeliveryTicks message={message} />}
+            </View>
+          )}
+        </View>
+
+        {/* Caption → text + time/ticks inside the same frame */}
+        {!!caption && (
+          <>
+            <Text style={styles.imageCaption}>{caption}</Text>
+            <View style={styles.imageMeta}>
+              <Text style={styles.imageMetaText}>{time}</Text>
+              {isMine && <DeliveryTicks message={message} />}
+            </View>
+          </>
+        )}
+      </View>
+    </LinearGradient>
   );
 }
 
@@ -783,7 +810,7 @@ function MessageBubbleBase({
               )}
             </View>
 
-            {!isCall && (
+            {!isCall && !(isImage && !isDeleted) && (
               <View style={styles.metaRow}>
                 <Text style={styles.time}>
                   {formatTime(message.created_at)}
@@ -1004,26 +1031,68 @@ const styles = StyleSheet.create({
   },
   quotedTextMine: { color: 'rgba(255,255,255,0.85)' },
 
-  imageWrap: {
-    borderRadius: 18,
-    overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-  },
-  image: { width: 220, height: 220, borderRadius: 16 },
-  imageCapMine: { backgroundColor: '#2A2D3A' },
-  imageCapOther: {
+  // Same frame for sent + received images
+  imageFrame: {
+    padding: 1,
+    borderRadius: 24,
     backgroundColor: '#171A24',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 9,
+    elevation: 4,
+  },
+  imageInner: {
+    borderRadius: 23,
+    backgroundColor: '#171A24',
+    padding: 4,
+  },
+  imageBox: {
+    borderRadius: 19,
+    overflow: 'hidden',
+  },
+  imageRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 19,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  imageTimePill: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(10,10,20,0.55)',
+  },
+  imageTimePillText: {
+    fontSize: 11,
+    fontFamily: FONTS.body,
+    color: '#FFFFFF',
   },
   imageCaption: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15.5,
     fontFamily: FONTS.bodyMedium,
-    lineHeight: 22,
-    paddingHorizontal: 10,
-    paddingTop: 7,
-    paddingBottom: 8,
+    lineHeight: 21,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 3,
+  },
+  imageMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 8,
+    paddingBottom: 4,
+  },
+  imageMetaText: {
+    fontSize: 11,
+    fontFamily: FONTS.body,
+    color: 'rgba(255,255,255,0.55)',
   },
 
   voiceWrap: {
