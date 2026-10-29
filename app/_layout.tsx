@@ -46,6 +46,7 @@ import { setSessionUnlocked } from '../lib/pin';
 import { initSounds } from '../lib/sounds';
 import { getDB } from '../lib/db';
 import { initNetwork } from '../lib/network';
+import { startPresence, stopPresence } from '../lib/presence';
 import { CallProvider } from '../contexts/CallContext';
 import { getFcmToken, onFcmTokenRefresh } from '../lib/fcm';
 
@@ -241,6 +242,13 @@ export default function RootLayout() {
       listener.subscription.unsubscribe();
     };
   }, []);
+
+  // ---------- Realtime presence (online/offline + last_seen) ----------
+  useEffect(() => {
+    if (!authReady) return;
+    if (userId) startPresence(userId);
+    else stopPresence();
+  }, [authReady, userId]);
 
   // FAILSAFE — splash max 8s tak hi rahe
   useEffect(() => {
