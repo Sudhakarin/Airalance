@@ -1,7 +1,9 @@
 name: Build iOS IPA (Unsigned)
 
 on:
-  workflow_dispatch: # Ye manual trigger hoga (Actions tab me button dikhega)
+  push:
+    branches: [main]
+  workflow_dispatch: # Manual trigger ka option bhi rahega
 
 jobs:
   build-ios:
