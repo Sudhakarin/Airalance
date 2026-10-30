@@ -1,0 +1,61 @@
+name: Build iOS IPA (Unsigned)
+
+on:
+  workflow_dispatch: # Ye manual trigger hoga (Actions tab me button dikhega)
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Create .env file
+        run: |
+          cat > .env << ENVEOF
+          EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          ENVEOF
+          echo "=== .env created ==="
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Expo Prebuild (iOS)
+        run: npx expo prebuild --platform ios --clean
+        env:
+          EXPO_UPDATE_CHANNEL: preview
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+
+      - name: Build iOS App (Unsigned)
+        run: |
+          cd ios
+          WORKSPACE=$(find . -name "*.xcworkspace" | head -n 1)
+          SCHEME=$(xcodebuild -list -workspace $WORKSPACE | grep -A 1 "Schemes:" | tail -n 1 | xargs)
+          echo "Building scheme: $SCHEME"
+          # Yahan humne CODE_SIGNING_ALLOWED=NO lagaya hai taaki bina Apple account ke build ho jaye
+          xcodebuild -workspace $WORKSPACE -scheme $SCHEME -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+
+      - name: Package to IPA
+        run: |
+          cd ios
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/*.app Payload/
+          zip -r Airalance-unsigned.ipa Payload
+
+      - name: Upload Unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Airalance-ipa-unsigned
+          path: ios/Airalance-unsigned.ipa
+          retention-days: 7
