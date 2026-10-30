@@ -1,45 +1,45 @@
-// lib/fcm.ts
-// Firebase Cloud Messaging — token + foreground handlers
-// ✅ Background handler moved to index.js (top-level requirement by Firebase)
-
 import { Platform } from 'react-native';
 
-let messaging: any = null;
+let getMessaging: any = null;
+let getToken: any = null;
+let onMessage: any = null;
+let onTokenRefresh: any = null;
+let getInitialNotification: any = null;
+let onNotificationOpenedAppFirebase: any = null;
 
 if (Platform.OS !== 'web') {
   try {
-    messaging = require('@react-native-firebase/messaging').default;
+    const messagingModule = require('@react-native-firebase/messaging');
+    getMessaging = messagingModule.getMessaging;
+    getToken = messagingModule.getToken;
+    onMessage = messagingModule.onMessage;
+    onTokenRefresh = messagingModule.onTokenRefresh;
+    getInitialNotification = messagingModule.getInitialNotification;
+    onNotificationOpenedAppFirebase = messagingModule.onNotificationOpenedApp;
   } catch (err) {
-    console.warn('[fcm] messaging not available:', err);
+    console.warn('[fcm] messaging module not available:', err);
   }
 }
 
-// ============================================================
-// Background handler — REMOVED
-// ============================================================
-// Firebase requires setBackgroundMessageHandler to be registered
-// at the TOP LEVEL of the app (before React loads).
-// It is now registered in `index.js` at project root.
-//
-// This function is kept as a no-op for backward compatibility
-// so existing imports don't break.
-// ============================================================
-export function registerBackgroundHandler(
-  _onIncomingCall: (data: any) => void
-) {
-  // No-op — see index.js for actual background handler
+let messagingInstance: any = null;
+if (getMessaging) {
+  try {
+    messagingInstance = getMessaging();
+  } catch (e) {
+    console.warn('[fcm] Failed to initialize messaging instance', e);
+  }
+}
+
+// Background handler is in index.js
+export function registerBackgroundHandler(_onIncomingCall: (data: any) => void) {
   console.log('[fcm] registerBackgroundHandler called (no-op, using index.js)');
 }
 
-// ============================================================
 // Token
-// ============================================================
-
 export async function getFcmToken(): Promise<string | null> {
-  if (!messaging) return null;
+  if (!messagingInstance || !getToken) return null;
   try {
-    const token = await messaging().getToken();
-    return token;
+    return await getToken(messagingInstance);
   } catch (err) {
     console.warn('[fcm] getToken failed:', err);
     return null;
@@ -47,32 +47,30 @@ export async function getFcmToken(): Promise<string | null> {
 }
 
 export function onFcmTokenRefresh(cb: (token: string) => void) {
-  if (!messaging) return () => {};
-  return messaging().onTokenRefresh(cb);
+  if (!messagingInstance || !onTokenRefresh) return () => {};
+  return onTokenRefresh(messagingInstance, cb);
 }
 
-// ============================================================
-// Foreground handlers (app open)
-// ============================================================
-
+// Foreground handlers
 export function onForegroundMessage(cb: (data: any) => void) {
-  if (!messaging) return () => {};
-  return messaging().onMessage(async (remoteMessage: any) => {
+  if (!messagingInstance || !onMessage) return () => {};
+  return onMessage(messagingInstance, async (remoteMessage: any) => {
     cb(remoteMessage?.data);
   });
 }
 
 export function onNotificationOpenedApp(cb: (data: any) => void) {
-  if (!messaging) return;
-  messaging()
-    .getInitialNotification()
-    .then((remoteMessage: any) => {
-      if (remoteMessage?.data) cb(remoteMessage.data);
-    });
-
-  messaging().onNotificationOpenedApp((remoteMessage: any) => {
+  if (!messagingInstance || !getInitialNotification) return;
+  
+  getInitialNotification(messagingInstance).then((remoteMessage: any) => {
     if (remoteMessage?.data) cb(remoteMessage.data);
   });
+
+  if (onNotificationOpenedAppFirebase) {
+    onNotificationOpenedAppFirebase(messagingInstance, (remoteMessage: any) => {
+      if (remoteMessage?.data) cb(remoteMessage.data);
+    });
+  }
 }
 
-export { messaging };
+export const messaging = messagingInstance;
