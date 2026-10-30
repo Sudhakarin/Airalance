@@ -104,7 +104,7 @@
           },
           "ios": {
             "deploymentTarget": "16.0",
-            "useFrameworks": "static"
+            "useFrameworks": "dynamic"
           }
         }
       ],
