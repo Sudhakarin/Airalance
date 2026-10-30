@@ -8,6 +8,9 @@ on:
 jobs:
   build-ios:
     runs-on: macos-latest
+    env:
+      SUPA_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      SUPA_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -18,21 +21,68 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      # 1) Secrets khaali hon to build yahin ruk jaye (warna app launch pe crash hoti hai)
+      - name: Validate secrets
+        run: |
+          if [ -z "$SUPA_URL" ] || [ -z "$SUPA_KEY" ]; then
+            echo "::error::Supabase secrets khaali hain. Repo Settings > Secrets and variables > Actions me EXPO_PUBLIC_SUPABASE_URL aur EXPO_PUBLIC_SUPABASE_ANON_KEY check karo."
+            exit 1
+          fi
+          echo "URL length: ${#SUPA_URL} | KEY length: ${#SUPA_KEY}"
+
+      # 2) .env safe tareeke se (space/newline hata ke)
       - name: Create .env file
         run: |
-          cat > .env << ENVEOF
-          EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
-          EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
-          ENVEOF
+          URL=$(printf '%s' "$SUPA_URL" | tr -d '[:space:]')
+          KEY=$(printf '%s' "$SUPA_KEY" | tr -d '[:space:]')
+          printf 'EXPO_PUBLIC_SUPABASE_URL=%s\nEXPO_PUBLIC_SUPABASE_ANON_KEY=%s\n' "$URL" "$KEY" > .env
           echo "=== .env created ==="
 
       - name: Install dependencies
         run: npm install
 
+      - name: Check entry file
+        run: |
+          echo "package.json main = $(node -p "require('./package.json').main")"
+          test -f index.js && echo "index.js found" || echo "::warning::index.js nahi mila"
+
+      # 3) TEMPORARY DEBUG: JS error aaye to crash ki jagah alert dikhaye
+      #    Problem solve hone ke baad is step ko delete kar dena
+      - name: Inject debug error alert (temporary)
+        run: |
+          cat > debugErrorHandler.js << 'EOF'
+          import { Alert } from 'react-native';
+
+          if (global.ErrorUtils) {
+            global.ErrorUtils.setGlobalHandler((error, isFatal) => {
+              const msg = String((error && error.message) || error);
+              const stack = String((error && error.stack) || '').slice(0, 700);
+              setTimeout(() => {
+                try {
+                  Alert.alert(isFatal ? 'FATAL JS' : 'JS Error', msg + '\n\n' + stack);
+                } catch (e) {}
+              }, 500);
+            });
+          }
+          EOF
+          if [ -f index.js ]; then
+            { echo "import './debugErrorHandler';"; cat index.js; } > index.tmp && mv index.tmp index.js
+            echo "Debug handler injected into index.js"
+          fi
+
+      # 4) Sirf is test build ke liye OTA updates band (runner ka app.json hi badlega, repo ka nahi)
+      - name: Disable expo-updates for this build
+        run: |
+          node -e "
+          const fs=require('fs');
+          const a=JSON.parse(fs.readFileSync('app.json','utf8'));
+          a.expo.updates={...(a.expo.updates||{}),enabled:false};
+          fs.writeFileSync('app.json',JSON.stringify(a,null,2));
+          console.log('updates.enabled = false');
+          "
+
       - name: Expo Prebuild (iOS)
         run: npx expo prebuild --platform ios --clean
-        env:
-          EXPO_UPDATE_CHANNEL: preview
 
       - name: Install CocoaPods
         run: |
@@ -42,10 +92,9 @@ jobs:
       - name: Build iOS App (Unsigned)
         run: |
           cd ios
-          # Sirf CocoaPods wala workspace lo (xcodeproj ke andar wala nahi)
           WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n 1)
           if [ -z "$WORKSPACE" ]; then
-            echo "❌ Pods workspace nahi mila"
+            echo "::error::Pods workspace nahi mila"
             exit 1
           fi
           SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" | grep -A 1 "Schemes:" | tail -n 1 | xargs)
@@ -60,6 +109,19 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             build
+
+      # 5) Check: JS bundle bana hai aur usme Supabase URL bake hua hai ya nahi
+      - name: Verify JS bundle
+        run: |
+          APP=$(ls -d ios/build/Build/Products/Release-iphoneos/*.app | head -n 1)
+          echo "App: $APP"
+          ls -lh "$APP/main.jsbundle" || { echo "::error::main.jsbundle missing"; exit 1; }
+          HOST=$(printf '%s' "$SUPA_URL" | tr -d '[:space:]' | sed -E 's#https?://##; s#/.*##')
+          COUNT=$(strings "$APP/main.jsbundle" | grep -c -F "$HOST" || true)
+          echo "Supabase host occurrences in bundle: $COUNT"
+          if [ "$COUNT" = "0" ]; then
+            echo "::warning::Supabase URL bundle me nahi mila - env inline nahi hua ho sakta hai"
+          fi
 
       - name: Package to IPA
         run: |
