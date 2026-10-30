@@ -3,7 +3,7 @@
 // ✅ FIX 1: getDB() resets initPromise on failure (retry next call)
 // ✅ FIX 2: normalizeIso() — timestamps consistent everywhere (Z format)
 // ✅ FIX 3: dbMarkMessageSent() — no message loss (safe rename)
-// ✅ FIX 4: SQLite UPSERT_MESSAGE_SQL typo fixed ($ rownow -> $now)
+// ✅ FIX 4: UPSERT_MESSAGE_SQL typo fixed ($ rownow -> $now)
 
 import * as SQLite from 'expo-sqlite';
 
@@ -12,9 +12,16 @@ const DB_NAME = 'airalance.db';
 let dbInstance: SQLite.SQLiteDatabase | null = null;
 let initPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
+// ============================================================
+// ✅ FIX 2: Timestamp normalization
+// Supabase: '2026-10-07T19:06:35.831+00:00'
+// JS:       '2026-10-07T19:06:35.831Z'
+// Mixing breaks string sort → list reorders → "fresh feel"
+// ============================================================
 function normalizeIso(input: string | null | undefined): string | null {
   if (!input) return null;
   if (typeof input !== 'string') return null;
+  // Already canonical ISO-Z
   if (input.endsWith('Z') && input.includes('T')) return input;
   try {
     const d = new Date(input);
@@ -42,6 +49,7 @@ export async function getDB(): Promise<SQLite.SQLiteDatabase> {
       dbInstance = db;
       return db;
     } catch (err) {
+      // ✅ FIX 1: reset so next call retries (was stuck forever)
       initPromise = null;
       console.warn('[db] init failed, will retry on next call:', err);
       throw err;
@@ -227,6 +235,7 @@ function conversationParams(
     $other_avatar_url: c.other_avatar_url ?? null,
     $other_verified: c.other_verified ?? null,
     $last_message: c.last_message ?? null,
+    // ✅ FIX 2: normalize on write
     $last_at: normalizeIso(c.last_at) ?? null,
     $unread_count: c.unread_count ?? null,
     $is_muted: c.is_muted ?? null,
@@ -352,6 +361,7 @@ function messageParams(m: MessageUpsertInput, now: string) {
     $is_edited: m.is_edited ?? null,
     $is_pinned: m.is_pinned ?? null,
     $reaction: m.reaction ?? null,
+    // ✅ FIX 2: normalize on write
     $read_at: normalizeIso(m.read_at),
     $delivered_at: normalizeIso(m.delivered_at),
     $created_at: normalizeIso(m.created_at) ?? m.created_at,
@@ -389,6 +399,9 @@ export async function dbDeleteMessage(id: string) {
   await db.runAsync(`DELETE FROM messages WHERE id = ?`, [id]);
 }
 
+// ============================================================
+// Offline queue
+// ============================================================
 export async function dbGetPendingMessages(): Promise<DBMessage[]> {
   const db = await getDB();
   return await db.getAllAsync<DBMessage>(
@@ -396,6 +409,9 @@ export async function dbGetPendingMessages(): Promise<DBMessage[]> {
   );
 }
 
+// ✅ FIX 3: Safe rename — was deleting temp before confirming server row existed
+// Old flow: delete(temp) → update(server) → if server row missing → MESSAGE LOST
+// New flow: check(server exists?) → rename OR delete
 export async function dbMarkMessageSent(id: string, serverId?: string) {
   const db = await getDB();
   const now = new Date().toISOString();
@@ -407,8 +423,10 @@ export async function dbMarkMessageSent(id: string, serverId?: string) {
         [serverId]
       );
       if (existing) {
+        // Server row already saved (realtime beat us) → just drop the temp
         await db.runAsync(`DELETE FROM messages WHERE id = ?`, [id]);
       } else {
+        // Rename temp → server id and mark synced
         await db.runAsync(
           `UPDATE messages SET id = ?, local_status = 'synced', synced_at = ? WHERE id = ?`,
           [serverId, now, id]
@@ -431,6 +449,9 @@ export async function dbMarkMessageFailed(id: string) {
   );
 }
 
+// ============================================================
+// Sync meta
+// ============================================================
 export async function dbSetMeta(key: string, value: string) {
   const db = await getDB();
   await db.runAsync(
