@@ -3,11 +3,14 @@ name: Build iOS IPA (Unsigned)
 on:
   push:
     branches: [main]
-  workflow_dispatch: # Manual trigger ka option bhi rahega
+  workflow_dispatch:
 
 jobs:
   build-ios:
     runs-on: macos-latest
+    env:
+      RCT_USE_PREBUILT_RNCORE: 0
+      RCT_USE_RN_DEP: 0
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,7 +48,6 @@ jobs:
           WORKSPACE=$(find . -name "*.xcworkspace" | head -n 1)
           SCHEME=$(xcodebuild -list -workspace $WORKSPACE | grep -A 1 "Schemes:" | tail -n 1 | xargs)
           echo "Building scheme: $SCHEME"
-          # Yahan humne CODE_SIGNING_ALLOWED=NO lagaya hai taaki bina Apple account ke build ho jaye
           xcodebuild -workspace $WORKSPACE -scheme $SCHEME -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
 
       - name: Package to IPA
