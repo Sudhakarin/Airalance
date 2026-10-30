@@ -1,0 +1,69 @@
+name: Build iOS DEV Client (Unsigned)
+
+# Sirf manually chalega: Actions > is workflow > Run workflow
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios-dev:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      # expo-dev-client na ho to install kar do (sirf is runner pe)
+      - name: Ensure expo-dev-client
+        run: |
+          if ! node -e "require.resolve('expo-dev-client')" 2>/dev/null; then
+            echo "expo-dev-client missing, installing..."
+            npx expo install expo-dev-client
+          else
+            echo "expo-dev-client already installed"
+          fi
+
+      - name: Expo Prebuild (iOS)
+        run: npx expo prebuild --platform ios --clean
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install
+
+      - name: Build iOS DEV Client (Debug, Unsigned)
+        run: |
+          cd ios
+          WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n 1)
+          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" | grep -A 1 "Schemes:" | tail -n 1 | xargs)
+          echo "Workspace: $WORKSPACE | Scheme: $SCHEME"
+          xcodebuild -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Debug \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package to IPA
+        run: |
+          cd ios
+          mkdir -p Payload
+          cp -r build/Build/Products/Debug-iphoneos/*.app Payload/
+          zip -r Airalance-dev-unsigned.ipa Payload
+
+      - name: Upload DEV IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Airalance-ipa-DEV-unsigned
+          path: ios/Airalance-dev-unsigned.ipa
+          retention-days: 7
