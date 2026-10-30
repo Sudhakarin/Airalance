@@ -18,10 +18,12 @@ if (Platform.OS !== 'web') {
   }
 }
 
+// Background handler is in index.js
 export function registerBackgroundHandler(_onIncomingCall: (data: any) => void) {
   console.log('[fcm] registerBackgroundHandler called (no-op, using index.js)');
 }
 
+// Token
 export async function getFcmToken(): Promise<string | null> {
   if (!messagingInstance) return null;
   try {
@@ -37,6 +39,7 @@ export function onFcmTokenRefresh(cb: (token: string) => void) {
   return onTokenRefresh(messagingInstance, cb);
 }
 
+// Foreground handlers
 export function onForegroundMessage(cb: (data: any) => void) {
   if (!messagingInstance) return () => {};
   return onMessage(messagingInstance, async (remoteMessage: any) => {
