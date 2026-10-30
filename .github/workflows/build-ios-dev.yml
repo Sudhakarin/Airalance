@@ -1,8 +1,28 @@
 name: Build iOS DEV Client (Unsigned)
 
-# Sirf manually chalega: Actions > is workflow > Run workflow
+# AUTOMATIC: jab native-related file badle tab khud chalega
+# (JS/screen code badalne pe build ki zaroorat nahi, wo Metro se live reload hota hai)
+# Manually bhi chala sakte ho: Actions > is workflow > Run workflow
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'app.json'
+      - 'app.config.*'
+      - 'plugins/**'
+      - '*.plist'
+      - '.github/workflows/build-ios-dev.yml'
   workflow_dispatch:
+
+# Naya push aaye to purani build cancel (macOS minutes bachte hain)
+concurrency:
+  group: ios-dev-build
+  cancel-in-progress: true
+
+permissions:
+  contents: write
 
 jobs:
   build-ios-dev:
@@ -67,3 +87,15 @@ jobs:
           name: Airalance-ipa-DEV-unsigned
           path: ios/Airalance-dev-unsigned.ipa
           retention-days: 7
+
+      # IPA ka fixed download link: Repo > Releases > "iOS DEV client (latest)"
+      # Phone ke Safari se seedha download ho jata hai, artifact zip nahi
+      - name: Publish IPA to Release (latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete dev-latest --yes --cleanup-tag || true
+          gh release create dev-latest ios/Airalance-dev-unsigned.ipa \
+            --title "iOS DEV client (latest)" \
+            --notes "Auto-built from commit ${GITHUB_SHA::7}. Install this IPA, then run Metro on the VM: npx expo start --dev-client --tunnel" \
+            --prerelease
