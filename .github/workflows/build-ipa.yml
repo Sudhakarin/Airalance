@@ -49,8 +49,9 @@ jobs:
           echo "package.json main = $(node -p "require('./package.json').main")"
           test -f index.js && echo "index.js found" || echo "::warning::index.js nahi mila"
 
-      # 3) TEMPORARY DIAGNOSTIC: app ki jagah ek check-screen chalegi
-      #    Har module try/catch me load hota hai aur PASS/FAIL screen pe dikhta hai
+      # 3) TEMPORARY DIAGNOSTIC v2: app ki jagah check-screen chalegi
+      #    Har module + har route file try/catch me load hota hai
+      #    "START REAL APP" button se asli app error-catcher ke andar chalti hai
       #    Problem mil jaye to is step ko delete kar dena
       - name: Inject diagnostic screen (temporary)
         run: |
@@ -58,7 +59,7 @@ jobs:
           cat > index.js << 'EOF'
           import { registerRootComponent } from 'expo';
           import React from 'react';
-          import { ScrollView, Text, View, NativeModules } from 'react-native';
+          import { ScrollView, Text, View, NativeModules, Pressable } from 'react-native';
 
           const results = [];
           const check = (name, fn) => {
@@ -70,14 +71,22 @@ jobs:
             }
           };
 
+          // ---- error capture (global + console.error) ----
           const globalErrors = [];
           if (global.ErrorUtils) {
             global.ErrorUtils.setGlobalHandler((e) => {
-              globalErrors.push(String((e && e.message) || e).slice(0, 300));
+              globalErrors.push('FATAL: ' + String((e && e.message) || e).slice(0, 300));
             });
           }
+          const origConsoleError = console.error;
+          console.error = (...a) => {
+            try {
+              globalErrors.push('console.error: ' + a.map((x) => String((x && x.message) || x)).join(' ').slice(0, 300));
+            } catch (e) {}
+            origConsoleError.apply(console, a);
+          };
 
-          // --- env ---
+          // ---- env ----
           check('env SUPABASE_URL', () => {
             const v = process.env.EXPO_PUBLIC_SUPABASE_URL;
             if (!v) throw new Error('EMPTY / undefined');
@@ -89,62 +98,150 @@ jobs:
             return v.length + ' chars';
           });
 
-          // --- native modules present? ---
-          ['RNCallKeep', 'WebRTCModule', 'InCallManager', 'RNFBAppModule', 'RNFBMessagingModule'].forEach((n) => {
-            check('native: ' + n, () => {
-              if (!NativeModules[n]) throw new Error('native module MISSING');
-            });
+          // ---- firebase details ----
+          check('firebase messaging shape', () => {
+            const mod = require('@react-native-firebase/messaging');
+            return 'default=' + typeof mod.default + ' keys=' + Object.keys(mod).slice(0, 8).join(',');
+          });
+          check('firebase app instance', () => {
+            const mod = require('@react-native-firebase/app');
+            const fb = mod.default;
+            const n = fb && fb.apps ? fb.apps.length : mod.getApps ? mod.getApps().length : 'n/a';
+            return 'apps=' + n;
           });
 
-          // --- JS libs ---
-          check('lib react-native-webrtc', () => { require('react-native-webrtc'); });
-          check('lib react-native-callkeep', () => { require('react-native-callkeep'); });
-          check('lib react-native-incall-manager', () => { require('react-native-incall-manager'); });
-          check('lib firebase/app', () => { require('@react-native-firebase/app'); });
-          check('firebase messaging()', () => {
-            const m = require('@react-native-firebase/messaging').default;
-            m();
-          });
-          check('lib expo-sqlite', () => { require('expo-sqlite'); });
-          check('lib expo-audio', () => { require('expo-audio'); });
-          check('lib expo-notifications', () => { require('expo-notifications'); });
+          // ---- packages used by the real app ----
+          check('pkg expo-router', () => { try { require('expo-router'); } catch (e) { throw e; } });
+          check('pkg expo-status-bar', () => { try { require('expo-status-bar'); } catch (e) { throw e; } });
+          check('pkg expo-splash-screen', () => { try { require('expo-splash-screen'); } catch (e) { throw e; } });
+          check('pkg expo-font', () => { try { require('expo-font'); } catch (e) { throw e; } });
+          check('pkg expo-device', () => { try { require('expo-device'); } catch (e) { throw e; } });
+          check('pkg expo-constants', () => { try { require('expo-constants'); } catch (e) { throw e; } });
+          check('pkg expo-image', () => { try { require('expo-image'); } catch (e) { throw e; } });
+          check('pkg expo-image-picker', () => { try { require('expo-image-picker'); } catch (e) { throw e; } });
+          check('pkg expo-image-manipulator', () => { try { require('expo-image-manipulator'); } catch (e) { throw e; } });
+          check('pkg expo-media-library', () => { try { require('expo-media-library'); } catch (e) { throw e; } });
+          check('pkg expo-video', () => { try { require('expo-video'); } catch (e) { throw e; } });
+          check('pkg expo-av', () => { try { require('expo-av'); } catch (e) { throw e; } });
+          check('pkg expo-blur', () => { try { require('expo-blur'); } catch (e) { throw e; } });
+          check('pkg expo-clipboard', () => { try { require('expo-clipboard'); } catch (e) { throw e; } });
+          check('pkg expo-crypto', () => { try { require('expo-crypto'); } catch (e) { throw e; } });
+          check('pkg expo-haptics', () => { try { require('expo-haptics'); } catch (e) { throw e; } });
+          check('pkg expo-keep-awake', () => { try { require('expo-keep-awake'); } catch (e) { throw e; } });
+          check('pkg expo-linear-gradient', () => { try { require('expo-linear-gradient'); } catch (e) { throw e; } });
+          check('pkg expo-file-system', () => { try { require('expo-file-system'); } catch (e) { throw e; } });
+          check('pkg react-native-reanimated', () => { try { require('react-native-reanimated'); } catch (e) { throw e; } });
+          check('pkg react-native-worklets', () => { try { require('react-native-worklets'); } catch (e) { throw e; } });
+          check('pkg gesture-handler', () => { try { require('react-native-gesture-handler'); } catch (e) { throw e; } });
+          check('pkg react-native-screens', () => { try { require('react-native-screens'); } catch (e) { throw e; } });
+          check('pkg safe-area-context', () => { try { require('react-native-safe-area-context'); } catch (e) { throw e; } });
+          check('pkg react-native-svg', () => { try { require('react-native-svg'); } catch (e) { throw e; } });
+          check('pkg react-native-view-shot', () => { try { require('react-native-view-shot'); } catch (e) { throw e; } });
+          check('pkg netinfo', () => { try { require('@react-native-community/netinfo'); } catch (e) { throw e; } });
+          check('pkg async-storage', () => { try { require('@react-native-async-storage/async-storage'); } catch (e) { throw e; } });
 
-          // --- app modules ---
-          check('app lib/supabase', () => { require('./lib/supabase'); });
-          check('app lib/auth', () => { require('./lib/auth'); });
-          check('app lib/pin', () => { require('./lib/pin'); });
-          check('app lib/sounds', () => { require('./lib/sounds'); });
-          check('app lib/db', () => { require('./lib/db'); });
-          check('app lib/network', () => { require('./lib/network'); });
-          check('app lib/presence', () => { require('./lib/presence'); });
-          check('app lib/fcm', () => { require('./lib/fcm'); });
-          check('app lib/call', () => { require('./lib/call'); });
-          check('app lib/webrtc', () => { require('./lib/webrtc'); });
-          check('app lib/callkeep', () => { require('./lib/callkeep'); });
-          check('app lib/haptics', () => { require('./lib/haptics'); });
-          check('app contexts/CallContext', () => { require('./contexts/CallContext'); });
+          // ---- every route file in /app, one by one ----
+          try {
+            const ctx = require.context('./app', true, /\.(tsx|ts|jsx|js)$/);
+            ctx
+              .keys()
+              .filter((k) => !/\.web\.|\+api|\+html/.test(k))
+              .forEach((k) =>
+                check('route ' + k, () => {
+                  ctx(k);
+                })
+              );
+          } catch (e) {
+            results.push({ name: 'route scan', ok: false, note: String((e && e.message) || e).slice(0, 300) });
+          }
+
+          // ---- boundary + overlay for the real app ----
+          class Boundary extends React.Component {
+            state = { err: null };
+            static getDerivedStateFromError(err) {
+              return { err };
+            }
+            render() {
+              if (this.state.err) {
+                const e = this.state.err;
+                return (
+                  <ScrollView style={{ flex: 1, backgroundColor: '#000' }} contentContainerStyle={{ padding: 16, paddingTop: 70 }}>
+                    <Text style={{ color: '#f87171', fontSize: 16, fontWeight: '700' }}>REAL APP RENDER ERROR</Text>
+                    <Text style={{ color: '#fff', marginTop: 8 }}>{String((e && e.message) || e)}</Text>
+                    <Text style={{ color: '#9ca3af', marginTop: 12, fontSize: 11 }}>{String((e && e.stack) || '').slice(0, 1200)}</Text>
+                  </ScrollView>
+                );
+              }
+              return this.props.children;
+            }
+          }
+
+          function Overlay() {
+            const [, tick] = React.useState(0);
+            React.useEffect(() => {
+              const t = setInterval(() => tick((x) => x + 1), 700);
+              return () => clearInterval(t);
+            }, []);
+            if (!globalErrors.length) return null;
+            return (
+              <View pointerEvents="none" style={{ position: 'absolute', top: 44, left: 0, right: 0, backgroundColor: 'rgba(120,0,0,0.85)', padding: 8 }}>
+                <Text style={{ color: '#fff', fontSize: 10 }}>{globalErrors.slice(-3).join('\n')}</Text>
+              </View>
+            );
+          }
 
           function Diag() {
-            const fails = results.filter((r) => !r.ok).length;
+            const [Real, setReal] = React.useState(null);
+            const [startErr, setStartErr] = React.useState('');
+            const fails = results.filter((r) => !r.ok);
+            const passes = results.filter((r) => r.ok);
+
+            const start = () => {
+              try {
+                const App = require('expo-router/build/qualified-entry').App;
+                setReal(() => App);
+              } catch (e) {
+                setStartErr(String((e && e.message) || e));
+              }
+            };
+
+            if (Real) {
+              return (
+                <View style={{ flex: 1 }}>
+                  <Boundary>
+                    <Real />
+                  </Boundary>
+                  <Overlay />
+                </View>
+              );
+            }
+
             return (
               <View style={{ flex: 1, backgroundColor: '#000', paddingTop: 60 }}>
                 <ScrollView contentContainerStyle={{ padding: 16 }}>
-                  <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700', marginBottom: 4 }}>
-                    Airalance iOS diagnostic
+                  <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>Airalance iOS diagnostic v2</Text>
+                  <Text style={{ color: fails.length ? '#f87171' : '#4ade80', marginVertical: 8 }}>
+                    {fails.length ? fails.length + ' FAILED' : 'ALL PASSED'} ({passes.length} passed)
                   </Text>
-                  <Text style={{ color: fails ? '#f87171' : '#4ade80', marginBottom: 12 }}>
-                    {fails ? fails + ' FAILED' : 'ALL PASSED'}
+
+                  <Pressable onPress={start} style={{ backgroundColor: '#7C5CFF', padding: 14, borderRadius: 10, marginBottom: 6 }}>
+                    <Text style={{ color: '#fff', fontWeight: '700', textAlign: 'center' }}>START REAL APP</Text>
+                  </Pressable>
+                  {startErr ? <Text style={{ color: '#f87171', marginBottom: 8 }}>{startErr}</Text> : null}
+                  <Text style={{ color: '#9ca3af', fontSize: 11, marginBottom: 12 }}>
+                    Neeche ke FAIL pehle dekho. Phir button dabao: app crash ho ya error dikhe, dono ka screenshot/video bhejna.
                   </Text>
-                  {results.map((r, i) => (
-                    <Text key={i} style={{ color: r.ok ? '#4ade80' : '#f87171', fontSize: 13, marginBottom: 6 }}>
-                      {(r.ok ? 'PASS  ' : 'FAIL  ') + r.name + (r.note ? '\n      ' + r.note : '')}
+
+                  {fails.map((r, i) => (
+                    <Text key={'f' + i} style={{ color: '#f87171', fontSize: 13, marginBottom: 8 }}>
+                      {'FAIL  ' + r.name + '\n      ' + r.note}
                     </Text>
                   ))}
-                  {globalErrors.length > 0 && (
-                    <Text style={{ color: '#fbbf24', marginTop: 12, fontSize: 12 }}>
-                      {'Global errors:\n' + globalErrors.join('\n')}
+                  {passes.map((r, i) => (
+                    <Text key={'p' + i} style={{ color: '#4ade80', fontSize: 12, marginBottom: 4 }}>
+                      {'PASS  ' + r.name + (r.note ? '  [' + r.note + ']' : '')}
                     </Text>
-                  )}
+                  ))}
                 </ScrollView>
               </View>
             );
@@ -152,7 +249,7 @@ jobs:
 
           registerRootComponent(Diag);
           EOF
-          echo "Diagnostic index.js created (original saved as index.orig.js)"
+          echo "Diagnostic v2 index.js created (original saved as index.orig.js)"
 
       # 4) Sirf is test build ke liye OTA updates band (runner ka app.json hi badlega, repo ka nahi)
       - name: Disable expo-updates for this build
