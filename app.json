@@ -103,7 +103,8 @@
             "usesCleartextTraffic": true
           },
           "ios": {
-            "deploymentTarget": "15.1"
+            "deploymentTarget": "15.1",
+            "useFrameworks": "dynamic"
           }
         }
       ],
