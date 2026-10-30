@@ -7,6 +7,7 @@
 // ✅ FIX: myId from cached getCurrentUserId (works offline on cold start)
 // ✅ FIX: search query sanitized (commas/brackets no longer break the filter)
 // ✅ FIX: fetchNotificationCount wrapped in try/catch
+// ✅ NEW: Games section under Suggestions — Ludo, Carrom, Arrow Puzzle (app/games/*)
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -45,6 +46,55 @@ type Profile = {
   bio: string | null;
   status: string | null;
 };
+
+
+/* ---------------- Games ---------------- */
+type GameItem = {
+  key: string;
+  title: string;
+  sub: string;
+  route: '/games/ludo' | '/games/carrom' | '/games/arrow';
+};
+
+const GAMES: GameItem[] = [
+  { key: 'ludo', title: 'Ludo', sub: 'Pick your colour · 2 or 4 players', route: '/games/ludo' },
+  { key: 'carrom', title: 'Carrom', sub: 'Aim, flick, pocket · vs Computer', route: '/games/carrom' },
+  { key: 'arrow', title: 'Arrow Puzzle', sub: 'Slide arrows out · race the Computer', route: '/games/arrow' },
+];
+
+function GameTile({ id }: { id: string }) {
+  if (id === 'ludo') {
+    const c = ['#F0454F', '#2FBF71', '#3B82F6', '#F5B83D'];
+    return (
+      <View style={[styles.gameTile, { backgroundColor: '#0d0d11', padding: 5, flexDirection: 'row', flexWrap: 'wrap', gap: 4 }]}>
+        {c.map((col) => (
+          <View key={col} style={{ width: 16, height: 16, borderRadius: 4, backgroundColor: col, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: '#0d0d11' }} />
+          </View>
+        ))}
+      </View>
+    );
+  }
+  if (id === 'carrom') {
+    return (
+      <View style={[styles.gameTile, { backgroundColor: '#1a1426', alignItems: 'center', justifyContent: 'center' }]}>
+        <View style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 1.5, borderColor: '#7C3AED', alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#F43F7A' }} />
+        </View>
+        <View style={{ position: 'absolute', top: 6, left: 20, width: 7, height: 7, borderRadius: 4, backgroundColor: '#f4f1ff' }} />
+        <View style={{ position: 'absolute', bottom: 8, left: 9, width: 7, height: 7, borderRadius: 4, backgroundColor: '#f4f1ff' }} />
+        <View style={{ position: 'absolute', bottom: 8, right: 9, width: 7, height: 7, borderRadius: 4, backgroundColor: '#08080b', borderWidth: 1, borderColor: '#4b4568' }} />
+        <View style={{ position: 'absolute', top: -4, left: -4, width: 12, height: 12, borderRadius: 6, backgroundColor: '#000' }} />
+        <View style={{ position: 'absolute', bottom: -4, right: -4, width: 12, height: 12, borderRadius: 6, backgroundColor: '#000' }} />
+      </View>
+    );
+  }
+  return (
+    <LinearGradient colors={['#2a2050', '#1a1433']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.gameTile, { alignItems: 'center', justifyContent: 'center' }]}>
+      <Ionicons name="arrow-forward" size={26} color="#E9DDFF" />
+    </LinearGradient>
+  );
+}
 
 function SkeletonBlock({
   width,
@@ -360,6 +410,56 @@ export default function SearchScreen() {
                     </TouchableOpacity>
                   </View>
                 ) : null}
+
+                <View style={[styles.suggestHeader, { paddingTop: 16 }]}>
+                  <Ionicons
+                    name="game-controller-outline"
+                    size={15}
+                    color={COLORS.violetLight}
+                  />
+                  <Text style={styles.suggestTitle}>Games</Text>
+                  <Text style={styles.gamesHint}>Play vs Computer</Text>
+                </View>
+
+                <View style={styles.matteCard}>
+                  {GAMES.map((game, i) => (
+                    <TouchableOpacity
+                      key={game.key}
+                      style={[styles.suggestionRow, i > 0 && styles.gameDivider]}
+                      onPress={() => router.push(game.route)}
+                      activeOpacity={0.7}
+                    >
+                      <GameTile id={game.key} />
+                      <View style={styles.suggestionInfo}>
+                        <Text style={styles.suggestionName} numberOfLines={1}>
+                          {game.title}
+                        </Text>
+                        <Text style={styles.suggestionUsername} numberOfLines={1}>
+                          {game.sub}
+                        </Text>
+                      </View>
+                      <View style={styles.connectBtn}>
+                        <LinearGradient
+                          colors={GRADIENTS.violet}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.connectBtnGradient}
+                        >
+                          <Text style={styles.connectBtnText}>Play</Text>
+                        </LinearGradient>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                  <View style={[styles.suggestionRow, styles.gameDivider, { opacity: 0.55 }]}>
+                    <View style={[styles.gameTile, styles.gameTileSoon]}>
+                      <Ionicons name="sparkles-outline" size={20} color={COLORS.mist} />
+                    </View>
+                    <View style={styles.suggestionInfo}>
+                      <Text style={styles.suggestionName}>More games</Text>
+                      <Text style={styles.suggestionUsername}>Coming soon</Text>
+                    </View>
+                  </View>
+                </View>
               </View>
             )}
 
@@ -549,6 +649,31 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontFamily: FONTS.bodySemiBold,
     letterSpacing: 0.3,
+  },
+
+  gameTile: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  gameTileSoon: {
+    backgroundColor: '#17171c',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#2A2A31',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gameDivider: {
+    borderTopWidth: 1,
+    borderTopColor: '#1F1F23',
+  },
+  gamesHint: {
+    marginLeft: 'auto',
+    fontSize: 12,
+    fontFamily: FONTS.body,
+    color: COLORS.mist,
   },
 
   skeletonRow: {
