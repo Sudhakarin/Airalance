@@ -42,10 +42,24 @@ jobs:
       - name: Build iOS App (Unsigned)
         run: |
           cd ios
-          WORKSPACE=$(find . -name "*.xcworkspace" | head -n 1)
-          SCHEME=$(xcodebuild -list -workspace $WORKSPACE | grep -A 1 "Schemes:" | tail -n 1 | xargs)
+          # Sirf CocoaPods wala workspace lo (xcodeproj ke andar wala nahi)
+          WORKSPACE=$(find . -maxdepth 1 -name "*.xcworkspace" | head -n 1)
+          if [ -z "$WORKSPACE" ]; then
+            echo "❌ Pods workspace nahi mila"
+            exit 1
+          fi
+          SCHEME=$(xcodebuild -list -workspace "$WORKSPACE" | grep -A 1 "Schemes:" | tail -n 1 | xargs)
+          echo "Workspace: $WORKSPACE"
           echo "Building scheme: $SCHEME"
-          xcodebuild -workspace $WORKSPACE -scheme $SCHEME -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+          xcodebuild -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
 
       - name: Package to IPA
         run: |
