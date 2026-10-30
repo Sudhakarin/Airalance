@@ -104,7 +104,7 @@
           },
           "ios": {
             "deploymentTarget": "15.1",
-            "useFrameworks": "dynamic"
+            "useFrameworks": "static"
           }
         }
       ],
@@ -114,7 +114,8 @@
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       "./plugins/withCallKeep",
-      "./plugins/withCustomRingtone"
+      "./plugins/withCustomRingtone",
+      "./plugins/withDisableFirebaseSPM"
     ],
     "updates": {
       "url": "https://u.expo.dev/a29b4ab7-af7a-401f-a49d-4326fd746007",
