@@ -36,6 +36,9 @@ jobs:
           URL=$(printf '%s' "$SUPA_URL" | tr -d '[:space:]')
           KEY=$(printf '%s' "$SUPA_KEY" | tr -d '[:space:]')
           printf 'EXPO_PUBLIC_SUPABASE_URL=%s\nEXPO_PUBLIC_SUPABASE_ANON_KEY=%s\n' "$URL" "$KEY" > .env
+          # .env ke saath env vars bhi export karo, taaki Xcode ka bundle step inhe pakad le
+          echo "EXPO_PUBLIC_SUPABASE_URL=$URL" >> "$GITHUB_ENV"
+          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=$KEY" >> "$GITHUB_ENV"
           echo "=== .env created ==="
 
       - name: Install dependencies
@@ -46,29 +49,110 @@ jobs:
           echo "package.json main = $(node -p "require('./package.json').main")"
           test -f index.js && echo "index.js found" || echo "::warning::index.js nahi mila"
 
-      # 3) TEMPORARY DEBUG: JS error aaye to crash ki jagah alert dikhaye
-      #    Problem solve hone ke baad is step ko delete kar dena
-      - name: Inject debug error alert (temporary)
+      # 3) TEMPORARY DIAGNOSTIC: app ki jagah ek check-screen chalegi
+      #    Har module try/catch me load hota hai aur PASS/FAIL screen pe dikhta hai
+      #    Problem mil jaye to is step ko delete kar dena
+      - name: Inject diagnostic screen (temporary)
         run: |
-          cat > debugErrorHandler.js << 'EOF'
-          import { Alert } from 'react-native';
+          cp index.js index.orig.js || true
+          cat > index.js << 'EOF'
+          import { registerRootComponent } from 'expo';
+          import React from 'react';
+          import { ScrollView, Text, View, NativeModules } from 'react-native';
 
+          const results = [];
+          const check = (name, fn) => {
+            try {
+              const r = fn();
+              results.push({ name, ok: true, note: r ? String(r) : '' });
+            } catch (e) {
+              results.push({ name, ok: false, note: String((e && e.message) || e).slice(0, 300) });
+            }
+          };
+
+          const globalErrors = [];
           if (global.ErrorUtils) {
-            global.ErrorUtils.setGlobalHandler((error, isFatal) => {
-              const msg = String((error && error.message) || error);
-              const stack = String((error && error.stack) || '').slice(0, 700);
-              setTimeout(() => {
-                try {
-                  Alert.alert(isFatal ? 'FATAL JS' : 'JS Error', msg + '\n\n' + stack);
-                } catch (e) {}
-              }, 500);
+            global.ErrorUtils.setGlobalHandler((e) => {
+              globalErrors.push(String((e && e.message) || e).slice(0, 300));
             });
           }
+
+          // --- env ---
+          check('env SUPABASE_URL', () => {
+            const v = process.env.EXPO_PUBLIC_SUPABASE_URL;
+            if (!v) throw new Error('EMPTY / undefined');
+            return v.length + ' chars';
+          });
+          check('env SUPABASE_KEY', () => {
+            const v = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+            if (!v) throw new Error('EMPTY / undefined');
+            return v.length + ' chars';
+          });
+
+          // --- native modules present? ---
+          ['RNCallKeep', 'WebRTCModule', 'InCallManager', 'RNFBAppModule', 'RNFBMessagingModule'].forEach((n) => {
+            check('native: ' + n, () => {
+              if (!NativeModules[n]) throw new Error('native module MISSING');
+            });
+          });
+
+          // --- JS libs ---
+          check('lib react-native-webrtc', () => { require('react-native-webrtc'); });
+          check('lib react-native-callkeep', () => { require('react-native-callkeep'); });
+          check('lib react-native-incall-manager', () => { require('react-native-incall-manager'); });
+          check('lib firebase/app', () => { require('@react-native-firebase/app'); });
+          check('firebase messaging()', () => {
+            const m = require('@react-native-firebase/messaging').default;
+            m();
+          });
+          check('lib expo-sqlite', () => { require('expo-sqlite'); });
+          check('lib expo-audio', () => { require('expo-audio'); });
+          check('lib expo-notifications', () => { require('expo-notifications'); });
+
+          // --- app modules ---
+          check('app lib/supabase', () => { require('./lib/supabase'); });
+          check('app lib/auth', () => { require('./lib/auth'); });
+          check('app lib/pin', () => { require('./lib/pin'); });
+          check('app lib/sounds', () => { require('./lib/sounds'); });
+          check('app lib/db', () => { require('./lib/db'); });
+          check('app lib/network', () => { require('./lib/network'); });
+          check('app lib/presence', () => { require('./lib/presence'); });
+          check('app lib/fcm', () => { require('./lib/fcm'); });
+          check('app lib/call', () => { require('./lib/call'); });
+          check('app lib/webrtc', () => { require('./lib/webrtc'); });
+          check('app lib/callkeep', () => { require('./lib/callkeep'); });
+          check('app lib/haptics', () => { require('./lib/haptics'); });
+          check('app contexts/CallContext', () => { require('./contexts/CallContext'); });
+
+          function Diag() {
+            const fails = results.filter((r) => !r.ok).length;
+            return (
+              <View style={{ flex: 1, backgroundColor: '#000', paddingTop: 60 }}>
+                <ScrollView contentContainerStyle={{ padding: 16 }}>
+                  <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700', marginBottom: 4 }}>
+                    Airalance iOS diagnostic
+                  </Text>
+                  <Text style={{ color: fails ? '#f87171' : '#4ade80', marginBottom: 12 }}>
+                    {fails ? fails + ' FAILED' : 'ALL PASSED'}
+                  </Text>
+                  {results.map((r, i) => (
+                    <Text key={i} style={{ color: r.ok ? '#4ade80' : '#f87171', fontSize: 13, marginBottom: 6 }}>
+                      {(r.ok ? 'PASS  ' : 'FAIL  ') + r.name + (r.note ? '\n      ' + r.note : '')}
+                    </Text>
+                  ))}
+                  {globalErrors.length > 0 && (
+                    <Text style={{ color: '#fbbf24', marginTop: 12, fontSize: 12 }}>
+                      {'Global errors:\n' + globalErrors.join('\n')}
+                    </Text>
+                  )}
+                </ScrollView>
+              </View>
+            );
+          }
+
+          registerRootComponent(Diag);
           EOF
-          if [ -f index.js ]; then
-            { echo "import './debugErrorHandler';"; cat index.js; } > index.tmp && mv index.tmp index.js
-            echo "Debug handler injected into index.js"
-          fi
+          echo "Diagnostic index.js created (original saved as index.orig.js)"
 
       # 4) Sirf is test build ke liye OTA updates band (runner ka app.json hi badlega, repo ka nahi)
       - name: Disable expo-updates for this build
