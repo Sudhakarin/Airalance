@@ -7,7 +7,7 @@
 // ✅ FIX: myId from cached getCurrentUserId (works offline on cold start)
 // ✅ FIX: search query sanitized (commas/brackets no longer break the filter)
 // ✅ FIX: fetchNotificationCount wrapped in try/catch
-// ✅ NEW: Games section under Suggestions — Ludo, Carrom, Arrow Puzzle (app/games/*)
+// ✅ NEW: Games section under Suggestions — Block Blitz, Four in a Row, Ludo, Carrom, Arrow Puzzle (app/games/*)
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
@@ -53,16 +53,43 @@ type GameItem = {
   key: string;
   title: string;
   sub: string;
-  route: '/games/ludo' | '/games/carrom' | '/games/arrow';
+  route:
+    | '/games/ludo'
+    | '/games/carrom'
+    | '/games/arrow'
+    | '/games/blitz'
+    | '/games/four';
 };
 
 const GAMES: GameItem[] = [
+  { key: 'blitz', title: 'Block Blitz', sub: 'Drag blocks · clear lines · beat your best', route: '/games/blitz' },
+  { key: 'four', title: 'Four in a Row', sub: 'Drop discs · outsmart the Computer', route: '/games/four' },
   { key: 'ludo', title: 'Ludo', sub: 'Pick your colour · 2 or 4 players', route: '/games/ludo' },
   { key: 'carrom', title: 'Carrom', sub: 'Aim, flick, pocket · vs Computer', route: '/games/carrom' },
   { key: 'arrow', title: 'Arrow Puzzle', sub: 'Slide arrows out · race the Computer', route: '/games/arrow' },
 ];
 
 function GameTile({ id }: { id: string }) {
+  if (id === 'blitz') {
+    const cells = ['#A78BFA', '#F472B6', '#FBBF24', '#34D399'];
+    return (
+      <View style={[styles.gameTile, { backgroundColor: '#0d0d11', padding: 6, flexDirection: 'row', flexWrap: 'wrap', gap: 3 }]}>
+        {cells.map((col, i) => (
+          <View key={i} style={{ width: 15, height: 15, borderRadius: 4, backgroundColor: col }} />
+        ))}
+      </View>
+    );
+  }
+  if (id === 'four') {
+    const d = ['#A855F7', '#F5B83D', '#A855F7', '#F5B83D', '#A855F7', '#F5B83D', '#F5B83D', '#A855F7', '#A855F7'];
+    return (
+      <View style={[styles.gameTile, { backgroundColor: '#3a2790', padding: 5, flexDirection: 'row', flexWrap: 'wrap', gap: 3, alignContent: 'center' }]}>
+        {d.map((col, i) => (
+          <View key={i} style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: col }} />
+        ))}
+      </View>
+    );
+  }
   if (id === 'ludo') {
     const c = ['#F0454F', '#2FBF71', '#3B82F6', '#F5B83D'];
     return (
