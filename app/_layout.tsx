@@ -50,6 +50,7 @@ import { startPresence, stopPresence } from '../lib/presence';
 import { CallProvider } from '../contexts/CallContext';
 import { getFcmToken, onFcmTokenRefresh } from '../lib/fcm';
 import { useOTAUpdate } from '../lib/useOTAUpdate';
+import UpdateOverlay from '../components/UpdateOverlay';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -97,7 +98,7 @@ export function ErrorBoundary({
 }
 
 export default function RootLayout() {
-  useOTAUpdate();
+  const { status: otaStatus } = useOTAUpdate();
   const router = useRouter();
   const pathname = usePathname();
   const [fontsLoaded, setFontsLoaded] = useState(false);
@@ -606,6 +607,7 @@ export default function RootLayout() {
             </Stack>
           </CallProvider>
         )}
+        <UpdateOverlay status={otaStatus} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
