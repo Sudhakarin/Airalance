@@ -49,6 +49,7 @@ import { initNetwork } from '../lib/network';
 import { startPresence, stopPresence } from '../lib/presence';
 import { CallProvider } from '../contexts/CallContext';
 import { getFcmToken, onFcmTokenRefresh } from '../lib/fcm';
+import { useOTAUpdate } from '../lib/useOTAUpdate';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -96,6 +97,7 @@ export function ErrorBoundary({
 }
 
 export default function RootLayout() {
+  useOTAUpdate();
   const router = useRouter();
   const pathname = usePathname();
   const [fontsLoaded, setFontsLoaded] = useState(false);
