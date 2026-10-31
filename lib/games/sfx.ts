@@ -3,6 +3,7 @@
 // Uses expo-av. Rapid sounds (step / hit / wall / tap) get a small pool so they can overlap.
 
 import { Audio } from 'expo-av';
+import * as Haptics from 'expo-haptics';
 
 const FILES = {
   tap: require('../../assets/games-sfx/tap.wav'),
@@ -23,6 +24,13 @@ const FILES = {
   wall: require('../../assets/games-sfx/wall.wav'),
   pocket: require('../../assets/games-sfx/pocket.wav'),
   queen: require('../../assets/games-sfx/queen.wav'),
+  place: require('../../assets/games-sfx/place.wav'),
+  pick: require('../../assets/games-sfx/pick.wav'),
+  clear: require('../../assets/games-sfx/clear.wav'),
+  clear2: require('../../assets/games-sfx/clear2.wav'),
+  combo: require('../../assets/games-sfx/combo.wav'),
+  drop: require('../../assets/games-sfx/drop.wav'),
+  c4land: require('../../assets/games-sfx/c4land.wav'),
 } as const;
 
 export type SfxName = keyof typeof FILES;
@@ -34,6 +42,10 @@ const POOL_SIZE: Partial<Record<SfxName, number>> = {
   tap: 2,
   whoosh: 3,
   pocket: 2,
+  place: 2,
+  pick: 2,
+  c4land: 2,
+  combo: 2,
 };
 
 const pool: Partial<Record<SfxName, Audio.Sound[]>> = {};
@@ -98,6 +110,19 @@ export function play(name: SfxName, volume = 1) {
     shouldPlay: true,
     volume: Math.max(0, Math.min(1, volume)),
   }).catch(() => {});
+}
+
+/** Small vibration feedback. Never throws. */
+export function haptic(kind: 'light' | 'medium' | 'success' | 'error' = 'light') {
+  if (muted) return;
+  try {
+    if (kind === 'success') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    else if (kind === 'error') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+    else
+      Haptics.impactAsync(
+        kind === 'medium' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
+      ).catch(() => {});
+  } catch {}
 }
 
 /** Call when leaving the games area to free native players. */
