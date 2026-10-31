@@ -6,7 +6,9 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "ota": "eas update --channel preview --message",
+    "ota:prod": "eas update --channel production --message"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^13.0.0",
