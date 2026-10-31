@@ -29,10 +29,12 @@ export function GameHeader({
   title,
   onBack,
   onRestart,
+  onHelp,
 }: {
   title: string;
   onBack: () => void;
   onRestart?: () => void;
+  onHelp?: () => void;
 }) {
   const [muted, setM] = useState(isMuted());
   return (
@@ -41,6 +43,18 @@ export function GameHeader({
         <Ionicons name="chevron-back" size={20} color="#fff" />
       </TouchableOpacity>
       <Text style={s.title}>{title}</Text>
+      {onHelp && (
+        <TouchableOpacity
+          style={s.ibtn}
+          activeOpacity={0.7}
+          onPress={() => {
+            play('tap');
+            onHelp();
+          }}
+        >
+          <Ionicons name="help" size={19} color="#fff" />
+        </TouchableOpacity>
+      )}
       <TouchableOpacity
         style={s.ibtn}
         activeOpacity={0.7}
