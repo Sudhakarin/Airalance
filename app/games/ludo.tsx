@@ -1,5 +1,6 @@
 // app/games/ludo.tsx
 // Ludo — you vs Computer (or you + 3 Computers). Pick your colour first.
+// v2: numbered tokens, arrows on start cells, destination markers, legend + help.
 
 import { useEffect, useReducer, useRef, useState, memo } from 'react';
 import {
@@ -10,6 +11,7 @@ import {
   ScrollView,
   Animated,
   Easing,
+  Modal,
   useWindowDimensions,
 } from 'react-native';
 import Svg, { Rect, Circle, Polygon, Path } from 'react-native-svg';
@@ -24,7 +26,7 @@ import {
   useToast,
   G as GC,
 } from '../../components/games/GameShell';
-import { initSfx, unloadSfx, play } from '../../lib/games/sfx';
+import { initSfx, unloadSfx, play, haptic } from '../../lib/games/sfx';
 import {
   COL,
   HEX,
@@ -36,6 +38,7 @@ import {
   SAFE,
   YARD,
   SLOTS,
+  DEG,
   PIPS,
   LColor,
   LToken,
@@ -64,6 +67,8 @@ type Game = {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const key = (t: LToken) => t.color + t.idx;
 const STAR = 'M12 2.5l2.9 6.2 6.6.8-4.9 4.6 1.3 6.7L12 17.5 6.1 20.8l1.3-6.7L2.5 9.5l6.6-.8z';
+// unit-size right-pointing arrow centred on (0,0); rotate + scale it where used
+const ARROW = '-0.28,-0.18 0.04,-0.18 0.04,-0.32 0.34,0 0.04,0.32 0.04,0.18 -0.28,0.18';
 
 /* ------------------------------------------------------------------ */
 /* Static board (one SVG)                                              */
@@ -156,15 +161,39 @@ const BoardSvg = memo(function BoardSvg({
           />
         ))
       )}
+      {/* safe stars (start cells get an arrow instead) */}
       {PATH.map(([r, c], i) =>
-        SAFE.has(i) ? (
+        SAFE.has(i) && !startOf(i) ? (
           <Path
             key={'st' + i}
             d={STAR}
-            fill={startOf(i) ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)'}
+            fill="rgba(255,255,255,0.55)"
             transform={`translate(${c * U + U * 0.18} ${r * U + U * 0.18}) scale(${(U * 0.64) / 24})`}
           />
         ) : null
+      )}
+      {/* arrow on each start cell = where tokens enter and which way they run */}
+      {COL.map((c) => {
+        const [r, cc] = PATH[START[c]];
+        return (
+          <Polygon
+            key={'sa' + c}
+            points={ARROW}
+            fill="rgba(255,255,255,0.95)"
+            transform={`translate(${(cc + 0.5) * U} ${(r + 0.5) * U}) rotate(${DEG[c]}) scale(${U})`}
+          />
+        );
+      })}
+      {/* small chevrons along the coloured home lane point to the centre */}
+      {COL.map((c) =>
+        LANE[c].map(([r, cc], i) => (
+          <Polygon
+            key={'la' + c + i}
+            points={ARROW}
+            fill="rgba(255,255,255,0.4)"
+            transform={`translate(${(cc + 0.5) * U} ${(r + 0.5) * U}) rotate(${DEG[c]}) scale(${U * 0.62})`}
+          />
+        ))
       )}
       {/* centre home triangles */}
       <Polygon points={`${6 * U},${6 * U} ${9 * U},${6 * U} ${7.5 * U},${7.5 * U}`} fill={HEX.green} />
@@ -179,8 +208,45 @@ const BoardSvg = memo(function BoardSvg({
 /* ------------------------------------------------------------------ */
 /* One animated token                                                  */
 /* ------------------------------------------------------------------ */
+/* pulsing ring that shows where the chosen token will land */
+function DestMark({ x, y, U, color, capture }: { x: number; y: number; U: number; color: string; capture: boolean }) {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const l = Animated.loop(
+      Animated.sequence([
+        Animated.timing(v, { toValue: 1, duration: 600, useNativeDriver: true }),
+        Animated.timing(v, { toValue: 0, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    l.start();
+    return () => l.stop();
+  }, [v]);
+  const size = U * 0.92;
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: x * U - size / 2,
+        top: y * U - size / 2,
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        borderWidth: 3,
+        borderStyle: 'dashed',
+        borderColor: capture ? '#FF4D5A' : '#FFFFFF',
+        backgroundColor: capture ? 'rgba(255,77,90,0.25)' : color + '55',
+        zIndex: 8,
+        opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] }),
+        transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1.08] }) }],
+      }}
+    />
+  );
+}
+
 function Token({
   color,
+  label,
   x,
   y,
   scale,
@@ -191,6 +257,7 @@ function Token({
   onPress,
 }: {
   color: LColor;
+  label: number;
   x: number;
   y: number;
   scale: number;
@@ -263,7 +330,9 @@ function Token({
         ]}
       >
         <View style={styles.tkGloss} />
-        <View style={styles.tkRing} />
+        <View style={styles.tkRing}>
+          <Text style={[styles.tkNum, { fontSize: size * 0.4 }]}>{label}</Text>
+        </View>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -356,6 +425,7 @@ export default function LudoScreen() {
   const [face, setFace] = useState(0);
   const [stat, setStat] = useState({ a: '', b: '' });
   const [result, setResult] = useState<null | { win: boolean; title: string; sub: string }>(null);
+  const [help, setHelp] = useState(false);
   const [, bump] = useReducer((x: number) => x + 1, 0);
   const { toast, toastNode } = useToast();
 
@@ -523,6 +593,7 @@ export default function LudoScreen() {
           captured = true;
           bump();
           play('capture');
+          haptic('medium');
           toast(`${p.human ? 'You' : p.name} captured a token!`);
           await sleep(700);
           g.sent = [];
@@ -533,6 +604,7 @@ export default function LudoScreen() {
     const reachedHome = t.pos === 56;
     if (reachedHome) {
       play('home');
+      haptic('success');
       toast('Token reached home!');
       bump();
       await sleep(500);
@@ -565,6 +637,7 @@ export default function LudoScreen() {
     const win = p.human;
     say(win ? 'You won!' : p.name + ' won', 'Game over');
     play(win ? 'win' : 'lose');
+    haptic(win ? 'success' : 'error');
     const gid = g.gid;
     setTimeout(() => {
       if (gid !== g.gid) return;
@@ -605,6 +678,23 @@ export default function LudoScreen() {
     if (t.pos === 56) s *= 0.62;
     return { x: x + ox, y: y + oy, s };
   };
+
+  // where each glowing token would land (human's pick phase)
+  const dests =
+    g.phase === 'pick'
+      ? g.tokens
+          .filter((t) => g.can.includes(key(t)))
+          .map((t) => {
+            const np = t.pos === -1 ? 0 : t.pos + g.dice;
+            const [dx, dy] = coords({ ...t, pos: np });
+            const abs = np <= 50 ? (START[t.color] + np) % 52 : -1;
+            const capture =
+              np <= 50 &&
+              !SAFE.has(abs) &&
+              g.tokens.some((o) => o.color !== t.color && o.pos >= 0 && o.pos <= 50 && absPos(o) === abs);
+            return { k: key(t), x: dx, y: dy, color: HEX[t.color], capture };
+          })
+      : [];
 
   const goBack = () => {
     g.gid++;
@@ -738,6 +828,7 @@ export default function LudoScreen() {
         onRestart={() => {
           start();
         }}
+        onHelp={() => setHelp(true)}
       />
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
         <View style={styles.prow}>
@@ -764,7 +855,19 @@ export default function LudoScreen() {
                     <Text style={styles.pn} numberOfLines={1}>
                       {p.name}
                     </Text>
-                    <Text style={styles.pm}>Home {home}/4</Text>
+                    <View style={styles.pdots}>
+                      {[0, 1, 2, 3].map((k) => (
+                        <View
+                          key={k}
+                          style={[
+                            styles.pdot,
+                            { borderColor: HEX[p.color] },
+                            k < home && { backgroundColor: HEX[p.color] },
+                          ]}
+                        />
+                      ))}
+                      <Text style={styles.pm}>{home}/4 home</Text>
+                    </View>
                   </View>
                 )}
               </View>
@@ -775,6 +878,9 @@ export default function LudoScreen() {
         <View style={{ alignItems: 'center' }}>
           <View style={{ width: S, height: S, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: GC.line }}>
             <BoardSvg S={S} activeColor={g.active && g.phase !== 'moving' && g.phase !== 'rolling' ? cur?.color ?? null : null} />
+            {dests.map((d) => (
+              <DestMark key={'d' + d.k} x={d.x} y={d.y} U={U} color={d.color} capture={d.capture} />
+            ))}
             {g.tokens.map((t) => {
               const k = key(t);
               const pl = place(t);
@@ -782,6 +888,7 @@ export default function LudoScreen() {
                 <Token
                   key={k}
                   color={t.color}
+                  label={t.idx + 1}
                   x={pl.x}
                   y={pl.y}
                   scale={pl.s}
@@ -811,7 +918,49 @@ export default function LudoScreen() {
             <Text style={styles.statB}>{stat.b}</Text>
           </View>
         </View>
+
+        {/* legend: what the symbols on the board mean */}
+        <View style={styles.legend}>
+          <View style={styles.lg}>
+            <Text style={styles.lgStar}>★</Text>
+            <Text style={styles.lgText}>Safe cell</Text>
+          </View>
+          <View style={styles.lg}>
+            <Text style={styles.lgArrow}>➤</Text>
+            <Text style={styles.lgText}>Start cell</Text>
+          </View>
+          <View style={styles.lg}>
+            <View style={styles.lgRing} />
+            <Text style={styles.lgText}>Lands here</Text>
+          </View>
+          <View style={styles.lg}>
+            <View style={[styles.lgRing, { borderColor: '#FF4D5A', backgroundColor: 'rgba(255,77,90,0.25)' }]} />
+            <Text style={styles.lgText}>Capture</Text>
+          </View>
+        </View>
       </ScrollView>
+
+      <Modal visible={help} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setHelp(false)}>
+        <View style={styles.hOverlay}>
+          <View style={styles.hCard}>
+            <Text style={styles.hTitle}>How to play</Text>
+            {[
+              ['Roll', 'Tap the dice on your turn. Goti are numbered 1–4.'],
+              ['Leave the yard', 'You need a 6 to bring a goti onto your start cell (the arrow).'],
+              ['Move', 'Glowing goti can move. Tap one; the dashed ring shows where it lands.'],
+              ['Capture', 'Land on an opponent (red ring) to send it back to its yard. Stars and start cells are safe.'],
+              ['Extra roll', 'A 6, a capture or reaching home gives another roll. Three 6s in a row lose the turn.'],
+              ['Win', 'Take all 4 goti around the board and into the centre. You need the exact number for the last step.'],
+            ].map(([a, b]) => (
+              <View key={a} style={{ marginBottom: 9 }}>
+                <Text style={styles.hHead}>{a}</Text>
+                <Text style={styles.hBody}>{b}</Text>
+              </View>
+            ))}
+            <PrimaryButton label="Got it" onPress={() => setHelp(false)} />
+          </View>
+        </View>
+      </Modal>
 
       {toastNode}
       <ResultModal
@@ -908,7 +1057,44 @@ const styles = StyleSheet.create({
   pav: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   pavText: { color: '#fff', fontSize: 13, fontFamily: FONTS.displayBold },
   pn: { color: '#fff', fontSize: 12.5, fontFamily: FONTS.bodySemiBold },
-  pm: { color: COLORS.mist, fontSize: 11, fontFamily: FONTS.body, marginTop: 1 },
+  pm: { color: COLORS.mist, fontSize: 10.5, fontFamily: FONTS.body, marginLeft: 3 },
+  pdots: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 3 },
+  pdot: { width: 7, height: 7, borderRadius: 4, borderWidth: 1.5 },
+
+  legend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  lg: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  lgText: { color: COLORS.mist, fontSize: 11, fontFamily: FONTS.body },
+  lgStar: { color: 'rgba(255,255,255,0.7)', fontSize: 13 },
+  lgArrow: { color: '#fff', fontSize: 12 },
+  lgRing: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#fff',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
+  hOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.78)', alignItems: 'center', justifyContent: 'center' },
+  hCard: {
+    width: '88%',
+    maxWidth: 360,
+    backgroundColor: GC.card,
+    borderWidth: 1,
+    borderColor: GC.line2,
+    borderRadius: 24,
+    padding: 20,
+  },
+  hTitle: { color: '#fff', fontSize: 20, fontFamily: FONTS.displayBold, marginBottom: 12 },
+  hHead: { color: '#fff', fontSize: 13, fontFamily: FONTS.bodySemiBold },
+  hBody: { color: COLORS.mistLight, fontSize: 12.5, lineHeight: 18, fontFamily: FONTS.body, marginTop: 1 },
 
   tk: {
     flex: 1,
@@ -930,7 +1116,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.45)',
   },
-  tkRing: { width: '46%', height: '46%', borderRadius: 999, borderWidth: 2, borderColor: 'rgba(255,255,255,0.55)' },
+  tkRing: {
+    width: '62%',
+    height: '62%',
+    borderRadius: 999,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.65)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tkNum: { color: '#fff', fontFamily: FONTS.displayBold, includeFontPadding: false, textAlign: 'center' },
 
   dicebar: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingHorizontal: 20, paddingTop: 14 },
   dice: {
