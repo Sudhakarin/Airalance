@@ -42,7 +42,9 @@ export const YARD: Record<LColor, [number, number]> = {
   yellow: [9, 9],
   blue: [0, 9],
 };
-export const SLOTS: [number, number][] = [[2, 2], [4, 2], [2, 4], [4, 4]];
+export const SLOTS: [number, number][] = [[2, 2.5], [4, 2.5], [2, 4.2], [4, 4.2]];
+/** direction of travel (degrees, 0 = right) at each colour's start cell and home lane */
+export const DEG: Record<LColor, number> = { red: 0, green: 90, yellow: 180, blue: 270 };
 
 /** 52 cells of the outer track as [row, col], clockwise starting at red's start. */
 export const PATH: [number, number][] = (() => {
