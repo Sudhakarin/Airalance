@@ -1,6 +1,5 @@
 name: Build iOS IPA (Unsigned)
 
-on:
   push:
     branches: [main]
   workflow_dispatch:
