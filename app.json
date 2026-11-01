@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.airalance.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": false,
       "permissions": [
@@ -126,7 +126,10 @@
       "url": "https://u.expo.dev/a29b4ab7-af7a-401f-a49d-4326fd746007",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
+      "fallbackToCacheTimeout": 0,
+      "requestHeaders": {
+        "expo-channel-name": "preview"
+      }
     },
     "runtimeVersion": {
       "policy": "appVersion"
