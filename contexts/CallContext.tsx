@@ -4,6 +4,11 @@
 // ✅ FIX: CallKeep answer now triggers WebRTC accept
 // ✅ FIX: Increased timeouts (60s ring, 60s incoming age)
 // ✅ FIX: Handled incoming call missed/ended state
+// ✅ FIX: CallKeep setup runs ONCE, only after login, and AFTER the permission
+//         flow (no more dialog clash / pre-login phone-account alert)
+// ✅ FIX: mic/camera checked before starting or accepting a call
+//         (denied → "Open Settings" alert instead of silent failure)
+// ✅ FIX: answering a VIDEO call from CallKeep no longer opens as audio
 
 import React, {
   createContext,
@@ -53,6 +58,10 @@ import {
   setAvailable,
 } from '../lib/callkeep';
 import { hapticMedium, hapticSuccess, hapticError } from '../lib/haptics';
+import {
+  ensureCallPermissions,
+  whenPermissionFlowSettled,
+} from '../lib/permissions';
 
 // ✅ Web-safe: react-native-webrtc is native-only
 let RNWebRTC: any = null;
@@ -310,17 +319,54 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [cleanup, safeBack]
   );
 
-  // Setup CallKeep
+  // Setup CallKeep — once, after login, after the permission flow finished
+  const callKeepSetupRef = useRef(false);
   useEffect(() => {
     if (Platform.OS === 'web') return;
+    let cancelled = false;
 
-    (async () => {
-      const ok = await setupCallKeep();
-      if (ok) {
-        setAvailable();
-        console.log('[call] CallKeep ready');
+    const trySetup = async () => {
+      if (callKeepSetupRef.current) return;
+      const uid = await getCurrentUserId();
+      if (!uid || cancelled || callKeepSetupRef.current) return;
+      callKeepSetupRef.current = true;
+
+      await whenPermissionFlowSettled();
+      if (cancelled) {
+        callKeepSetupRef.current = false;
+        return;
       }
-    })();
+
+      try {
+        const ok = await setupCallKeep();
+        if (ok) {
+          setAvailable();
+          console.log('[call] CallKeep ready');
+        } else {
+          callKeepSetupRef.current = false;
+        }
+      } catch (err) {
+        console.warn('[call] CallKeep setup failed:', err);
+        callKeepSetupRef.current = false;
+      }
+    };
+
+    trySetup();
+    const { data: authSub } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (session?.user) trySetup();
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      authSub.subscription.unsubscribe();
+    };
+  }, []);
+
+  // CallKeep native UI events (answer / end)
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
 
     const unregister = registerCallKeepEvents({
       onAnswerCall: (callId) => {
@@ -334,7 +380,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
            setCallState('connecting');
            // The actual API accept happens in the UI screen once mounted
            // but we push it just in case
-           router.push(`/call/${callId}?role=receiver&type=audio`);
+           const answeredType =
+            activeCallRef.current?.call_type === 'video' ? 'video' : 'audio';
+           router.push(`/call/${callId}?role=receiver&type=${answeredType}`);
         }
       },
       onEndCall: (callId) => {
@@ -641,6 +689,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (!myId) return;
       myIdRef.current = myId;
 
+      // ✅ mic (+ camera for video) must be allowed before we start
+      const permOk = await ensureCallPermissions(callType === 'video');
+      if (!permOk) {
+        hapticError();
+        return;
+      }
+
       conversationIdRef.current = conversationId ?? null;
 
       setRemoteUserInfo({
@@ -799,6 +854,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
 
     try {
+      const permOk = await ensureCallPermissions(
+        currentCall.call_type === 'video'
+      );
+      if (!permOk) throw new Error('Mic/camera permission not granted');
+
       setCallState('connecting');
 
       const { sdp } = await setupPeerConnection(
