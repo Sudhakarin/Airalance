@@ -61,7 +61,10 @@ import {
   setAvailable,
 } from '../lib/callkeep';
 import { hapticMedium, hapticSuccess, hapticError } from '../lib/haptics';
-import { cancelCallNotification } from '../lib/callNotification';
+import {
+  cancelCallNotification,
+  isCallNotificationAvailable,
+} from '../lib/callNotification';
 import {
   ensureCallPermissions,
   whenPermissionFlowSettled,
@@ -935,11 +938,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
       setCallState('ringing');
       hapticMedium();
 
-      // In-app screen takes over the ringing from here
-      cancelCallNotification(incomingCall.id).catch(() => {});
-      try {
-        Vibration.vibrate([0, 1000, 1000], true);
-      } catch {}
+      // The call screen has no ringtone of its own, so the notification keeps
+      // ringing (loops) until answered / declined / cancelled — those paths
+      // all call cancelCallNotification(). Stop it right away only when the
+      // user already tapped "Answer". Without notifee, fall back to vibration.
+      if (pendingAutoAnswerRef.current === incomingCall.id) {
+        cancelCallNotification(incomingCall.id).catch(() => {});
+      } else if (!isCallNotificationAvailable()) {
+        try {
+          Vibration.vibrate([0, 1000, 1000], true);
+        } catch {}
+      }
 
       router.push(
         `/call/${incomingCall.id}?role=receiver&type=${incomingCall.call_type}`
