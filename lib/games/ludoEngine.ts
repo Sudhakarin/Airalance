@@ -42,7 +42,9 @@ export const YARD: Record<LColor, [number, number]> = {
   yellow: [9, 9],
   blue: [0, 9],
 };
-export const SLOTS: [number, number][] = [[2, 2.5], [4, 2.5], [2, 4.2], [4, 4.2]];
+// FIX: slots are now perfectly symmetric around the yard centre (3, 3).
+// (was [[2, 2.5], [4, 2.5], [2, 4.2], [4, 4.2]] — sat too low in the yard)
+export const SLOTS: [number, number][] = [[1.9, 1.9], [4.1, 1.9], [1.9, 4.1], [4.1, 4.1]];
 /** direction of travel (degrees, 0 = right) at each colour's start cell and home lane */
 export const DEG: Record<LColor, number> = { red: 0, green: 90, yellow: 180, blue: 270 };
 
