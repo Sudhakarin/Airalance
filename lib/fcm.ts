@@ -47,16 +47,28 @@ export function onForegroundMessage(cb: (data: any) => void) {
   });
 }
 
+// Returns an unsubscribe function (previously leaked the listener)
 export function onNotificationOpenedApp(cb: (data: any) => void) {
-  if (!messagingInstance) return;
+  if (!messagingInstance) return () => {};
 
-  getInitialNotification(messagingInstance).then((remoteMessage: any) => {
-    if (remoteMessage?.data) cb(remoteMessage.data);
-  });
+  getInitialNotification(messagingInstance)
+    .then((remoteMessage: any) => {
+      if (remoteMessage?.data) cb(remoteMessage.data);
+    })
+    .catch(() => {});
 
-  onNotificationOpenedAppFB(messagingInstance, (remoteMessage: any) => {
-    if (remoteMessage?.data) cb(remoteMessage.data);
-  });
+  const unsub = onNotificationOpenedAppFB(
+    messagingInstance,
+    (remoteMessage: any) => {
+      if (remoteMessage?.data) cb(remoteMessage.data);
+    }
+  );
+
+  return () => {
+    try {
+      if (typeof unsub === 'function') unsub();
+    } catch {}
+  };
 }
 
 export { messagingInstance as messaging };
