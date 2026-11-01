@@ -105,7 +105,7 @@ export async function getNotificationStatus(): Promise<PermState> {
   return cur.canAskAgain ? 'denied' : 'blocked';
 }
 
-async function ensureNotifications(): Promise<PermState> {
+export async function ensureNotifications(): Promise<PermState> {
   const cur = await getNotificationStatus();
   if (cur === 'granted' || cur === 'blocked') return cur;
 
