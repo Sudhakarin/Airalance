@@ -68,8 +68,9 @@ import {
 import {
   ensureCallPermissions,
   whenPermissionFlowSettled,
-  showCallReliabilityGuide,
 } from '../lib/permissions';
+import CallSetupModal from '../components/CallSetupModal';
+import { shouldShowCallSetup, markCallSetupShown } from '../lib/callSetup';
 
 // ✅ Web-safe: react-native-webrtc is native-only
 let RNWebRTC: any = null;
@@ -150,6 +151,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const callStateRef = useRef<CallState>('idle');
   callStateRef.current = callState;
   const pendingAutoAnswerRef = useRef<string | null>(null);
+
+  // "Allow for calls" popup — only on the FIRST tap of the call button
+  const [setupVisible, setSetupVisible] = useState(false);
+  const setupResolveRef = useRef<(() => void) | null>(null);
+  const requestCallSetupIfNeeded = useCallback(async () => {
+    if (!(await shouldShowCallSetup())) return;
+    await markCallSetupShown();
+    await new Promise<void>((resolve) => {
+      setupResolveRef.current = resolve;
+      setSetupVisible(true);
+    });
+  }, []);
+  const closeCallSetup = useCallback(() => {
+    setSetupVisible(false);
+    const r = setupResolveRef.current;
+    setupResolveRef.current = null;
+    r?.();
+  }, []);
   const openingCallIdRef = useRef<string | null>(null);
 
   // ✅ FIX: Reusable signaling channel to prevent rate limits
@@ -360,9 +379,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         console.warn('[call] CallKeep setup failed:', err);
       }
-
-      // Calling account / full-screen / battery guide (Android, once)
-      showCallReliabilityGuide().catch(() => {});
     };
 
     trySetup();
@@ -716,6 +732,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const myId = myIdRef.current ?? (await getCurrentUserId());
       if (!myId) return;
       myIdRef.current = myId;
+
+      // First call ever → show the "Allow for calls" popup, then continue
+      await requestCallSetupIfNeeded();
 
       // ✅ mic (+ camera for video) must be allowed before we start
       const permOk = await ensureCallPermissions(callType === 'video');
@@ -1120,6 +1139,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   return (
     <CallContext.Provider value={value}>
       {children}
+      <CallSetupModal visible={setupVisible} onClose={closeCallSetup} />
     </CallContext.Provider>
   );
 }
