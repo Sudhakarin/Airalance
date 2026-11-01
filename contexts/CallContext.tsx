@@ -9,6 +9,9 @@
 // ✅ FIX: mic/camera checked before starting or accepting a call
 //         (denied → "Open Settings" alert instead of silent failure)
 // ✅ FIX: answering a VIDEO call from CallKeep no longer opens as audio
+// ✅ NEW: Android incoming call = WhatsApp-style notification (lib/callNotification).
+//         openIncomingFromPush() opens/answers a call from that notification,
+//         caller hang-up sends a cancel push so the notification disappears
 
 import React, {
   createContext,
@@ -58,9 +61,11 @@ import {
   setAvailable,
 } from '../lib/callkeep';
 import { hapticMedium, hapticSuccess, hapticError } from '../lib/haptics';
+import { cancelCallNotification } from '../lib/callNotification';
 import {
   ensureCallPermissions,
   whenPermissionFlowSettled,
+  showCallReliabilityGuide,
 } from '../lib/permissions';
 
 // ✅ Web-safe: react-native-webrtc is native-only
@@ -98,6 +103,7 @@ type CallContextValue = {
     conversationId?: string
   ) => Promise<void>;
   acceptIncomingCall: () => Promise<void>;
+  openIncomingFromPush: (callId: string, autoAnswer: boolean) => Promise<void>;
   rejectIncomingCall: () => Promise<void>;
   endCurrentCall: () => Promise<void>;
   toggleMute: () => void;
@@ -138,6 +144,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const remoteDescSetRef = useRef(false);
   const myIdRef = useRef<string | null>(null);
   const audioSessionStartedRef = useRef(false);
+  const callStateRef = useRef<CallState>('idle');
+  callStateRef.current = callState;
+  const pendingAutoAnswerRef = useRef<string | null>(null);
+  const openingCallIdRef = useRef<string | null>(null);
 
   // ✅ FIX: Reusable signaling channel to prevent rate limits
   const signalChannelRef = useRef<any>(null);
@@ -251,6 +261,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       localStreamRef.current = null;
     }
     if (callIdRef.current) {
+      cancelCallNotification(callIdRef.current).catch(() => {});
       try {
         endCallKeep(callIdRef.current);
       } catch {}
@@ -342,13 +353,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (ok) {
           setAvailable();
           console.log('[call] CallKeep ready');
-        } else {
-          callKeepSetupRef.current = false;
         }
       } catch (err) {
         console.warn('[call] CallKeep setup failed:', err);
-        callKeepSetupRef.current = false;
       }
+
+      // Calling account / full-screen / battery guide (Android, once)
+      showCallReliabilityGuide().catch(() => {});
     };
 
     trySetup();
@@ -673,6 +684,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [cleanup, logByCallId]
   );
 
+  // Tell the receiver's phone to remove the ringing notification
+  const sendCancelPush = useCallback((receiverId: string, callId: string) => {
+    supabase.functions
+      .invoke('send-push', {
+        body: {
+          userId: receiverId,
+          title: 'Call cancelled',
+          body: 'Call cancelled',
+          data: { screen: 'call_cancel', callId },
+        },
+      })
+      .catch(() => {});
+  }, []);
+
   const startCall = useCallback(
     async (
       receiverId: string,
@@ -821,6 +846,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           try {
             await apiCancelCall(call.id, myId);
           } catch {}
+          sendCancelPush(receiverId, call.id);
           logCallOnce(call, 'missed');
           cleanup();
           setCallState('idle');
@@ -844,6 +870,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const acceptIncomingCall = useCallback(async () => {
     if (callState !== 'ringing' || !currentCall) return;
 
+    cancelCallNotification(currentCall.id).catch(() => {});
     try {
       Vibration.cancel();
     } catch {}
@@ -887,8 +914,101 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, [callState, currentCall, cleanup, router, setupPeerConnection]);
 
+  // ---- Present a ringing call that arrived via push (notification) ----
+  const presentIncomingCall = useCallback(
+    async (incomingCall: Call) => {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id, display_name, avatar_url')
+        .eq('id', incomingCall.caller_id)
+        .single();
+
+      setRemoteUserInfo({
+        id: incomingCall.caller_id,
+        name: profile?.display_name ?? 'Unknown',
+        avatar: profile?.avatar_url ?? null,
+      });
+
+      setCurrentCall(incomingCall);
+      activeCallRef.current = incomingCall;
+      callIdRef.current = incomingCall.id;
+      setCallState('ringing');
+      hapticMedium();
+
+      // In-app screen takes over the ringing from here
+      cancelCallNotification(incomingCall.id).catch(() => {});
+      try {
+        Vibration.vibrate([0, 1000, 1000], true);
+      } catch {}
+
+      router.push(
+        `/call/${incomingCall.id}?role=receiver&type=${incomingCall.call_type}`
+      );
+
+      if (unsubCallRef.current) {
+        try {
+          unsubCallRef.current();
+        } catch {}
+        unsubCallRef.current = null;
+      }
+      unsubCallRef.current = subscribeToCall(incomingCall.id, async (updated) => {
+        handleRemoteTermination(updated);
+      });
+    },
+    [router, handleRemoteTermination]
+  );
+
+  // Called by IncomingCallBridge (notification tap / Answer / lock-screen launch)
+  const openIncomingFromPush = useCallback(
+    async (callId: string, autoAnswer: boolean) => {
+      if (!callId || Platform.OS === 'web') return;
+
+      if (callIdRef.current === callId) {
+        if (autoAnswer && callStateRef.current === 'ringing') {
+          pendingAutoAnswerRef.current = callId;
+        }
+        return;
+      }
+      if (callStateRef.current !== 'idle') return;
+      if (openingCallIdRef.current === callId) return;
+      openingCallIdRef.current = callId;
+
+      try {
+        const uid = myIdRef.current ?? (await getCurrentUserId());
+        if (!uid) return;
+        myIdRef.current = uid;
+
+        const call = await getCall(callId);
+        if (!call || call.receiver_id !== uid) return;
+
+        const age = Date.now() - new Date(call.created_at).getTime();
+        if (call.status !== 'ringing' || age > INCOMING_AGE_MAX_MS * 2) {
+          cancelCallNotification(callId).catch(() => {});
+          return;
+        }
+
+        if (autoAnswer) pendingAutoAnswerRef.current = callId;
+        await presentIncomingCall(call);
+      } catch (err) {
+        console.warn('[call] openIncomingFromPush failed:', err);
+      } finally {
+        openingCallIdRef.current = null;
+      }
+    },
+    [presentIncomingCall]
+  );
+
+  // "Answer" tapped on the notification → accept as soon as state is ringing
+  useEffect(() => {
+    if (callState !== 'ringing' || !currentCall) return;
+    if (pendingAutoAnswerRef.current !== currentCall.id) return;
+    pendingAutoAnswerRef.current = null;
+    acceptIncomingCall();
+  }, [callState, currentCall, acceptIncomingCall]);
+
   const rejectIncomingCall = useCallback(async () => {
     if (!currentCall) return;
+    cancelCallNotification(currentCall.id).catch(() => {});
     try {
       await apiRejectCall(currentCall.id);
     } catch {}
@@ -910,6 +1030,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     try {
       if (wasRinging && isCaller) {
         await apiCancelCall(call.id, myId ?? '');
+        sendCancelPush(call.receiver_id, call.id);
       } else {
         await apiEndCall(call.id, myId ?? '');
       }
@@ -979,6 +1100,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     remoteUserInfo,
     startCall,
     acceptIncomingCall,
+    openIncomingFromPush,
     rejectIncomingCall,
     endCurrentCall,
     toggleMute,
