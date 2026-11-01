@@ -66,13 +66,7 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-notifications",
-        {
-          "color": "#7C5CFF",
-          "defaultChannel": "default"
-        }
-      ],
+      "expo-notifications",
       [
         "expo-audio",
         {
