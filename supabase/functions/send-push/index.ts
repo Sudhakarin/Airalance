@@ -1,7 +1,11 @@
 // supabase/functions/send-push/index.ts
 // Push notification bhejne wali Edge Function (FCM V1 API + Expo fallback)
 // ✅ Supports: chat messages, locked chats, incoming calls
-// ✅ FIX: Call uses notification + data (works on Android 11 killed apps)
+// ✅ FIX: Calls are now DATA-ONLY (+ high priority). A `notification` block makes
+//         Android show its own plain notification when the app is closed and the
+//         app's background handler (call UI) never runs.
+// ✅ NEW: screen:'call_cancel' push removes the ringing notification
+// ✅ FIX: chat — Expo push only when FCM failed (was sending BOTH = double notification)
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -73,6 +77,7 @@ async function sendFcmMessage(
     body: string;
     data?: Record<string, string>;
     isCall?: boolean;
+    isCancel?: boolean;
   }
 ): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -89,32 +94,23 @@ async function sendFcmMessage(
       },
     };
 
-    if (message.isCall) {
-      // ============================================================
-      // ✅ CRITICAL FIX — Call message uses NOTIFICATION + DATA
-      // Android 11 killed app: data-only messages are dropped.
-      // Notification wakes the app; data passes to JS handler.
-      // ============================================================
-      fcmPayload.message.notification = {
-        title: message.title,
-        body: message.body,
+    if (message.isCancel) {
+      // Silent: just tells the app to dismiss the ringing notification
+      fcmPayload.message.android = { priority: 'HIGH', ttl: '30s' };
+      fcmPayload.message.apns = {
+        headers: { 'apns-priority': '5', 'apns-push-type': 'background' },
+        payload: { aps: { 'content-available': 1 } },
       };
-
+    } else if (message.isCall) {
+      // ============================================================
+      // ✅ DATA-ONLY on Android (NO `notification` block, NO android.notification)
+      // → app's setBackgroundMessageHandler runs even when killed and shows the
+      //   WhatsApp-style full-screen call notification (notifee).
+      // High priority + short TTL so a stale call never rings later.
+      // ============================================================
       fcmPayload.message.android = {
         priority: 'HIGH',
         ttl: '60s',
-        notification: {
-          channelId: 'com.airalance.app.call',
-          sound: 'ringtone',
-          defaultSound: false,
-          defaultVibrateTimings: false,
-          vibrateTimingsMillis: [0, 1000, 1000, 1000],
-          tag: `call:${message.data?.callId ?? 'unknown'}`,
-          clickAction: 'OPEN_CALL',
-          visibility: 'PUBLIC',
-          // Notification category — Android uses this for call-like behavior
-          notificationPriority: 'PRIORITY_MAX',
-        },
       };
 
       fcmPayload.message.apns = {
@@ -261,7 +257,35 @@ serve(async (req) => {
     }
 
     // ============================================================
-    // CALL — notification + data (works on killed apps)
+    // CALL CANCELLED — silently remove the ringing notification
+    // ============================================================
+    if (data?.screen === 'call_cancel' && data?.callId) {
+      const saJson = Deno.env.get('FCM_SERVICE_ACCOUNT');
+      let cancelResult: any = { ok: false };
+      if (saJson && profile.fcm_token) {
+        try {
+          cancelResult = await sendFcmMessage(
+            JSON.parse(saJson),
+            profile.fcm_token,
+            {
+              title,
+              body,
+              isCancel: true,
+              data: { screen: 'call_cancel', callId: String(data.callId) },
+            }
+          );
+        } catch (err) {
+          console.warn('[fcm] cancel send failed:', err);
+        }
+      }
+      return new Response(JSON.stringify({ type: 'call_cancel', fcm: cancelResult }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // ============================================================
+    // CALL — data-only high-priority push (app shows the call UI)
     // ============================================================
     if (data?.screen === 'call' && data?.callId) {
       const fcmServiceAccountJson = Deno.env.get('FCM_SERVICE_ACCOUNT');
@@ -365,9 +389,9 @@ serve(async (req) => {
       }
     }
 
-    // Fallback / parallel — Expo
+    // Fallback only — sending to both tokens caused double notifications
     let expoResult: any = null;
-    if (profile.expo_push_token) {
+    if (!fcmResult.ok && profile.expo_push_token) {
       expoResult = await sendExpoPush(
         profile.expo_push_token,
         finalTitle,
