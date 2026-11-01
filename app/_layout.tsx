@@ -5,6 +5,10 @@
 // ✅ FIX: initialWindowMetrics on SafeAreaProvider — kills first-frame layout jump
 // ✅ FIX: SafeAreaProvider mounted IMMEDIATELY (never behind conditional null)
 //         — native insets ready before first content frame → zero jump
+// ✅ FIX: permissions moved to lib/permissions.ts — one flow asks notifications,
+//         mic, camera, nearby devices, phone; blocked ones → "Open Settings";
+//         Expo push token registers only AFTER notification permission is granted
+//         and re-checks when user comes back from Settings
 
 import { useEffect, useState, useRef } from 'react';
 import { Stack, useRouter, usePathname } from 'expo-router';
@@ -48,9 +52,18 @@ import { getDB } from '../lib/db';
 import { initNetwork } from '../lib/network';
 import { startPresence, stopPresence } from '../lib/presence';
 import { CallProvider } from '../contexts/CallContext';
-import { getFcmToken, onFcmTokenRefresh } from '../lib/fcm';
+import {
+  getFcmToken,
+  onFcmTokenRefresh,
+  onNotificationOpenedApp,
+} from '../lib/fcm';
 import { useOTAUpdate } from '../lib/useOTAUpdate';
 import UpdateOverlay from '../components/UpdateOverlay';
+import {
+  runPermissionFlow,
+  setupNotificationChannels,
+  getNotificationStatus,
+} from '../lib/permissions';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -104,6 +117,7 @@ export default function RootLayout() {
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [notifGranted, setNotifGranted] = useState(false);
   const pushRegisteredForUserRef = useRef<string | null>(null);
   const fcmRegisteredForUserRef = useRef<string | null>(null);
   const lastNotifNavRef = useRef<{ key: string; time: number }>({
@@ -145,6 +159,13 @@ export default function RootLayout() {
     } catch (err) {
       console.warn('[net] Network init failed:', err);
     }
+  }, []);
+
+  // ---------- Android notification channels (as early as possible) ----------
+  useEffect(() => {
+    setupNotificationChannels().catch((err) =>
+      console.warn('[push] Channel setup failed:', err)
+    );
   }, []);
 
   // ---------- Cleanup stale AsyncStorage keys ----------
@@ -192,6 +213,29 @@ export default function RootLayout() {
       }
     });
     return () => sub.remove();
+  }, []);
+
+  // ---------- Notification permission status: on start + every time app
+  //            comes to foreground (e.g. user returns from Settings) ----------
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    let mounted = true;
+    const check = async () => {
+      try {
+        const s = await getNotificationStatus();
+        if (mounted) setNotifGranted(s === 'granted');
+      } catch {}
+    };
+
+    check();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') check();
+    });
+    return () => {
+      mounted = false;
+      sub.remove();
+    };
   }, []);
 
   // ---------- Load fonts ----------
@@ -262,9 +306,35 @@ export default function RootLayout() {
     return () => clearTimeout(t);
   }, []);
 
-  // ---------- Push registration (Expo) ----------
+  // ============================================================
+  // PERMISSION FLOW (after login, once app is visible)
+  // notifications → mic → camera → nearby devices → phone
+  // Blocked → "Open Settings" alert (max 1/day)
+  // Special perms (full-screen intent, battery, overlay) → one-time guide
+  // ============================================================
   useEffect(() => {
-    if (!authReady || !userId) return;
+    if (!isReady || !userId) return;
+    if (Platform.OS === 'web') return;
+
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const report = await runPermissionFlow();
+        if (!cancelled) setNotifGranted(report.notifications === 'granted');
+      } catch (err) {
+        console.warn('[perm] flow failed:', err);
+      }
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [isReady, userId]);
+
+  // ---------- Push registration (Expo) — only after permission granted ----------
+  useEffect(() => {
+    if (!authReady || !userId || !notifGranted) return;
     if (Platform.OS === 'web') return;
     if (pushRegisteredForUserRef.current === userId) return;
 
@@ -272,61 +342,6 @@ export default function RootLayout() {
 
     async function registerPush() {
       if (!Device.isDevice) return;
-
-      if (Platform.OS === 'android') {
-        try {
-          await Notifications.setNotificationChannelAsync('default', {
-            name: 'Notifications',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 250, 250, 250],
-            lightColor: '#7C5CFF',
-            sound: 'default',
-          });
-
-          await Notifications.setNotificationChannelAsync('calls', {
-            name: 'Incoming calls',
-            importance: Notifications.AndroidImportance.MAX,
-            vibrationPattern: [0, 1000, 1000, 1000],
-            lightColor: '#22C55E',
-            sound: 'ringtone',
-            bypassDnd: true,
-            lockscreenVisibility:
-              Notifications.AndroidNotificationVisibility.PUBLIC,
-            audioAttributes: {
-              usage: Notifications.AndroidAudioUsage.VOICE_COMMUNICATION,
-              contentType: Notifications.AndroidAudioContentType.SPEECH,
-            },
-          });
-
-          await Notifications.setNotificationChannelAsync(
-            'com.airalance.app.call',
-            {
-              name: 'Incoming calls (ring)',
-              importance: Notifications.AndroidImportance.MAX,
-              vibrationPattern: [0, 1000, 1000, 1000],
-              lightColor: '#22C55E',
-              sound: 'ringtone',
-              bypassDnd: true,
-              lockscreenVisibility:
-                Notifications.AndroidNotificationVisibility.PUBLIC,
-              audioAttributes: {
-                usage: Notifications.AndroidAudioUsage.VOICE_COMMUNICATION,
-                contentType: Notifications.AndroidAudioContentType.SPEECH,
-              },
-            }
-          );
-        } catch (e) {
-          console.warn('[push] Channel register failed:', e);
-        }
-      }
-
-      let { status } = await Notifications.getPermissionsAsync();
-      if (status !== 'granted') {
-        const res = await Notifications.requestPermissionsAsync();
-        status = res.status;
-      }
-      if (status !== 'granted') return;
-      if (cancelled) return;
 
       try {
         const projectId =
@@ -350,6 +365,8 @@ export default function RootLayout() {
         if (!error) {
           pushRegisteredForUserRef.current = userId;
           console.log('[push] Token saved for user:', userId);
+        } else {
+          console.warn('[push] Save failed:', error.message);
         }
       } catch (err) {
         console.warn('[push] Token registration failed:', err);
@@ -361,7 +378,7 @@ export default function RootLayout() {
     return () => {
       cancelled = true;
     };
-  }, [authReady, userId]);
+  }, [authReady, userId, notifGranted]);
 
   // ---------- FCM token registration ----------
   useEffect(() => {
@@ -419,20 +436,6 @@ export default function RootLayout() {
   }, [authReady, userId]);
 
   // ============================================================
-  // Android 14+ Full-Screen Intent permission check
-  // ============================================================
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    if (!authReady) return;
-    if (typeof Platform.Version !== 'number') return;
-    if (Platform.Version < 34) return;
-
-    console.log(
-      '[fsi] Android 14+ detected. Full-screen calls need manual permission grant.'
-    );
-  }, [authReady]);
-
-  // ============================================================
   // BLACK-SCREEN FIX — STEP 1: Notification tap STASH
   // ============================================================
   useEffect(() => {
@@ -459,6 +462,18 @@ export default function RootLayout() {
     );
 
     return () => sub.remove();
+  }, []);
+
+  // FCM (Firebase) notification taps — these do NOT reach expo-notifications
+  // listeners, so handle them here too (duplicates are filtered by lastNotifNavRef)
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const unsub = onNotificationOpenedApp((data) => {
+      if (data?.screen === 'call' && data.callId) {
+        setPendingNotif(data);
+      }
+    });
+    return () => unsub();
   }, []);
 
   // ============================================================
