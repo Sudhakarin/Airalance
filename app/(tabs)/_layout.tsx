@@ -3,8 +3,13 @@
 // Redesigned bar (same as demo). Switch design with TAB_VARIANT: 'pill' | 'line' | 'raised'
 // ✅ 'pill' bar is now FLAT + full-width (no rounded edges, no side gaps)
 // ✅ UPDATED: useUnreadCount does instant local refresh + debounced network sync
+// ✅ SMOOTH: unread badge now uses lightweight COUNT queries (no row downloads),
+//            chunked (long id lists no longer break the request), never overlaps,
+//            pauses in background and refreshes the moment the app is opened
+// ✅ WHATSAPP FEEL: badge "pops" when a new unread arrives; shorter, cleaner
+//            tab-switch animation; unread count read out by screen readers
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Tabs } from 'expo-router';
 import {
   View,
@@ -15,6 +20,8 @@ import {
   Keyboard,
   LayoutAnimation,
   UIManager,
+  Animated,
+  AppState,
 } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +39,20 @@ if (
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+
+// Short & soft — long animations feel laggy when switching tabs quickly
+const TAB_ANIM = {
+  duration: 160,
+  create: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+  update: { type: LayoutAnimation.Types.easeInEaseOut },
+  delete: {
+    type: LayoutAnimation.Types.easeInEaseOut,
+    property: LayoutAnimation.Properties.opacity,
+  },
+};
 
 // ───────────── CONFIG ─────────────
 type TabVariant = 'pill' | 'line' | 'raised';
@@ -81,19 +102,42 @@ function useKeyboardVisible() {
 }
 
 function Badge({ count, style }: { count: number; style?: any }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const prev = useRef(count);
+
+  // "Pop" when a NEW unread arrives (like WhatsApp)
+  useEffect(() => {
+    if (count > prev.current) {
+      scale.setValue(0.6);
+      Animated.spring(scale, {
+        toValue: 1,
+        friction: 4,
+        tension: 160,
+        useNativeDriver: true,
+      }).start();
+    }
+    prev.current = count;
+  }, [count, scale]);
+
   if (!count) return null;
   return (
-    <View style={[styles.badge, style]}>
+    <Animated.View
+      style={[styles.badge, style, { transform: [{ scale }] }]}
+      pointerEvents="none"
+    >
       <Text style={styles.badgeText}>{count > 99 ? '99+' : count}</Text>
-    </View>
+    </Animated.View>
   );
 }
 
 // Unread count for the Chats tab — cache first, then network + realtime
 // Strategy:
 //  1. Show cached count instantly (SQLite)
-//  2. Sync from network in background (500ms debounced)
+//  2. Sync from network in background (debounced) with COUNT queries only
 //  3. On realtime event → local refresh first + schedule network sync
+//  4. Never run two network syncs at once; skip while app is in background
+const ID_CHUNK = 100; // keeps every request URL small
+
 function useUnreadCount() {
   const [count, setCount] = useState(0);
 
@@ -103,6 +147,8 @@ function useUnreadCount() {
     let channel: any = null;
     let unsubNet: (() => void) | null = null;
     let myId: string | null = null;
+    let inFlight = false;
+    let rerun = false;
 
     // ✅ Local DB read — instant, no network
     const fromCache = async () => {
@@ -118,57 +164,81 @@ function useUnreadCount() {
       } catch {}
     };
 
-    // ✅ Network read — authoritative, but slower
+    // ✅ Network read — authoritative (COUNT only, no message rows downloaded)
     const fromNetwork = async () => {
       if (!myId || !isOnline()) return;
+      if (AppState.currentState !== 'active') return;
+      if (inFlight) {
+        rerun = true;
+        return;
+      }
+      inFlight = true;
+
       try {
-        const { data: parts } = await supabase
-          .from('conversation_participants')
-          .select('conversation_id')
-          .eq('user_id', myId);
+        do {
+          rerun = false;
 
-        const ids = (parts ?? []).map((p: any) => p.conversation_id);
-        if (ids.length === 0) {
-          if (mounted) setCount(0);
-          return;
-        }
+          const [partsRes, settingsRes] = await Promise.all([
+            supabase
+              .from('conversation_participants')
+              .select('conversation_id')
+              .eq('user_id', myId),
+            supabase
+              .from('chat_settings')
+              .select('conversation_id, is_muted')
+              .eq('user_id', myId),
+          ]);
 
-        const [unreadRes, settingsRes] = await Promise.all([
-          supabase
-            .from('messages')
-            .select('conversation_id')
-            .in('conversation_id', ids)
-            .neq('sender_id', myId)
-            .is('read_at', null),
-          supabase
-            .from('chat_settings')
-            .select('conversation_id, is_muted')
-            .eq('user_id', myId)
-            .in('conversation_id', ids),
-        ]);
+          if (partsRes.error || settingsRes.error) return; // keep last value
 
-        const muted = new Set(
-          (settingsRes.data ?? [])
-            .filter((s: any) => s.is_muted)
-            .map((s: any) => s.conversation_id)
-        );
-        const total = (unreadRes.data ?? []).filter(
-          (m: any) => !muted.has(m.conversation_id)
-        ).length;
+          const muted = new Set(
+            (settingsRes.data ?? [])
+              .filter((s: any) => s.is_muted)
+              .map((s: any) => s.conversation_id)
+          );
+          const ids: string[] = (partsRes.data ?? [])
+            .map((p: any) => p.conversation_id)
+            .filter((id: string) => !muted.has(id));
 
-        if (mounted) setCount(total);
+          if (ids.length === 0) {
+            if (mounted) setCount(0);
+            continue;
+          }
+
+          const chunks: string[][] = [];
+          for (let i = 0; i < ids.length; i += ID_CHUNK) {
+            chunks.push(ids.slice(i, i + ID_CHUNK));
+          }
+
+          const results = await Promise.all(
+            chunks.map((chunk) =>
+              supabase
+                .from('messages')
+                .select('id', { count: 'exact', head: true })
+                .in('conversation_id', chunk)
+                .neq('sender_id', myId)
+                .is('read_at', null)
+            )
+          );
+
+          // Any failed chunk → don't show a wrong (too low) number
+          if (results.some((r) => r.error)) return;
+
+          const total = results.reduce((sum, r) => sum + (r.count ?? 0), 0);
+          if (mounted) setCount(total);
+        } while (rerun && mounted);
       } catch (err) {
         console.warn('[tabs] unread count error:', err);
+      } finally {
+        inFlight = false;
       }
     };
 
     // ✅ Schedule: local refresh NOW + network sync debounced
     const schedule = () => {
-      // instant local update (chat screen already wrote SQLite)
       fromCache();
-      // debounce network call so burst events don't spam Supabase
       if (timer) clearTimeout(timer);
-      timer = setTimeout(fromNetwork, 500);
+      timer = setTimeout(fromNetwork, 600);
     };
 
     (async () => {
@@ -202,11 +272,17 @@ function useUnreadCount() {
       });
     })();
 
+    // Opening the app → refresh immediately (events missed in background)
+    const appSub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') schedule();
+    });
+
     return () => {
       mounted = false;
       if (timer) clearTimeout(timer);
       if (channel) supabase.removeChannel(channel);
       if (unsubNet) unsubNet();
+      appSub.remove();
     };
   }, []);
 
@@ -242,7 +318,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
       if (!focused && !event.defaultPrevented) {
         hapticSelection();
         if (TAB_VARIANT === 'pill') {
-          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          LayoutAnimation.configureNext(TAB_ANIM);
         }
         navigation.navigate(route.name, route.params);
       }
@@ -274,7 +350,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
               onPress={it.onPress}
               onLongPress={it.onLongPress}
               accessibilityRole="button"
-              accessibilityLabel={it.label}
+              accessibilityLabel={it.badge ? `${it.label}, ${it.badge} unread` : it.label}
               accessibilityState={{ selected: it.focused }}
               style={[styles.pillItem, it.focused && styles.pillItemActive]}
             >
@@ -305,7 +381,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
             onPress={it.onPress}
             onLongPress={it.onLongPress}
             accessibilityRole="button"
-            accessibilityLabel={it.label}
+            accessibilityLabel={it.badge ? `${it.label}, ${it.badge} unread` : it.label}
             accessibilityState={{ selected: it.focused }}
             style={styles.lineItem}
           >
@@ -340,7 +416,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
               onPress={it.onPress}
               onLongPress={it.onLongPress}
               accessibilityRole="button"
-              accessibilityLabel={it.label}
+              accessibilityLabel={it.badge ? `${it.label}, ${it.badge} unread` : it.label}
               accessibilityState={{ selected: it.focused }}
               style={styles.raisedCenterItem}
             >
@@ -368,7 +444,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
               onPress={it.onPress}
               onLongPress={it.onLongPress}
               accessibilityRole="button"
-              accessibilityLabel={it.label}
+              accessibilityLabel={it.badge ? `${it.label}, ${it.badge} unread` : it.label}
               accessibilityState={{ selected: it.focused }}
               style={styles.raisedItem}
             >
