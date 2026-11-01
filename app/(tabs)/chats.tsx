@@ -9,6 +9,12 @@
 // ✅ FIX: List never wiped on empty/failed server response
 // ✅ FIX: Realtime INSERT no longer drops updates (separate timers)
 // ✅ FIX: removeClippedSubviews off (blank list bug)
+// ✅ REALTIME+: chat list loads in ONE request (RPC get_my_chat_summaries, falls
+//    back to the old method if the SQL function isn't installed yet)
+// ✅ REALTIME+: re-sync on app resume + whenever realtime reconnects (no missed msgs)
+// ✅ REALTIME+: chat you're currently reading doesn't get a fake unread badge
+// ✅ SMOOTH: list data memoized, pull-to-open gesture no longer re-created on every
+//    realtime update, time labels ("5m") refresh by themselves, safer sorting
 
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react';
 import {
@@ -24,11 +30,12 @@ import {
   Platform,
   KeyboardAvoidingView,
   useWindowDimensions,
+  AppState,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, RADII, SPACING } from '../../constants/theme';
@@ -79,6 +86,8 @@ type Conversation = {
   is_muted?: boolean;
   is_locked?: boolean;
 };
+
+let rpcWarned = false;
 
 const ROW_HEIGHT = 78;
 const LOCKED_H = 56;
@@ -201,15 +210,20 @@ function previewFromMessage(
   return prefix + (msg.content || '');
 }
 
+function toTs(iso: string): number {
+  if (!iso) return 0;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? 0 : t;
+}
+
 function sortConversations(list: Conversation[]): Conversation[] {
   return [...list].sort((a, b) => {
-    const at = a.last_at || '';
-    const bt = b.last_at || '';
+    const at = toTs(a.last_at);
+    const bt = toTs(b.last_at);
     if (!at && !bt) return 0;
     if (!at) return 1;
     if (!bt) return -1;
-    if (at === bt) return 0;
-    return at < bt ? 1 : -1;
+    return bt - at;
   });
 }
 
@@ -374,12 +388,16 @@ const ChatRow = memo(
     prev.item.other_profile?.avatar_color ===
       next.item.other_profile?.avatar_color &&
     prev.item.other_profile?.verified === next.item.other_profile?.verified &&
-    prev.showSeparator === next.showSeparator
+    prev.showSeparator === next.showSeparator &&
+    prev.tick === next.tick
 );
 
 export default function ChatsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
   const { height: winH } = useWindowDimensions();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -387,6 +405,13 @@ export default function ChatsScreen() {
   const [online, setOnline] = useState(isOnline());
 
   const [showSkeleton, setShowSkeleton] = useState(false);
+
+  // Re-render rows every 30s so "now / 5m / 1h" labels never go stale
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
 
   // Modals State
   const [actionSheetConvo, setActionSheetConvo] = useState<Conversation | null>(null);
@@ -484,7 +509,7 @@ export default function ChatsScreen() {
         return;
       }
 
-      const [convosRes, othersRes, unreadRes, settingsRes] =
+      const [convosRes, othersRes, settingsRes, summaryRes] =
         await Promise.all([
           supabase
             .from('conversations')
@@ -498,16 +523,12 @@ export default function ChatsScreen() {
             .in('conversation_id', ids)
             .neq('user_id', myId),
           supabase
-            .from('messages')
-            .select('conversation_id')
-            .in('conversation_id', ids)
-            .neq('sender_id', myId)
-            .is('read_at', null),
-          supabase
             .from('chat_settings')
             .select('conversation_id, is_muted, is_locked')
             .eq('user_id', myId)
             .in('conversation_id', ids),
+          // ✅ ONE request: last message + unread count for every chat
+          supabase.rpc('get_my_chat_summaries'),
         ]);
 
       if (convosRes.error) {
@@ -522,35 +543,76 @@ export default function ChatsScreen() {
       }
 
       const lastPerConvo = new Map<string, any>();
-      for (let i = 0; i < ids.length; i += 10) {
-        const chunk = ids.slice(i, i + 10);
-        const chunkPromises = chunk.map((id) =>
-          supabase
-            .from('messages')
-            .select('conversation_id, content, message_type, created_at, is_deleted, sender_id')
-            .eq('conversation_id', id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-        );
-        const results = await Promise.all(chunkPromises);
-        results.forEach((res, idx) => {
-          if (res.data && res.data.length > 0) {
-            lastPerConvo.set(chunk[idx], res.data[0]);
+      const unreadCounts = new Map<string, number>();
+      let unreadFailed = false;
+
+      const summaries =
+        !summaryRes.error && Array.isArray(summaryRes.data)
+          ? (summaryRes.data as any[])
+          : null;
+
+      if (summaries) {
+        for (const r of summaries) {
+          const cid = String(r.conversation_id);
+          if (r.last_created_at) {
+            lastPerConvo.set(cid, {
+              content: r.last_content,
+              message_type: r.last_message_type,
+              created_at: r.last_created_at,
+              is_deleted: r.last_is_deleted,
+              sender_id: r.last_sender_id,
+            });
           }
+          unreadCounts.set(cid, Number(r.unread_count) || 0);
+        }
+      } else {
+        // ---- Fallback (SQL function not installed yet): old slower method ----
+        if (!rpcWarned) {
+          rpcWarned = true;
+          console.log(
+            '[chats] get_my_chat_summaries not available — using slow sync:',
+            summaryRes.error?.message
+          );
+        }
+
+        const unreadRes = await supabase
+          .from('messages')
+          .select('conversation_id')
+          .in('conversation_id', ids)
+          .neq('sender_id', myId)
+          .is('read_at', null);
+        unreadFailed = !!unreadRes.error;
+        (unreadRes.data ?? []).forEach((m: any) => {
+          unreadCounts.set(
+            m.conversation_id,
+            (unreadCounts.get(m.conversation_id) || 0) + 1
+          );
         });
+
+        for (let i = 0; i < ids.length; i += 10) {
+          const chunk = ids.slice(i, i + 10);
+          const chunkPromises = chunk.map((id) =>
+            supabase
+              .from('messages')
+              .select(
+                'conversation_id, content, message_type, created_at, is_deleted, sender_id'
+              )
+              .eq('conversation_id', id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+          );
+          const results = await Promise.all(chunkPromises);
+          results.forEach((res, idx) => {
+            if (res.data && res.data.length > 0) {
+              lastPerConvo.set(chunk[idx], res.data[0]);
+            }
+          });
+        }
       }
 
       const settingsMap = new Map(
         (settingsRes.data ?? []).map((s) => [s.conversation_id, s])
       );
-      const unreadCounts = new Map<string, number>();
-      (unreadRes.data ?? []).forEach((m: any) => {
-        unreadCounts.set(
-          m.conversation_id,
-          (unreadCounts.get(m.conversation_id) || 0) + 1
-        );
-      });
-
       const otherProfiles = new Map<string, any>();
       (othersRes.data ?? []).forEach((p: any) => {
         if (p.profiles) otherProfiles.set(p.conversation_id, p.profiles);
@@ -586,7 +648,7 @@ export default function ChatsScreen() {
           last_message: preview,
           last_at: last?.created_at ?? '',
           // ✅ FIX: unread query fail hui toh purana count rakho (0 mat karo)
-          unread_count: unreadRes.error
+          unread_count: unreadFailed
             ? prevConvo?.unread_count ?? 0
             : unreadCounts.get(c.id) ?? 0,
           is_muted: setting?.is_muted ?? false,
@@ -650,6 +712,7 @@ export default function ChatsScreen() {
   useEffect(() => {
     if (!myId || !online) return;
 
+    let hadSubscribed = false;
     const channel = supabase
       .channel('chats-list-realtime-v3')
       .on(
@@ -660,6 +723,8 @@ export default function ChatsScreen() {
           const cid = msg.conversation_id;
           const isFromMe = msg.sender_id === myId;
           const preview = previewFromMessage(msg, isFromMe);
+          // Reading this chat right now → no unread badge for it
+          const viewingThisChat = pathnameRef.current === `/chat/${cid}`;
 
           // ✅ FIX: naya chat realtime me aaya toh full sync (queued)
           const exists = conversationsRef.current.some((c) => c.id === cid);
@@ -680,9 +745,10 @@ export default function ChatsScreen() {
               ...convo,
               last_message: preview,
               last_at: msg.created_at,
-              unread_count: isFromMe
-                ? convo.unread_count
-                : convo.unread_count + 1,
+              unread_count:
+                isFromMe || viewingThisChat
+                  ? convo.unread_count
+                  : convo.unread_count + 1,
             };
 
             return sortConversations(updated);
@@ -700,7 +766,7 @@ export default function ChatsScreen() {
         { event: 'UPDATE', schema: 'public', table: 'messages' },
         () => {
           if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-          syncTimeoutRef.current = setTimeout(syncBackground, 800);
+          syncTimeoutRef.current = setTimeout(syncBackground, 500);
         }
       )
       .on(
@@ -708,10 +774,16 @@ export default function ChatsScreen() {
         { event: 'DELETE', schema: 'public', table: 'messages' },
         () => {
           if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
-          syncTimeoutRef.current = setTimeout(syncBackground, 800);
+          syncTimeoutRef.current = setTimeout(syncBackground, 500);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          // Re-connected after a drop → events may have been missed
+          if (hadSubscribed) syncBackground();
+          hadSubscribed = true;
+        }
+      });
 
     return () => {
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
@@ -734,14 +806,31 @@ export default function ChatsScreen() {
   );
 
   useEffect(() => {
-    if (online && myId) {
+    // First sync is started by the cache-load effect; this one handles reconnects
+    if (online && myId && cacheShownRef.current) {
       syncBackground();
     }
   }, [online, myId, syncBackground]);
 
+  // ✅ App opened again → catch up on anything missed while in background
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active' && myId && isOnline()) {
+        syncBackground();
+      }
+    });
+    return () => sub.remove();
+  }, [myId, syncBackground]);
+
   // --- ACTIONS ---
-  const unlockedConversations = conversations.filter((c) => !c.is_locked);
-  const lockedConversations = conversations.filter((c) => c.is_locked);
+  const unlockedConversations = useMemo(
+    () => conversations.filter((c) => !c.is_locked),
+    [conversations]
+  );
+  const lockedConversations = useMemo(
+    () => conversations.filter((c) => c.is_locked),
+    [conversations]
+  );
   const hasLocked = lockedConversations.length > 0;
 
   useEffect(() => {
@@ -1036,9 +1125,10 @@ export default function ChatsScreen() {
         onPress={openChat}
         onLongPress={setActionSheetConvo}
         showSeparator={index < unlockedConversations.length - 1}
+        tick={tick}
       />
     ),
-    [openChat, unlockedConversations.length]
+    [openChat, unlockedConversations.length, tick]
   );
 
   const keyExtractor = useCallback((item: Conversation) => item.id, []);
@@ -1052,25 +1142,38 @@ export default function ChatsScreen() {
     [hasLocked]
   );
 
-  const pullGesture = Gesture.Pan()
-    .runOnJS(true)
-    .activeOffsetY([-1000, 15])
-    .failOffsetX([-25, 25])
-    .onBegin(() => {
-      startYRef.current = scrollYRef.current;
-    })
-    .onEnd((e) => {
-      if (!hasLocked) return;
-      if (startYRef.current > LOCKED_H + 1) return;
-      if (scrollYRef.current > 1) return;
-      const overPull = e.translationY - startYRef.current;
-      if (overPull > PULL_OPEN_DISTANCE) {
-        hapticMedium();
-        openLockedSection();
-      }
-    });
+  // Keep latest values in refs so the gesture object can stay stable
+  const openLockedRef = useRef<() => void>(() => {});
+  openLockedRef.current = openLockedSection;
+  const hasLockedRef = useRef(hasLocked);
+  hasLockedRef.current = hasLocked;
 
-  const listGesture = Gesture.Simultaneous(pullGesture, nativeGesture);
+  const pullGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .activeOffsetY([-1000, 15])
+        .failOffsetX([-25, 25])
+        .onBegin(() => {
+          startYRef.current = scrollYRef.current;
+        })
+        .onEnd((e) => {
+          if (!hasLockedRef.current) return;
+          if (startYRef.current > LOCKED_H + 1) return;
+          if (scrollYRef.current > 1) return;
+          const overPull = e.translationY - startYRef.current;
+          if (overPull > PULL_OPEN_DISTANCE) {
+            hapticMedium();
+            openLockedRef.current();
+          }
+        }),
+    []
+  );
+
+  const listGesture = useMemo(
+    () => Gesture.Simultaneous(pullGesture, nativeGesture),
+    [pullGesture, nativeGesture]
+  );
 
   return (
     <View style={[styles.safe, { paddingTop: insets.top }]}>
@@ -1587,6 +1690,7 @@ export default function ChatsScreen() {
                 onPress={openLockedChat}
                 onLongPress={setActionSheetConvo}
                 showSeparator={index < lockedConversations.length - 1}
+                tick={tick}
               />
             )}
             ListEmptyComponent={
