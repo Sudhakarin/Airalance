@@ -1,6 +1,8 @@
 // index.js
 // Custom entry point — registers FCM background handler BEFORE React loads
 // ✅ Required for background/killed app calls to trigger CallKeep
+// ✅ FIX: displayIncomingCall argument order (caller name was showing "generic",
+//         hasVideo was being passed as handleType)
 
 import { Platform } from 'react-native';
 
@@ -58,8 +60,10 @@ if (Platform.OS !== 'web') {
           const callerName = data.callerName || data.title || 'Unknown';
           const hasVideo = data.callType === 'video';
 
+          // Signature: (uuid, handle, localizedCallerName, handleType, hasVideo)
           RNCallKeep.displayIncomingCall(
-            data.callId,
+            String(data.callId),
+            callerName,
             callerName,
             'generic',
             hasVideo
