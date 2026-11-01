@@ -59,6 +59,7 @@ import {
 } from '../lib/fcm';
 import { useOTAUpdate } from '../lib/useOTAUpdate';
 import UpdateOverlay from '../components/UpdateOverlay';
+import IncomingCallBridge from '../components/IncomingCallBridge';
 import {
   runPermissionFlow,
   setupNotificationChannels,
@@ -547,6 +548,7 @@ export default function RootLayout() {
           <View style={styles.loadingPlaceholder} />
         ) : (
           <CallProvider>
+            <IncomingCallBridge />
             <StatusBar style="light" />
             <Stack
               screenOptions={{
