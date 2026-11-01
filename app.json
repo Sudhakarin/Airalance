@@ -27,11 +27,10 @@
     },
     "android": {
       "package": "com.airalance.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": false,
       "permissions": [
-        "NOTIFICATIONS",
         "POST_NOTIFICATIONS",
         "VIBRATE",
         "RECORD_AUDIO",
@@ -42,6 +41,7 @@
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_PHONE_CALL",
         "FOREGROUND_SERVICE_MICROPHONE",
+        "FOREGROUND_SERVICE_CAMERA",
         "CALL_PHONE",
         "ANSWER_PHONE_CALLS",
         "MANAGE_OWN_CALLS",
@@ -66,7 +66,13 @@
     },
     "plugins": [
       "expo-router",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "color": "#7C5CFF",
+          "defaultChannel": "default"
+        }
+      ],
       [
         "expo-audio",
         {
