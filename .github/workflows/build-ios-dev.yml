@@ -4,7 +4,6 @@ name: Build iOS DEV Client (Unsigned)
 # (JS/screen code badalne pe build ki zaroorat nahi, wo Metro se live reload hota hai)
 # Manually bhi chala sakte ho: Actions > is workflow > Run workflow
 on:
-  push:
     branches: [main]
     paths:
       - 'package.json'
