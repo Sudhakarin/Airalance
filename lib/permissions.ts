@@ -29,7 +29,7 @@ export interface PermissionReport {
 
 type AndroidPerm = Parameters<typeof PermissionsAndroid.request>[0];
 
-const KEY_SPECIAL_PROMPTED = 'perm:special-prompted:v1';
+const KEY_CALL_GUIDE = 'perm:call-guide:v2';
 const KEY_BLOCKED_ALERT_AT = 'perm:blocked-alert-at';
 const BLOCKED_ALERT_GAP_MS = 24 * 60 * 60 * 1000; // max 1 alert / day
 
@@ -158,16 +158,8 @@ async function ensureAndroidRuntime(): Promise<
   const bluetooth = await requestGroup(api >= 31 ? [P.BLUETOOTH_CONNECT] : []);
   await sleep(350);
 
-  const phone = await requestGroup(
-    api >= 26
-      ? [
-          P.READ_PHONE_STATE,
-          P.CALL_PHONE,
-          P.ANSWER_PHONE_CALLS,
-          P.READ_PHONE_NUMBERS,
-        ]
-      : [P.READ_PHONE_STATE, P.CALL_PHONE]
-  );
+  // Phone-call permissions are no longer needed (call UI is a notification)
+  const phone: PermState = 'n/a';
 
   return { microphone, camera, bluetooth, phone };
 }
@@ -243,27 +235,47 @@ async function maybeShowBlockedAlert(report: PermissionReport) {
   return true;
 }
 
-async function maybeShowSpecialGuide() {
+// One guide for everything that has NO normal permission dialog and decides
+// whether the WhatsApp-style call screen shows outside the app.
+// Called from CallContext AFTER CallKeep setup (so the calling account exists).
+// Shown once; if the calling account is still OFF it repeats at most once a day.
+export async function showCallReliabilityGuide(): Promise<void> {
   if (Platform.OS !== 'android') return;
+
+  let last = 0;
   try {
-    if (await AsyncStorage.getItem(KEY_SPECIAL_PROMPTED)) return;
-    await AsyncStorage.setItem(KEY_SPECIAL_PROMPTED, '1');
+    last = Number((await AsyncStorage.getItem(KEY_CALL_GUIDE)) || 0);
+  } catch {}
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const ck = require('./callkeep');
+  const accountEnabled: boolean | null = await ck.isPhoneAccountEnabled();
+  const needAccount = accountEnabled === false;
+
+  if (last && !needAccount) return;
+  if (last && needAccount && Date.now() - last < BLOCKED_ALERT_GAP_MS) return;
+
+  try {
+    await AsyncStorage.setItem(KEY_CALL_GUIDE, String(Date.now()));
   } catch {}
 
   const api = Number(Platform.Version);
   const steps: string[] = [];
+  if (needAccount) steps.push('• Calling accounts: turn ON "Airalance"');
   if (api >= 34) steps.push('• Notifications → Full-screen notifications: ON');
   steps.push('• Battery: Unrestricted');
   steps.push('• Display over other apps: ON');
 
   const go = await confirmAlert(
-    'Make incoming calls ring reliably',
-    `So calls ring even when your phone is locked or the app is closed, open Settings and check:\n\n${steps.join(
+    'Show incoming calls like WhatsApp',
+    `So calls appear on your lock screen and over other apps, please check:\n\n${steps.join(
       '\n'
     )}`,
     'Open Settings'
   );
-  if (go) Linking.openSettings().catch(() => {});
+  if (!go) return;
+  if (needAccount && ck.openPhoneAccountsSettings()) return;
+  Linking.openSettings().catch(() => {});
 }
 
 // ============================================================
@@ -356,8 +368,7 @@ export function runPermissionFlow(): Promise<PermissionReport> {
     }
 
     try {
-      const shown = await maybeShowBlockedAlert(report);
-      if (!shown) await maybeShowSpecialGuide();
+      await maybeShowBlockedAlert(report);
     } catch (e) {
       console.warn('[perm] alert flow failed:', e);
     }
