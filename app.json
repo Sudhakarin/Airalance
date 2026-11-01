@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.airalance.app",
-      "versionCode": 5,
+      "versionCode": 6,
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": false,
       "permissions": [
@@ -125,6 +125,7 @@
       "@react-native-firebase/app",
       "@react-native-firebase/messaging",
       "./plugins/withCallKeep",
+      "./plugins/withNotifee",
       "./plugins/withCustomRingtone",
       "./plugins/withDisableFirebaseSPM"
     ],
