@@ -49,6 +49,7 @@ import { setUserIdCache } from '../lib/auth';
 import { setSessionUnlocked } from '../lib/pin';
 import { initSounds } from '../lib/sounds';
 import { getDB } from '../lib/db';
+import { preloadChatList } from '../lib/chatListCache';
 import { initNetwork } from '../lib/network';
 import { startPresence, stopPresence } from '../lib/presence';
 import { CallProvider } from '../contexts/CallContext';
@@ -146,6 +147,8 @@ export default function RootLayout() {
       try {
         await getDB();
         console.log('[db] SQLite ready');
+        // Chat list into memory now → Chats tab opens instantly
+        preloadChatList();
       } catch (err) {
         console.warn('[db] SQLite init failed:', err);
       }
