@@ -60,6 +60,11 @@ export async function showIncomingCallNotification(
       strData[k] = String(data[k]);
     });
 
+    const avatar =
+      typeof data.callerAvatar === 'string' && data.callerAvatar.startsWith('http')
+        ? data.callerAvatar
+        : undefined;
+
     await notifee.displayNotification({
       id: callId,
       title: callerName,
@@ -72,6 +77,8 @@ export async function showIncomingCallNotification(
         visibility: N.AndroidVisibility.PUBLIC,
         smallIcon: 'ic_launcher',
         color: '#22C55E',
+        largeIcon: avatar,
+        circularLargeIcon: true,
         ongoing: true,
         autoCancel: false,
         loopSound: true,
@@ -82,9 +89,12 @@ export async function showIncomingCallNotification(
         // showWhenLocked + turnScreenOn via plugins/withCallKeep.js)
         fullScreenAction: { id: 'default', launchActivity: 'default' },
         actions: [
-          { title: 'Decline', pressAction: { id: 'decline' } },
           {
-            title: 'Answer',
+            title: '<font color="#F87171">Decline</font>',
+            pressAction: { id: 'decline' },
+          },
+          {
+            title: '<font color="#4ADE80">Answer</font>',
             pressAction: { id: 'answer', launchActivity: 'default' },
           },
         ],
