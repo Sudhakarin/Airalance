@@ -131,6 +131,8 @@ const CallContext = createContext<CallContextValue | null>(null);
 // ============================================================
 const CALL_POLL_MS = 1500;
 const pollNowHandlers = new Set<() => void>();
+// callId -> apply a terminal status coming from the push (works even if DB write/realtime failed)
+const forceStatusHandlers = new Map<string, (status: string) => void>();
 
 function subscribeCallWithPoll(
   callId: string,
@@ -163,18 +165,30 @@ function subscribeCallWithPoll(
 
   const timer = setInterval(poll, CALL_POLL_MS);
   pollNowHandlers.add(poll);
+  forceStatusHandlers.set(callId, (status: string) => {
+    if (stopped) return;
+    if (!['rejected', 'cancelled', 'ended', 'missed'].includes(status)) return;
+    if (lastKey.startsWith(status + ':')) return; // already handled
+    lastKey = `${status}:0`;
+    handler({
+      id: callId,
+      status,
+      ended_at: new Date().toISOString(),
+    } as unknown as Call);
+  });
 
   return () => {
     stopped = true;
     clearInterval(timer);
     pollNowHandlers.delete(poll);
+    forceStatusHandlers.delete(callId);
     try {
       unsub();
     } catch {}
   };
 }
 
-const RING_TIMEOUT_MS = 90000; // ✅ FIX: 60s -> 90s (slow network ke liye)
+const RING_TIMEOUT_MS = 45000; // WhatsApp-like: unanswered call stops after 45s
 const DISCONNECT_GRACE_MS = 15000; // ✅ FIX: 8s -> 15s
 const REMOTE_END_UI_MS = 1200;
 const INCOMING_AGE_MAX_MS = 60000; // ✅ FIX: 30s -> 60s (push delay ke liye)
@@ -306,6 +320,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       Vibration.cancel();
     } catch {}
 
+    // First call finished (caller OR receiver) → one-time "Allow for calls" popup.
+    // Receivers never press the call button, so this is how they get it.
+    if (callIdRef.current) {
+      setTimeout(() => {
+        requestCallSetupIfNeeded().catch(() => {});
+      }, 1500);
+    }
+
     if (ringTimeoutRef.current) {
       clearTimeout(ringTimeoutRef.current);
       ringTimeoutRef.current = null;
@@ -416,6 +438,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     try {
       unsub = onForegroundMessage((data: any) => {
         if (data?.screen === 'call_cancel') {
+          if (data?.callId && data?.status) {
+            forceStatusHandlers.get(String(data.callId))?.(String(data.status));
+          }
           pollNowHandlers.forEach((fn) => fn());
         }
       });
@@ -775,14 +800,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
   );
 
   // Tell the receiver's phone to remove the ringing notification
-  const sendCancelPush = useCallback((receiverId: string, callId: string) => {
+  const sendCancelPush = useCallback(
+    (receiverId: string, callId: string, status: string) => {
     supabase.functions
       .invoke('send-push', {
         body: {
           userId: receiverId,
-          title: 'Call cancelled',
-          body: 'Call cancelled',
-          data: { screen: 'call_cancel', callId },
+          title: 'Call update',
+          body: 'Call update',
+          data: { screen: 'call_cancel', callId, status },
         },
       })
       .catch(() => {});
@@ -941,7 +967,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           try {
             await apiCancelCall(call.id, myId);
           } catch {}
-          sendCancelPush(receiverId, call.id);
+          sendCancelPush(receiverId, call.id, 'cancelled');
           logCallOnce(call, 'missed');
           cleanup();
           setCallState('idle');
@@ -1109,7 +1135,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     try {
       await apiRejectCall(currentCall.id);
     } catch {}
-    sendCancelPush(currentCall.caller_id, currentCall.id);
+    sendCancelPush(currentCall.caller_id, currentCall.id, 'rejected');
     cleanup();
     setCallState('idle');
     setCurrentCall(null);
@@ -1130,10 +1156,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
     try {
       if (wasRinging && isCaller) {
         await apiCancelCall(call.id, myId ?? '');
-        sendCancelPush(call.receiver_id, call.id);
+        sendCancelPush(call.receiver_id, call.id, 'cancelled');
       } else {
         await apiEndCall(call.id, myId ?? '');
-        sendCancelPush(isCaller ? call.receiver_id : call.caller_id, call.id);
+        sendCancelPush(
+          isCaller ? call.receiver_id : call.caller_id,
+          call.id,
+          'ended'
+        );
       }
     } catch (err) {
       console.warn('[call] end error:', err);
