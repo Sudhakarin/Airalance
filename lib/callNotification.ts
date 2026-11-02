@@ -24,7 +24,7 @@ if (Platform.OS === 'android') {
 export const PENDING_CALL_ACTION_KEY = 'airalance:pending-call-action';
 
 const CHANNEL_ID = 'incoming_call_v1';
-const RING_TIMEOUT_MS = 60000;
+const RING_TIMEOUT_MS = 45000;
 
 export function isCallNotificationAvailable(): boolean {
   return !!notifee;
@@ -159,16 +159,49 @@ export async function getInitialCallAction(): Promise<{
   }
 }
 
-// Decline from the notification button (works from background / killed too)
-export async function declineCallById(callId: string): Promise<void> {
+// Decline from the notification button (works from background / killed too).
+// 1) write 'rejected' to the DB (verified + retried — a silent failure here is
+//    exactly what leaves the caller stuck on "Calling…")
+// 2) push the result straight to the caller so their screen closes at once
+export async function declineCallById(
+  callId: string,
+  callerId?: string | null
+): Promise<void> {
+  await cancelCallNotification(callId);
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { rejectCall } = require('./call');
-    await rejectCall(callId);
+    const { rejectCall, getCall } = require('./call');
+    for (let i = 0; i < 3; i++) {
+      try {
+        await rejectCall(callId);
+      } catch (err) {
+        console.warn('[callnotif] reject attempt failed:', i, err);
+      }
+      const row = await getCall(callId);
+      if (!row || row.status !== 'ringing') break; // done
+      await new Promise((r) => setTimeout(r, 600));
+    }
   } catch (err) {
     console.warn('[callnotif] decline failed:', err);
   }
-  await cancelCallNotification(callId);
+
+  if (callerId) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { supabase } = require('./supabase');
+      await supabase.functions.invoke('send-push', {
+        body: {
+          userId: callerId,
+          title: 'Call update',
+          body: 'Call update',
+          data: { screen: 'call_cancel', callId, status: 'rejected' },
+        },
+      });
+    } catch (err) {
+      console.warn('[callnotif] decline push failed:', err);
+    }
+  }
 }
 
 // Notification interactions while the app is open
@@ -184,7 +217,7 @@ export function subscribeForegroundCallEvents(
       const actionId = detail?.pressAction?.id;
 
       if (type === N.EventType.ACTION_PRESS && actionId === 'decline') {
-        declineCallById(callId);
+        declineCallById(callId, d.callerId ? String(d.callerId) : null);
         return;
       }
       if (type === N.EventType.ACTION_PRESS || type === N.EventType.PRESS) {
