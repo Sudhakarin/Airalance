@@ -9,6 +9,10 @@
 // ✅ FIX: mic/camera checked before starting or accepting a call
 //         (denied → "Open Settings" alert instead of silent failure)
 // ✅ FIX: answering a VIDEO call from CallKeep no longer opens as audio
+// ✅ ACCURACY: every call end (cancel / reject / hang-up / timeout) now reaches the
+//    other phone THREE ways: realtime + 1.5s safety poll + instant push signal
+// ✅ FIX: hang-up after the call was answered used to be logged/sent as "cancelled"
+//    (stale 'ringing' status) — now uses the real call state
 // ✅ NEW: Android incoming call = WhatsApp-style notification (lib/callNotification).
 //         openIncomingFromPush() opens/answers a call from that notification,
 //         caller hang-up sends a cancel push so the notification disappears
@@ -65,6 +69,8 @@ import {
   cancelCallNotification,
   isCallNotificationAvailable,
 } from '../lib/callNotification';
+import { onForegroundMessage } from '../lib/fcm';
+import { getCallPerson, pickName } from '../lib/callProfile';
 import {
   ensureCallPermissions,
   whenPermissionFlowSettled,
@@ -116,6 +122,57 @@ type CallContextValue = {
 };
 
 const CallContext = createContext<CallContextValue | null>(null);
+
+// ============================================================
+// Call status: realtime + safety poll
+// Realtime alone can silently fail (table not in publication, flaky network,
+// app resumed). A single-row poll every 1.5s makes call end/reject/cancel
+// arrive reliably on BOTH phones. pollNow() is also triggered by an FCM signal.
+// ============================================================
+const CALL_POLL_MS = 1500;
+const pollNowHandlers = new Set<() => void>();
+
+function subscribeCallWithPoll(
+  callId: string,
+  handler: (c: Call) => void | Promise<void>
+): () => void {
+  let lastKey = 'ringing:0';
+  let stopped = false;
+  let busy = false;
+  const keyOf = (c: Call) => `${c.status}:${c.answer ? 1 : 0}`;
+
+  const unsub = subscribeToCall(callId, (updated) => {
+    lastKey = keyOf(updated);
+    handler(updated);
+  });
+
+  const poll = async () => {
+    if (stopped || busy) return;
+    busy = true;
+    try {
+      const row = await getCall(callId);
+      if (!stopped && row && keyOf(row) !== lastKey) {
+        lastKey = keyOf(row);
+        await handler(row);
+      }
+    } catch {
+    } finally {
+      busy = false;
+    }
+  };
+
+  const timer = setInterval(poll, CALL_POLL_MS);
+  pollNowHandlers.add(poll);
+
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+    pollNowHandlers.delete(poll);
+    try {
+      unsub();
+    } catch {}
+  };
+}
 
 const RING_TIMEOUT_MS = 90000; // ✅ FIX: 60s -> 90s (slow network ke liye)
 const DISCONNECT_GRACE_MS = 15000; // ✅ FIX: 8s -> 15s
@@ -352,6 +409,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
     [cleanup, safeBack]
   );
 
+  // Instant "call ended" signal via push while the app is open
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    let unsub: any;
+    try {
+      unsub = onForegroundMessage((data: any) => {
+        if (data?.screen === 'call_cancel') {
+          pollNowHandlers.forEach((fn) => fn());
+        }
+      });
+    } catch {}
+    return () => {
+      try {
+        if (typeof unsub === 'function') unsub();
+      } catch {}
+    };
+  }, []);
+
   // Setup CallKeep — once, after login, after the permission flow finished
   const callKeepSetupRef = useRef(false);
   useEffect(() => {
@@ -463,16 +538,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
         // ✅ FIX: Increased age limit for slow networks
         if (age > INCOMING_AGE_MAX_MS) return;
 
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id, display_name, avatar_url')
-          .eq('id', incomingCall.caller_id)
-          .single();
+        const person = await getCallPerson(incomingCall.caller_id);
 
         setRemoteUserInfo({
           id: incomingCall.caller_id,
-          name: profile?.display_name ?? 'Unknown',
-          avatar: profile?.avatar_url ?? null,
+          name: person.name,
+          avatar: person.avatar,
         });
 
         setCurrentCall(incomingCall);
@@ -487,7 +558,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
         displayIncomingCall(
           incomingCall.id,
-          profile?.display_name ?? 'Unknown',
+          person.name,
           incomingCall.call_type === 'video'
         );
 
@@ -502,7 +573,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           unsubCallRef.current = null;
         }
 
-        unsubCallRef.current = subscribeToCall(
+        unsubCallRef.current = subscribeCallWithPoll(
           incomingCall.id,
           async (updated) => {
             handleRemoteTermination(updated);
@@ -784,20 +855,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
         try {
           const { data: myProfile } = await supabase
             .from('profiles')
-            .select('display_name')
+            .select('username, display_name, avatar_url')
             .eq('id', myId)
             .single();
 
           await supabase.functions.invoke('send-push', {
             body: {
               userId: receiverId,
-              title: myProfile?.display_name ?? 'Airalance',
+              title: pickName(myProfile, 'Airalance'),
               body: `Incoming ${callType} call`,
               data: {
                 screen: 'call',
                 callId: call.id,
                 callerId: myId,
                 callType,
+                callerName: pickName(myProfile, ''),
+                callerAvatar: myProfile?.avatar_url ?? '',
               },
             },
           });
@@ -805,7 +878,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           console.warn('[call] push send failed:', err);
         }
 
-        unsubCallRef.current = subscribeToCall(call.id, async (updated) => {
+        unsubCallRef.current = subscribeCallWithPoll(call.id, async (updated) => {
           if (updated.status === 'accepted' && updated.answer) {
             const pc = pcRef.current;
             if (pc && !pc.remoteDescription) {
@@ -939,16 +1012,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
   // ---- Present a ringing call that arrived via push (notification) ----
   const presentIncomingCall = useCallback(
     async (incomingCall: Call) => {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('id, display_name, avatar_url')
-        .eq('id', incomingCall.caller_id)
-        .single();
+      const person = await getCallPerson(incomingCall.caller_id);
 
       setRemoteUserInfo({
         id: incomingCall.caller_id,
-        name: profile?.display_name ?? 'Unknown',
-        avatar: profile?.avatar_url ?? null,
+        name: person.name,
+        avatar: person.avatar,
       });
 
       setCurrentCall(incomingCall);
@@ -979,7 +1048,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         } catch {}
         unsubCallRef.current = null;
       }
-      unsubCallRef.current = subscribeToCall(incomingCall.id, async (updated) => {
+      unsubCallRef.current = subscribeCallWithPoll(incomingCall.id, async (updated) => {
         handleRemoteTermination(updated);
       });
     },
@@ -1040,6 +1109,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     try {
       await apiRejectCall(currentCall.id);
     } catch {}
+    sendCancelPush(currentCall.caller_id, currentCall.id);
     cleanup();
     setCallState('idle');
     setCurrentCall(null);
@@ -1052,7 +1122,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     const call = currentCall;
     if (!call) return;
 
-    const wasRinging = call.status === 'ringing';
+    // Real state (call.status in memory can still say 'ringing' after it was answered)
+    const wasRinging =
+      callStateRef.current === 'calling' || callStateRef.current === 'ringing';
     const isCaller = call.caller_id === myId;
 
     try {
@@ -1061,6 +1133,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         sendCancelPush(call.receiver_id, call.id);
       } else {
         await apiEndCall(call.id, myId ?? '');
+        sendCancelPush(isCaller ? call.receiver_id : call.caller_id, call.id);
       }
     } catch (err) {
       console.warn('[call] end error:', err);
