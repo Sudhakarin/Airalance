@@ -44,9 +44,9 @@ export default function CallSetupModal({ visible, onClose }: Props) {
     setDone((d) => {
       const next = { ...d };
       if (battery === true) next.battery = true;
-      // can't verify these two — mark as done once the user came back from Settings
+      // Opened a row once and came back → show "Done ✓"
       openedRef.current.forEach((k) => {
-        if (k !== 'battery') next[k] = true;
+        next[k] = true;
       });
       return next;
     });
