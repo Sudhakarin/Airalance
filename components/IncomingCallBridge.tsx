@@ -52,7 +52,7 @@ export default function IncomingCallBridge() {
       }
     };
 
-    const t = setTimeout(() => check(true), 700);
+    const t = setTimeout(() => check(true), 250);
     const sub = AppState.addEventListener('change', (s) => {
       if (s === 'active') check(false);
     });
