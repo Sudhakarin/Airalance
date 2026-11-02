@@ -134,6 +134,25 @@ const pollNowHandlers = new Set<() => void>();
 // callId -> apply a terminal status coming from the push (works even if DB write/realtime failed)
 const forceStatusHandlers = new Map<string, (status: string) => void>();
 
+// ============================================================
+// INSTANT call-end signal: Supabase Realtime BROADCAST (websocket, no database).
+// ~100ms phone → phone. DB write + push still happen as backups.
+// ============================================================
+const ctlChannels = new Map<string, any>();
+
+function broadcastCallStatus(callId: string, status: string): Promise<void> {
+  const ch = ctlChannels.get(callId);
+  if (!ch) return Promise.resolve();
+  return Promise.race([
+    Promise.resolve(
+      ch.send({ type: 'broadcast', event: 'status', payload: { status } })
+    )
+      .then(() => undefined)
+      .catch(() => undefined),
+    new Promise<void>((r) => setTimeout(r, 300)),
+  ]);
+}
+
 function subscribeCallWithPoll(
   callId: string,
   handler: (c: Call) => void | Promise<void>
@@ -165,6 +184,21 @@ function subscribeCallWithPoll(
 
   const timer = setInterval(poll, CALL_POLL_MS);
   pollNowHandlers.add(poll);
+
+  // Join the instant-signal channel for this call
+  let ctl: any = null;
+  try {
+    ctl = supabase.channel(`callctl:${callId}`, {
+      config: { broadcast: { self: false } },
+    });
+    ctl
+      .on('broadcast', { event: 'status' }, (msg: any) => {
+        const st = msg?.payload?.status;
+        if (st) forceStatusHandlers.get(callId)?.(String(st));
+      })
+      .subscribe();
+    ctlChannels.set(callId, ctl);
+  } catch {}
   forceStatusHandlers.set(callId, (status: string) => {
     if (stopped) return;
     if (!['rejected', 'cancelled', 'ended', 'missed'].includes(status)) return;
@@ -182,6 +216,12 @@ function subscribeCallWithPoll(
     clearInterval(timer);
     pollNowHandlers.delete(poll);
     forceStatusHandlers.delete(callId);
+    ctlChannels.delete(callId);
+    if (ctl) {
+      try {
+        supabase.removeChannel(ctl);
+      } catch {}
+    }
     try {
       unsub();
     } catch {}
@@ -709,7 +749,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               setCallState('idle');
               setCurrentCall(null);
               setRemoteUserInfo(null);
-            }, 1500);
+            }, 600);
           }
         }, DISCONNECT_GRACE_MS);
       };
@@ -725,7 +765,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           setCallState('idle');
           setCurrentCall(null);
           setRemoteUserInfo(null);
-        }, 1500);
+        }, 600);
       };
 
       const handleConnected = () => {
@@ -928,7 +968,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               setCallState('idle');
               setCurrentCall(null);
               setRemoteUserInfo(null);
-            }, 1500);
+            }, 600);
           } else if (
             updated.status === 'ended' ||
             updated.status === 'cancelled'
@@ -949,7 +989,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               setCallState('idle');
               setCurrentCall(null);
               setRemoteUserInfo(null);
-            }, 1500);
+            }, 600);
           } else if (updated.status === 'missed') {
             hapticError();
             logCallOnce(call, 'missed');
@@ -959,15 +999,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
               setCallState('idle');
               setCurrentCall(null);
               setRemoteUserInfo(null);
-            }, 1500);
+            }, 600);
           }
         });
 
         ringTimeoutRef.current = setTimeout(async () => {
-          try {
-            await apiCancelCall(call.id, myId);
-          } catch {}
+          await broadcastCallStatus(call.id, 'cancelled');
           sendCancelPush(receiverId, call.id, 'cancelled');
+          apiCancelCall(call.id, myId).catch(() => {});
           logCallOnce(call, 'missed');
           cleanup();
           setCallState('idle');
@@ -1132,10 +1171,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const rejectIncomingCall = useCallback(async () => {
     if (!currentCall) return;
     cancelCallNotification(currentCall.id).catch(() => {});
-    try {
-      await apiRejectCall(currentCall.id);
-    } catch {}
+    // Tell the caller FIRST (instant broadcast; push + DB are backups)
+    await broadcastCallStatus(currentCall.id, 'rejected');
     sendCancelPush(currentCall.caller_id, currentCall.id, 'rejected');
+    apiRejectCall(currentCall.id).catch(() => {});
     cleanup();
     setCallState('idle');
     setCurrentCall(null);
@@ -1153,21 +1192,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
       callStateRef.current === 'calling' || callStateRef.current === 'ringing';
     const isCaller = call.caller_id === myId;
 
-    try {
-      if (wasRinging && isCaller) {
-        await apiCancelCall(call.id, myId ?? '');
-        sendCancelPush(call.receiver_id, call.id, 'cancelled');
-      } else {
-        await apiEndCall(call.id, myId ?? '');
-        sendCancelPush(
-          isCaller ? call.receiver_id : call.caller_id,
-          call.id,
-          'ended'
-        );
-      }
-    } catch (err) {
-      console.warn('[call] end error:', err);
-    }
+    // 1) Tell the other phone FIRST (instant broadcast; push is the backup)
+    const endStatus = wasRinging && isCaller ? 'cancelled' : 'ended';
+    const otherId = isCaller ? call.receiver_id : call.caller_id;
+    await broadcastCallStatus(call.id, endStatus);
+    sendCancelPush(otherId, call.id, endStatus);
+
+    // 2) Database write runs in the background — our screen doesn't wait for it
+    (wasRinging && isCaller
+      ? apiCancelCall(call.id, myId ?? '')
+      : apiEndCall(call.id, myId ?? '')
+    ).catch((err) => console.warn('[call] end error:', err));
 
     if (isCaller) {
       if (wasRinging) {
