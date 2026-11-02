@@ -77,7 +77,7 @@ if (Platform.OS === 'android') {
       const cn = require('./lib/callNotification');
 
       if (type === EventType.ACTION_PRESS && actionId === 'decline') {
-        await cn.declineCallById(callId);
+        await cn.declineCallById(callId, d.callerId ? String(d.callerId) : null);
         return;
       }
 
