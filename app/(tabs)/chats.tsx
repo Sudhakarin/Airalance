@@ -9,6 +9,8 @@
 // ✅ FIX: List never wiped on empty/failed server response
 // ✅ FIX: Realtime INSERT no longer drops updates (separate timers)
 // ✅ FIX: removeClippedSubviews off (blank list bug)
+// ✅ INSTANT OPEN: first frame is painted from an in-memory copy of the list
+//    (lib/chatListCache.ts, preloaded at app start) — no skeleton, no loading flash
 // ✅ REALTIME+: chat list loads in ONE request (RPC get_my_chat_summaries, falls
 //    back to the old method if the SQL function isn't installed yet)
 // ✅ REALTIME+: re-sync on app resume + whenever realtime reconnects (no missed msgs)
@@ -33,6 +35,7 @@ import {
   AppState,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { getMemRows, setMemRows } from '../../lib/chatListCache';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, usePathname } from 'expo-router';
@@ -399,12 +402,28 @@ export default function ChatsScreen() {
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
   const { height: winH } = useWindowDimensions();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
+  // First frame comes straight from memory (preloaded at app start)
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    const rows = getMemRows();
+    return rows && rows.length > 0
+      ? sortConversations(rows.map(dbRowToConversation))
+      : [];
+  });
+  const [loading, setLoading] = useState(() => {
+    const rows = getMemRows();
+    return !(rows && rows.length > 0);
+  });
   const [myId, setMyId] = useState<string | null>(null);
   const [online, setOnline] = useState(isOnline());
 
   const [showSkeleton, setShowSkeleton] = useState(false);
+
+  // Keep the in-memory copy fresh so the next open is instant too
+  useEffect(() => {
+    if (conversations.length > 0) {
+      setMemRows(conversations.map(conversationToDbRow));
+    }
+  }, [conversations]);
 
   // Re-render rows every 30s so "now / 5m / 1h" labels never go stale
   const [tick, setTick] = useState(0);
