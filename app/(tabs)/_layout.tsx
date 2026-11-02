@@ -488,7 +488,7 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="chats"
-        options={{ title: 'Chats', tabBarIcon: chatsIcon }}
+        options={{ title: 'Chats', tabBarIcon: chatsIcon, lazy: false }}
       />
       <Tabs.Screen
         name="search"
