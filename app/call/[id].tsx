@@ -314,14 +314,14 @@ export default function CallScreen() {
 
       const { data: prof } = await supabase
         .from('profiles')
-        .select('id, username, full_name, avatar_url')
+        .select('id, username, display_name, avatar_url')
         .eq('id', row.caller_id)
         .maybeSingle();
 
       setFb({
         callId,
         callType: isVideo ? 'video' : 'audio',
-        callerName: prof?.full_name || prof?.username || 'Unknown',
+        callerName: prof?.display_name || prof?.username || 'Unknown',
         callerAvatar: prof?.avatar_url ?? null,
         offer: row.offer,
       });
