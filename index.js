@@ -22,6 +22,21 @@ function normalizeData(raw) {
   return data;
 }
 
+// Don't ring for a call that already ended/was cancelled (late push delivery)
+async function isStillRinging(callId) {
+  try {
+    const { getCall } = require('./lib/call');
+    const row = await Promise.race([
+      getCall(callId),
+      new Promise((resolve) => setTimeout(() => resolve('timeout'), 2500)),
+    ]);
+    if (row === 'timeout' || !row) return true; // unknown → ring (safer)
+    return row.status === 'ringing';
+  } catch {
+    return true;
+  }
+}
+
 // Last-resort fallback if notifee is unavailable
 async function showFallbackCallNotification(data, callerName, hasVideo) {
   try {
@@ -116,6 +131,10 @@ if (Platform.OS !== 'web') {
         // ===== ANDROID: WhatsApp-style full-screen call notification =====
         if (Platform.OS === 'android') {
           const cn = require('./lib/callNotification');
+          if (!(await isStillRinging(String(data.callId)))) {
+            console.log('[bg] call already over — not ringing');
+            return;
+          }
           const ok = await cn.showIncomingCallNotification(
             data,
             callerName,
