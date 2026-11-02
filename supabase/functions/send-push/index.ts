@@ -271,7 +271,11 @@ serve(async (req) => {
               title,
               body,
               isCancel: true,
-              data: { screen: 'call_cancel', callId: String(data.callId) },
+              data: {
+                screen: 'call_cancel',
+                callId: String(data.callId),
+                status: String(data.status ?? ''),
+              },
             }
           );
         } catch (err) {
