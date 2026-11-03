@@ -2,6 +2,7 @@
 // App open + background->foreground par update check.
 // Naya update mile to status badalta hai (UI overlay dikhane ke liye),
 // download hota hai, phir app reload hota hai.
+// Call chalte waqt reload nahi hota (setOTABlocked) — update agle app open pe lagta hai.
 
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
@@ -12,6 +13,12 @@ export type OTAStatus = 'idle' | 'checking' | 'downloading' | 'restarting';
 const MIN_GAP_MS = 5 * 60 * 1000; // 5 min se pehle dobara check nahi
 const CHECK_TIMEOUT_MS = 6000; // slow/no internet par app atke nahi
 const FETCH_TIMEOUT_MS = 90000;
+
+// Call screen me: setOTABlocked(true) call shuru hone par, false khatam hone par
+let blocked = false;
+export function setOTABlocked(v: boolean) {
+  blocked = v;
+}
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -39,6 +46,7 @@ export function useOTAUpdate(): { status: OTAStatus } {
 
     const check = async () => {
       if (busyRef.current) return;
+      if (blocked) return; // call ke beech check bhi nahi
       if (Date.now() - lastCheckRef.current < MIN_GAP_MS) return;
       busyRef.current = true;
       lastCheckRef.current = Date.now();
@@ -56,8 +64,18 @@ export function useOTAUpdate(): { status: OTAStatus } {
         setStatus('downloading');
         await withTimeout(Updates.fetchUpdateAsync(), FETCH_TIMEOUT_MS);
 
+        // download ke dauran call shuru ho gayi to reload mat karo
+        if (blocked) {
+          setStatus('idle');
+          return;
+        }
+
         setStatus('restarting');
         await new Promise((r) => setTimeout(r, 700)); // 100% dikhne do
+        if (blocked) {
+          setStatus('idle');
+          return;
+        }
         await Updates.reloadAsync();
       } catch (err) {
         console.warn('[ota] update failed:', err);
