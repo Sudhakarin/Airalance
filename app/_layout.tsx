@@ -49,7 +49,7 @@ import { setUserIdCache } from '../lib/auth';
 import { setSessionUnlocked } from '../lib/pin';
 import { initSounds } from '../lib/sounds';
 import { getDB } from '../lib/db';
-import { preloadChatList } from '../lib/chatListCache';
+import { preloadChatList, setMemUserId } from '../lib/chatListCache';
 import { initNetwork } from '../lib/network';
 import { startPresence, stopPresence } from '../lib/presence';
 import { CallProvider } from '../contexts/CallContext';
@@ -272,6 +272,7 @@ export default function RootLayout() {
         if (!mounted) return;
         setUserId(session?.user?.id ?? null);
         setUserIdCache(session?.user?.id ?? null);
+        setMemUserId(session?.user?.id ?? null);
         setAuthReady(true);
       })
       .catch((err) => {
@@ -284,6 +285,7 @@ export default function RootLayout() {
         if (!mounted) return;
         setUserId(session?.user?.id ?? null);
         setUserIdCache(session?.user?.id ?? null);
+        setMemUserId(session?.user?.id ?? null);
         setAuthReady(true);
       }
     );
