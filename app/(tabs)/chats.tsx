@@ -35,7 +35,7 @@ import {
   AppState,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import { getMemRows, setMemRows } from '../../lib/chatListCache';
+import { getMemRows, setMemRows, setMemUserId } from '../../lib/chatListCache';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, usePathname } from 'expo-router';
@@ -477,7 +477,10 @@ export default function ChatsScreen() {
     let mounted = true;
     (async () => {
       const uid = await getCurrentUserId();
-      if (mounted && uid) setMyId(uid);
+      if (mounted && uid) {
+        setMyId(uid);
+        setMemUserId(uid);
+      }
     })();
     return () => {
       mounted = false;
