@@ -79,6 +79,13 @@ import {
   DBMessage,
 } from '../../lib/db';
 import {
+  getMemRows,
+  getMemUserId,
+  getMemMsgs,
+  setMemMsgs,
+  getMemMsgRows,
+} from '../../lib/chatListCache';
+import {
   hashPin,
   loadStoredPinHash,
   isSessionUnlocked,
@@ -283,6 +290,22 @@ async function patchMessageInDb(id: string, patch: Partial<DBMessage>) {
 // ✅ STABLE MERGE — network response replaces nothing
 // ✅ FIX: proper sort comparator (returns 0)
 // ============================================================
+// ---- Instant open: everything below comes from memory, no waiting ----
+function getMemConvoRow(id: string | undefined): any | null {
+  if (!id) return null;
+  return getMemRows()?.find((r: any) => r.id === id) ?? null;
+}
+
+function getInitialMessages(id: string | undefined): Message[] {
+  if (!id) return [];
+  const m = getMemMsgs(id);
+  if (m && m.length > 0) return m as Message[];
+  const rows = getMemMsgRows(id);
+  return rows && rows.length > 0
+    ? ([...rows].reverse().map(dbRowToMessage) as Message[])
+    : [];
+}
+
 function mergeMessages(prev: Message[], next: Message[]): Message[] {
   const map = new Map<string, Message>();
 
@@ -371,12 +394,29 @@ export default function ChatScreen() {
 
   const { startCall, callState } = useCall();
 
-  const [myId, setMyId] = useState<string | null>(null);
+  const [myId, setMyId] = useState<string | null>(() => getMemUserId());
   const [myName, setMyName] = useState<string>('');
-  const [other, setOther] = useState<OtherProfile | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [other, setOther] = useState<OtherProfile | null>(() => {
+    const c = getMemConvoRow(convoId);
+    return c?.other_user_id
+      ? {
+          id: c.other_user_id,
+          username: c.other_username ?? '',
+          display_name: c.other_display_name ?? '',
+          avatar_color: c.other_avatar_color ?? COLORS.violet,
+          avatar_url: c.other_avatar_url,
+          verified: c.other_verified === 1,
+          last_seen: null,
+        }
+      : null;
+  });
+  const [messages, setMessages] = useState<Message[]>(() =>
+    getInitialMessages(convoId)
+  );
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(
+    () => getInitialMessages(convoId).length === 0
+  );
   const [sending, setSending] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
   const [otherOnline, setOtherOnline] = useState(false);
@@ -385,11 +425,18 @@ export default function ChatScreen() {
 
   const [online, setOnline] = useState(isOnline());
 
-  const [lockRequired, setLockRequired] = useState(false);
+  const [lockRequired, setLockRequired] = useState(() => {
+    const c = getMemConvoRow(convoId);
+    return !!c && c.is_locked === 1 && !isSessionUnlocked();
+  });
   const [storedPinHash, setStoredPinHash] = useState<string | null>(null);
+  // PIN hash loads in the background now — never verify before it is ready
+  const [pinHashReady, setPinHashReady] = useState(false);
   const [pinVerifyInput, setPinVerifyInput] = useState('');
   const [pinVerifyError, setPinVerifyError] = useState('');
-  const [lockChecked, setLockChecked] = useState(false);
+  const [lockChecked, setLockChecked] = useState(
+    () => !!getMemConvoRow(convoId)
+  );
 
   const [isMutedForConvo, setIsMutedForConvo] = useState(false);
 
@@ -487,6 +534,7 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!convoId) return;
     if (messages.length === 0) return;
+    setMemMsgs(convoId, messages);
     const timer = setTimeout(() => {
       persistMessages(messages);
     }, 500);
@@ -508,38 +556,52 @@ export default function ChatScreen() {
         return;
       }
 
-      const pinHash = await loadStoredPinHash(uid);
-      if (!mounted) return;
-      setStoredPinHash(pinHash);
       setMyId(uid);
 
-      // ✅ Reset unread counter for this conversation (we're inside now)
-      try {
-        const db = await getDB();
-        await db.runAsync(
-          `UPDATE conversations SET unread_count = 0 WHERE id = ?`,
-          [convoId]
-        );
-      } catch (err) {
-        console.warn('[chat] reset unread failed:', err);
-      }
+      // PIN hash is only needed to VERIFY a pin → load it in the background
+      loadStoredPinHash(uid)
+        .then((h) => {
+          if (mounted) {
+            setStoredPinHash(h);
+            setPinHashReady(true);
+          }
+        })
+        .catch(() => {});
 
+      // Cached conversation FIRST: header + lock flag from local DB (no network wait)
       try {
         const cachedConvo = await dbGetConversation(convoId);
-        if (cachedConvo?.other_user_id && mounted) {
-          setOther({
-            id: cachedConvo.other_user_id,
-            username: cachedConvo.other_username ?? '',
-            display_name: cachedConvo.other_display_name ?? '',
-            avatar_color: cachedConvo.other_avatar_color ?? COLORS.violet,
-            avatar_url: cachedConvo.other_avatar_url,
-            verified: cachedConvo.other_verified === 1,
-            last_seen: null,
-          });
+        if (cachedConvo && mounted) {
+          if (cachedConvo.other_user_id) {
+            setOther({
+              id: cachedConvo.other_user_id,
+              username: cachedConvo.other_username ?? '',
+              display_name: cachedConvo.other_display_name ?? '',
+              avatar_color: cachedConvo.other_avatar_color ?? COLORS.violet,
+              avatar_url: cachedConvo.other_avatar_url,
+              verified: cachedConvo.other_verified === 1,
+              last_seen: null,
+            });
+          }
+          const needsPinCached =
+            cachedConvo.is_locked === 1 && !isSessionUnlocked();
+          setLockRequired(needsPinCached);
+          setLockChecked(true); // ← screen is shown NOW, network result only refines it
+          if (needsPinCached) setLoading(false);
         }
       } catch (err) {
         console.warn('[chat] convo SQLite read error:', err);
       }
+
+      // Reset unread counter for this conversation (non-blocking)
+      getDB()
+        .then((db) =>
+          db.runAsync(
+            `UPDATE conversations SET unread_count = 0 WHERE id = ?`,
+            [convoId]
+          )
+        )
+        .catch((err) => console.warn('[chat] reset unread failed:', err));
 
       if (!isOnline()) {
         setLockChecked(true);
@@ -1876,6 +1938,7 @@ export default function ChatScreen() {
 
   if (lockRequired) {
     const onVerify = async () => {
+      if (!pinHashReady) return; // hash still loading — never treat as "no PIN"
       if (!storedPinHash) {
         hapticSuccess();
         setSessionUnlocked(true);
