@@ -1,8 +1,18 @@
 name: Build Android APK
 
+# APK sirf tab banta hai jab native cheez badle (ya manually chalao).
+# Sirf JS/screens badle to ota-update.yml hi kaam karega.
 on:
   push:
     branches: [main]
+    paths:
+      - 'app.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'plugins/**'
+      - 'assets/**'
+      - 'google-services.json'
+      - 'GoogleService-Info.plist'
   workflow_dispatch:
 
 jobs:
@@ -47,7 +57,6 @@ jobs:
           EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
           ENVEOF
           echo "=== .env created ==="
-          cat .env
 
       - name: Install dependencies
         run: npm install
@@ -81,13 +90,6 @@ jobs:
         env:
           EXPO_UPDATE_CHANNEL: preview
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
-
-      - name: Publish EAS Update (OTA)
-        if: github.ref == 'refs/heads/main'
-        run: |
-          eas update --branch preview --message "${{ github.event.head_commit.message }}" --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
