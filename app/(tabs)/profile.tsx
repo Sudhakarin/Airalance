@@ -5,8 +5,10 @@
 // ✅ FIX: skeleton card rows now match real (5 infoRows), padding matched
 // ✅ FIX: Removed Cache TTL — shows cached profile instantly on cold start
 // ✅ FIX: Realtime listener added for statuses and follows
+// ✅ FIX: realtime ab sach me subscribe hota hai (myId state), drafts overwrite nahi hote,
+//         optimistic follow, stale list race fix, error/retry state, notif permission refresh
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,10 +22,12 @@ import {
   FlatList,
   Platform,
   Pressable,
+  AppState,
+  Keyboard,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -123,12 +127,16 @@ async function writeProfileCache(
 
 function formatCount(n: number): string {
   if (n < 1000) return String(n);
-  const fmt = (v: number, unit: string) =>
-    `${(v < 10 ? Math.round(v * 10) / 10 : Math.round(v))
+  const trim = (v: number) =>
+    (v < 10 ? Math.round(v * 10) / 10 : Math.round(v))
       .toString()
-      .replace(/\.0$/, '')}${unit}`;
-  if (n < 1_000_000) return fmt(n / 1000, 'K');
-  return fmt(n / 1_000_000, 'M');
+      .replace(/\.0$/, '');
+  if (n < 1_000_000) {
+    const k = trim(n / 1000);
+    if (k === '1000') return '1M';
+    return `${k}K`;
+  }
+  return `${trim(n / 1_000_000)}M`;
 }
 
 function SkeletonBlock({
@@ -249,6 +257,7 @@ export default function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [notifPermission, setNotifPermission] = useState<string>('undetermined');
+  const [myId, setMyId] = useState<string | null>(null);
 
   const [online, setOnline] = useState(isOnline());
   const [showSkeleton, setShowSkeleton] = useState(false);
@@ -265,6 +274,14 @@ export default function ProfileScreen() {
   const cacheShownRef = useRef(false);
   const myIdRef = useRef<string | null>(null);
   const profileLoadedRef = useRef(false);
+  const profileRef = useRef<Profile | null>(null);
+  const inflightRef = useRef(false);
+  const queuedRef = useRef(false);
+  const lastLoadRef = useRef(0);
+  const listReqRef = useRef(0);
+  const followBusyRef = useRef<Set<string>>(new Set());
+  const lastDialogRef = useRef<CustomDialog | null>(null);
+  const loadProfileRef = useRef<() => Promise<void>>(async () => {});
 
   const isVerified = (p: Profile | null) =>
     !!p &&
@@ -289,17 +306,27 @@ export default function ProfileScreen() {
   }, [profile, loading]);
 
   useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  // Cache + session ek saath (parallel) — cold start par profile jaldi dikhe
+  useEffect(() => {
+    let cancelled = false;
     (async () => {
       const uid = await getCurrentUserId();
-      if (!uid) return;
+      if (!uid || cancelled) return;
       myIdRef.current = uid;
+      setMyId(uid);
 
-      const session = await getCurrentSession();
+      const [session, cache] = await Promise.all([
+        Promise.resolve(getCurrentSession()).catch(() => null),
+        cacheShownRef.current ? Promise.resolve(null) : readProfileCache(uid),
+      ]);
+      if (cancelled) return;
       if (session?.user?.email) setEmail(session.user.email);
 
-      if (cacheShownRef.current) return;
-      const cache = await readProfileCache(uid);
-      if (cache) {
+      // fresh data pehle aa chuka ho to purana cache upar se overwrite na kare
+      if (cache && !profileLoadedRef.current) {
         setProfile(cache.profile);
         setNameDraft(cache.profile.display_name ?? '');
         setBioDraft(cache.profile.bio ?? '');
@@ -312,21 +339,43 @@ export default function ProfileScreen() {
       }
       cacheShownRef.current = true;
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  // Notification permission: mount par + settings se wapas aane par refresh
+  const refreshNotifPermission = useCallback(async () => {
+    if (Platform.OS === 'web') return;
+    try {
+      const { status } = await Notifications.getPermissionsAsync();
+      setNotifPermission(status);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    refreshNotifPermission();
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'active') refreshNotifPermission();
+    });
+    return () => sub.remove();
+  }, [refreshNotifPermission]);
+
   const loadProfile = useCallback(async () => {
+    // ek time par ek hi load; beech me aaye requests ek baar baad me chalenge
+    if (inflightRef.current) {
+      queuedRef.current = true;
+      return;
+    }
+    inflightRef.current = true;
+    lastLoadRef.current = Date.now();
     try {
       const uid = await getCurrentUserId();
-      if (!uid) {
-        setLoading(false);
-        return;
-      }
+      if (!uid) return;
       myIdRef.current = uid;
+      setMyId(uid);
 
-      if (!isOnline()) {
-        setLoading(false);
-        return;
-      }
+      if (!isOnline()) return;
 
       const { data, error } = await supabase
         .from('profiles')
@@ -336,9 +385,15 @@ export default function ProfileScreen() {
 
       if (error) throw error;
       const p = data as Profile;
+
+      // user ne typing ki hai to realtime reload uska draft na mitaye
+      const prev = profileRef.current;
+      profileLoadedRef.current = true;
       setProfile(p);
-      setNameDraft(p.display_name ?? '');
-      setBioDraft(p.bio ?? '');
+      setNameDraft((d) =>
+        d === (prev?.display_name ?? '') ? p.display_name ?? '' : d
+      );
+      setBioDraft((d) => (d === (prev?.bio ?? '') ? p.bio ?? '' : d));
 
       const [f1, f2, totalStatusRes, activeStatusRes, followingRes] =
         await Promise.all([
@@ -365,6 +420,12 @@ export default function ProfileScreen() {
             .eq('follower_id', uid),
         ]);
 
+      // koi query fail hui to counts 0 na ho jayein (aur cache me na likhe jayein)
+      const failed = [f1, f2, totalStatusRes, activeStatusRes, followingRes].find(
+        (r) => r.error
+      );
+      if (failed?.error) throw failed.error;
+
       const followers = f1.count ?? 0;
       const following = f2.count ?? 0;
       const totalCount = totalStatusRes.count ?? 0;
@@ -386,11 +447,6 @@ export default function ProfileScreen() {
       );
       setMyFollowingIds(ids);
 
-      if (Platform.OS !== 'web') {
-        const { status } = await Notifications.getPermissionsAsync();
-        setNotifPermission(status);
-      }
-
       await writeProfileCache(uid, {
         profile: p,
         followersCount: followers,
@@ -402,9 +458,16 @@ export default function ProfileScreen() {
     } catch (err) {
       console.warn('Load profile error:', err);
     } finally {
+      inflightRef.current = false;
       setLoading(false);
+      if (queuedRef.current) {
+        queuedRef.current = false;
+        setTimeout(() => loadProfileRef.current(), 0);
+      }
     }
   }, []);
+
+  loadProfileRef.current = loadProfile;
 
   useEffect(() => {
     loadProfile();
@@ -416,18 +479,27 @@ export default function ProfileScreen() {
     }
   }, [online, loadProfile]);
 
-  // ============================================================
-  // ✅ NEW: Realtime Listener (Statuses & Follows)
-  // Is part ko dhyan se paste karna, ye line 380 ke aas paas aayega
-  // ============================================================
-  const loadProfileRef = useRef(loadProfile);
-  loadProfileRef.current = loadProfile;
+  // Tab par wapas aane par silent refresh (15s se pehle nahi)
+  useFocusEffect(
+    useCallback(() => {
+      if (Date.now() - lastLoadRef.current > 15000 && isOnline()) {
+        loadProfileRef.current();
+      }
+    }, [])
+  );
 
+  // ============================================================
+  // Realtime listener (statuses & follows)
+  // FIX: pehle myIdRef.current mount par null hota tha, isliye ye kabhi
+  // subscribe hi nahi hota tha. Ab myId state par depend karta hai.
+  // Note: Supabase realtime DELETE events par filter support nahi karta,
+  // isliye unfollow ka count tab-focus refresh se bhi sync hota hai.
+  // ============================================================
   useEffect(() => {
-    if (!myIdRef.current || !online) return;
-    
+    if (!myId || !online) return;
+
     let channel: any = null;
-    let debounceTimer: any = null;
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const triggerReload = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -438,20 +510,20 @@ export default function ProfileScreen() {
 
     try {
       channel = supabase
-        .channel('profile-realtime-v1')
+        .channel(`profile-rt-${myId}-${Math.random().toString(36).slice(2, 8)}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'statuses', filter: `user_id=eq.${myIdRef.current}` },
+          { event: '*', schema: 'public', table: 'statuses', filter: `user_id=eq.${myId}` },
           triggerReload
         )
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'follows', filter: `followed_id=eq.${myIdRef.current}` },
+          { event: '*', schema: 'public', table: 'follows', filter: `followed_id=eq.${myId}` },
           triggerReload
         )
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'follows', filter: `follower_id=eq.${myIdRef.current}` },
+          { event: '*', schema: 'public', table: 'follows', filter: `follower_id=eq.${myId}` },
           triggerReload
         )
         .subscribe();
@@ -462,11 +534,12 @@ export default function ProfileScreen() {
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       if (channel) {
-        try { supabase.removeChannel(channel); } catch {}
+        try {
+          supabase.removeChannel(channel);
+        } catch {}
       }
     };
-  }, [online]);
-  // ============================================================
+  }, [myId, online]);
 
   const syncCache = useCallback(
     async (patch: Partial<{
@@ -512,55 +585,66 @@ export default function ProfileScreen() {
         Alert.alert('Offline', 'Cannot load list while offline.');
         return;
       }
+
+      // tabs jaldi jaldi badlo to purana response naye ko overwrite na kare
+      const reqId = ++listReqRef.current;
+      const stale = () => reqId !== listReqRef.current;
+
       setListTab(tab);
+      setListUsers([]);
       setListLoading(true);
       try {
         const column = tab === 'followers' ? 'follower_id' : 'followed_id';
         const match = tab === 'followers' ? 'followed_id' : 'follower_id';
 
-        const { data: rows } = await supabase
+        const { data: rows, error: rowsErr } = await supabase
           .from('follows')
           .select(column)
           .eq(match, profile.id);
+        if (rowsErr) throw rowsErr;
+        if (stale()) return;
 
-        const ids = (rows ?? []).map((r: any) => r[column]);
+        const ids: string[] = (rows ?? []).map((r: any) => r[column]);
         if (tab === 'followers') setFollowersCount(ids.length);
         else setFollowingCount(ids.length);
 
         if (ids.length === 0) {
           setListUsers([]);
-          setListLoading(false);
           return;
         }
 
-        try {
-          const chunks: string[][] = [];
-          for (let i = 0; i < ids.length; i += 100) {
-            chunks.push(ids.slice(i, i + 100));
-          }
-          const [iFollowRes, followMeRes] = await Promise.all([
-            Promise.all(
-              chunks.map((ch) =>
-                supabase
-                  .from('follows')
-                  .select('followed_id')
-                  .eq('follower_id', profile.id)
-                  .in('followed_id', ch)
-              )
-            ),
-            Promise.all(
-              chunks.map((ch) =>
-                supabase
-                  .from('follows')
-                  .select('follower_id')
-                  .eq('followed_id', profile.id)
-                  .in('follower_id', ch)
-              )
-            ),
-          ]);
+        const chunks: string[][] = [];
+        for (let i = 0; i < ids.length; i += 100) {
+          chunks.push(ids.slice(i, i + 100));
+        }
 
-          const failed = [...iFollowRes, ...followMeRes].some((r) => r.error);
-          if (!failed) {
+        // follow-state aur profiles dono parallel — list ek hi baar me dikhe
+        const followStatePromise = (async () => {
+          try {
+            const [iFollowRes, followMeRes] = await Promise.all([
+              Promise.all(
+                chunks.map((ch) =>
+                  supabase
+                    .from('follows')
+                    .select('followed_id')
+                    .eq('follower_id', profile.id)
+                    .in('followed_id', ch)
+                )
+              ),
+              Promise.all(
+                chunks.map((ch) =>
+                  supabase
+                    .from('follows')
+                    .select('follower_id')
+                    .eq('followed_id', profile.id)
+                    .in('follower_id', ch)
+                )
+              ),
+            ]);
+
+            const failed = [...iFollowRes, ...followMeRes].some((r) => r.error);
+            if (failed) return;
+
             const iFollow = new Set<string>();
             iFollowRes.forEach((r) =>
               (r.data ?? []).forEach((x: any) => iFollow.add(x.followed_id))
@@ -572,95 +656,114 @@ export default function ProfileScreen() {
 
             setMyFollowingIds((prev) => {
               const next = new Set(prev);
-              ids.forEach((id: string) => next.delete(id));
+              ids.forEach((id) => next.delete(id));
               iFollow.forEach((id) => next.add(id));
               return next;
             });
             setFollowsMeIds((prev) => {
               const next = new Set(prev);
-              ids.forEach((id: string) => next.delete(id));
+              ids.forEach((id) => next.delete(id));
               followMe.forEach((id) => next.add(id));
               return next;
             });
+          } catch (err) {
+            console.warn('Refresh follow state error:', err);
           }
-        } catch (err) {
-          console.warn('Refresh follow state error:', err);
-        }
+        })();
 
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('*')
-          .in('id', ids);
+        // 100-100 ke chunks: bade lists me URL too long na ho
+        const profilesPromise = Promise.all(
+          chunks.map((ch) =>
+            supabase.from('profiles').select('*').in('id', ch)
+          )
+        );
 
-        setListUsers((profiles ?? []) as Profile[]);
+        const [, profileChunks] = await Promise.all([
+          followStatePromise,
+          profilesPromise,
+        ]);
+        if (stale()) return;
+
+        setListUsers(profileChunks.flatMap((r) => (r.data ?? []) as Profile[]));
       } catch (err) {
         console.warn('Load follow list error:', err);
       } finally {
-        setListLoading(false);
+        if (!stale()) setListLoading(false);
       }
     },
     [profile]
   );
 
+  // Optimistic: button turant badalta hai, fail hua to wapas revert
   async function toggleFollowFromList(targetId: string) {
-    if (!profile || toggleLoadingId) return;
-    if (targetId === profile.id) return;
+    if (!profile || targetId === profile.id) return;
+    if (followBusyRef.current.has(targetId)) return;
     if (!isOnline()) {
       Alert.alert('Offline', 'Cannot follow while offline.');
       return;
     }
 
-    const isFollowing = myFollowingIds.has(targetId);
+    const wasFollowing = myFollowingIds.has(targetId);
+    const prevIds = myFollowingIds;
+    const prevCount = followingCount;
+
+    const nextIds = new Set(prevIds);
+    if (wasFollowing) nextIds.delete(targetId);
+    else nextIds.add(targetId);
+    const nextCount =
+      prevCount === null
+        ? null
+        : wasFollowing
+        ? Math.max(0, prevCount - 1)
+        : prevCount + 1;
+
+    followBusyRef.current.add(targetId);
     setToggleLoadingId(targetId);
+    setMyFollowingIds(nextIds);
+    if (nextCount !== null) setFollowingCount(nextCount);
+    hapticLight();
 
     try {
-      if (isFollowing) {
+      if (wasFollowing) {
         const { error } = await supabase
           .from('follows')
           .delete()
           .eq('follower_id', profile.id)
           .eq('followed_id', targetId);
-        if (!error) {
-          const nextIds = new Set(myFollowingIds);
-          nextIds.delete(targetId);
-          setMyFollowingIds(nextIds);
-          const nextFollowing =
-            followingCount !== null ? Math.max(0, followingCount - 1) : null;
-          if (nextFollowing !== null) setFollowingCount(nextFollowing);
-          await syncCache({
-            followingIds: nextIds,
-            ...(nextFollowing !== null ? { followingCount: nextFollowing } : {}),
-          });
-        }
+        if (error) throw error;
       } else {
         const { error } = await supabase
           .from('follows')
           .insert({ follower_id: profile.id, followed_id: targetId });
-        if (!error) {
-          const nextIds = new Set(myFollowingIds);
-          nextIds.add(targetId);
-          setMyFollowingIds(nextIds);
-          const nextFollowing =
-            followingCount !== null ? followingCount + 1 : null;
-          if (nextFollowing !== null) setFollowingCount(nextFollowing);
-          await syncCache({
-            followingIds: nextIds,
-            ...(nextFollowing !== null ? { followingCount: nextFollowing } : {}),
-          });
+        // 23505 = pehle se follow kar rakha tha, ye fail nahi hai
+        if (error && (error as any).code !== '23505') throw error;
 
-          await supabase.functions.invoke('send-push', {
-            body: {
-              userId: targetId,
-              title: 'New follower',
-              body: `${profile.display_name} started following you`,
-              data: { screen: 'profile', userId: profile.id },
-            },
-          });
+        if (!error) {
+          // push ka intezaar nahi — UI block nahi hona chahiye
+          Promise.resolve(
+            supabase.functions.invoke('send-push', {
+              body: {
+                userId: targetId,
+                title: 'New follower',
+                body: `${profile.display_name} started following you`,
+                data: { screen: 'profile', userId: profile.id },
+              },
+            })
+          ).catch(() => {});
         }
       }
+
+      await syncCache({
+        followingIds: nextIds,
+        ...(nextCount !== null ? { followingCount: nextCount } : {}),
+      });
     } catch (err) {
       console.warn('Toggle follow error:', err);
+      setMyFollowingIds(prevIds);
+      if (prevCount !== null) setFollowingCount(prevCount);
+      hapticError();
     } finally {
+      followBusyRef.current.delete(targetId);
       setToggleLoadingId(null);
     }
   }
@@ -749,6 +852,7 @@ export default function ProfileScreen() {
 
     if (!nameChanged && !bioChanged) return;
 
+    Keyboard.dismiss();
     setSaving(true);
     try {
       const update: Record<string, any> = {};
@@ -854,12 +958,26 @@ export default function ProfileScreen() {
           console.warn('[logout] SQLite wipe failed:', err);
         }
         invalidateUserIdCache();
-        await supabase.auth.signOut();
+        try {
+          await supabase.auth.signOut();
+        } catch (err) {
+          console.warn('[logout] signOut failed:', err);
+        }
+        setLoggingOut(false);
         router.replace('/(auth)/login');
       },
       onSecondary: () => setDialog(null),
     });
   }
+
+  // hooks hamesha early return se PEHLE
+  const listExtra = useMemo(
+    () => ({ myFollowingIds, followsMeIds, toggleLoadingId }),
+    [myFollowingIds, followsMeIds, toggleLoadingId]
+  );
+  if (dialog) lastDialogRef.current = dialog;
+  // fade-out ke dauran dialog khali na dikhe
+  const shownDialog = dialog ?? lastDialogRef.current;
 
   if (!profile) {
     return (
@@ -868,12 +986,35 @@ export default function ProfileScreen() {
           <Text style={styles.headerTitle}>Airalance!</Text>
           <View style={styles.headerBtn} />
         </View>
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          showsVerticalScrollIndicator={false}
-        >
-          {showSkeleton ? <ProfileSkeleton /> : null}
-        </ScrollView>
+        {loading ? (
+          <ScrollView
+            contentContainerStyle={styles.scroll}
+            showsVerticalScrollIndicator={false}
+          >
+            {showSkeleton ? <ProfileSkeleton /> : null}
+          </ScrollView>
+        ) : (
+          <View style={styles.errorWrap}>
+            <Ionicons
+              name={online ? 'alert-circle-outline' : 'cloud-offline-outline'}
+              size={40}
+              color={COLORS.mist}
+            />
+            <Text style={styles.errorText}>
+              {online ? "Couldn't load your profile" : "You're offline"}
+            </Text>
+            <TouchableOpacity
+              style={styles.retryBtn}
+              onPress={() => {
+                setLoading(true);
+                loadProfile();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.retryBtnText}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     );
   }
@@ -907,6 +1048,8 @@ export default function ProfileScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
       >
         <View style={styles.topSection}>
           <TouchableOpacity
@@ -1187,8 +1330,11 @@ export default function ProfileScreen() {
               ) : (
                 <FlatList
                   data={listUsers}
-                  extraData={{ myFollowingIds, followsMeIds, toggleLoadingId }}
+                  extraData={listExtra}
                   keyExtractor={(item) => item.id}
+                  initialNumToRender={12}
+                  windowSize={7}
+                  keyboardShouldPersistTaps="handled"
                   contentContainerStyle={styles.listContent}
                   renderItem={({ item }) => {
                     const isMe = item.id === profile.id;
@@ -1240,26 +1386,19 @@ export default function ProfileScreen() {
                             disabled={busy}
                             activeOpacity={0.85}
                           >
-                            {busy ? (
-                              <ActivityIndicator
-                                size="small"
-                                color="#FFFFFF"
-                              />
-                            ) : (
-                              <Text
-                                style={[
-                                  styles.followBtnSmallText,
-                                  isFollowing &&
-                                    styles.followBtnSmallTextFollowing,
-                                ]}
-                              >
-                                {isFollowing
-                                  ? 'Following'
-                                  : followsMe
-                                  ? 'Follow back'
-                                  : 'Follow'}
-                              </Text>
-                            )}
+                            <Text
+                              style={[
+                                styles.followBtnSmallText,
+                                isFollowing &&
+                                  styles.followBtnSmallTextFollowing,
+                              ]}
+                            >
+                              {isFollowing
+                                ? 'Following'
+                                : followsMe
+                                ? 'Follow back'
+                                : 'Follow'}
+                            </Text>
                           </TouchableOpacity>
                         )}
                       </TouchableOpacity>
@@ -1293,48 +1432,48 @@ export default function ProfileScreen() {
               style={styles.dialogCard}
               onPress={(e) => e.stopPropagation()}
             >
-              {dialog && (
+              {shownDialog && (
                 <>
                   <View
                     style={[
                       styles.dialogIconWrap,
-                      { backgroundColor: dialog.iconBg },
+                      { backgroundColor: shownDialog.iconBg },
                     ]}
                   >
                     <Ionicons
-                      name={dialog.icon}
+                      name={shownDialog.icon}
                       size={22}
-                      color={dialog.iconColor}
+                      color={shownDialog.iconColor}
                     />
                   </View>
 
-                  <Text style={styles.dialogTitle}>{dialog.title}</Text>
-                  <Text style={styles.dialogSub}>{dialog.message}</Text>
+                  <Text style={styles.dialogTitle}>{shownDialog.title}</Text>
+                  <Text style={styles.dialogSub}>{shownDialog.message}</Text>
 
                   <View style={styles.dialogButtons}>
-                    {dialog.secondaryLabel && (
+                    {shownDialog.secondaryLabel && (
                       <TouchableOpacity
                         style={styles.dialogBtnSecondary}
-                        onPress={dialog.onSecondary}
+                        onPress={shownDialog.onSecondary}
                         activeOpacity={0.75}
                       >
                         <Text style={styles.dialogBtnSecondaryText}>
-                          {dialog.secondaryLabel}
+                          {shownDialog.secondaryLabel}
                         </Text>
                       </TouchableOpacity>
                     )}
                     <TouchableOpacity
                       style={[
-                        dialog.danger
+                        shownDialog.danger
                           ? styles.dialogBtnDanger
                           : styles.dialogBtnPrimary,
-                        !dialog.secondaryLabel && { flex: 1 },
+                        !shownDialog.secondaryLabel && { flex: 1 },
                       ]}
-                      onPress={dialog.onPrimary}
+                      onPress={shownDialog.onPrimary}
                       activeOpacity={0.75}
                     >
                       <Text style={styles.dialogBtnPrimaryText}>
-                        {dialog.primaryLabel}
+                        {shownDialog.primaryLabel}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -1627,6 +1766,29 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  errorWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingBottom: 80,
+  },
+  errorText: {
+    color: COLORS.mist,
+    fontSize: 14.5,
+    fontFamily: FONTS.body,
+  },
+  retryBtn: {
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: RADII.full,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  retryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontFamily: FONTS.bodySemiBold,
   },
 
   listModalWrap: { flex: 1, backgroundColor: '#000000' },
