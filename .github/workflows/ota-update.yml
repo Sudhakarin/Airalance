@@ -1,0 +1,49 @@
+name: OTA Update (JS only)
+
+# Har push pe ~2 min me JS/asset update publish hota hai — APK build nahi chalta.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ota-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # IMPORTANT: EXPO_PUBLIC_* values bundle ke time inline hoti hain,
+      # isliye yahan bhi .env chahiye warna update me Supabase URL/key undefined jayegi.
+      - name: Create .env file
+        run: |
+          cat > .env << ENVEOF
+          EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          ENVEOF
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish OTA update
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          eas update --branch preview --platform android \
+            --message "${COMMIT_MSG:-manual update}" --non-interactive
