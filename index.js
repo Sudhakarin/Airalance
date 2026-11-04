@@ -140,7 +140,9 @@ if (Platform.OS !== 'web') {
             callerName,
             hasVideo
           );
-          if (!ok) await showFallbackCallNotification(data, callerName, hasVideo);
+          // Confirm to the server → it won't send the system safety-net notification.
+          // (If this failed, the server sends a normal call notification after 3s.)
+          if (ok) await cn.ackRinging(String(data.callId));
           return;
         }
 
