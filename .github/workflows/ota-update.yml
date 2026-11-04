@@ -1,9 +1,14 @@
-name: OTA Update (JS only)
+name: OTA Update (fast, no APK)
 
-# Har push pe ~2 min me JS/asset update publish hota hai — APK build nahi chalta.
+# Every push to main with JS/TS changes → published to the app in ~2 minutes.
+# No APK build needed. Phones pick it up on next app open (and Settings → Updates).
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'supabase/**'
+      - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
 concurrency:
@@ -11,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  update:
+  ota:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -23,8 +28,7 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      # IMPORTANT: EXPO_PUBLIC_* values bundle ke time inline hoti hain,
-      # isliye yahan bhi .env chahiye warna update me Supabase URL/key undefined jayegi.
+      # EXPO_PUBLIC_* values are baked into the JS bundle at publish time
       - name: Create .env file
         run: |
           cat > .env << ENVEOF
@@ -35,15 +39,32 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Check EXPO_TOKEN
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::EXPO_TOKEN secret is missing — add it in GitHub → Settings → Secrets → Actions"
+            exit 1
+          fi
+          eas whoami
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Publish OTA update
-        env:
-          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          eas update --branch preview --platform android \
-            --message "${COMMIT_MSG:-manual update}" --non-interactive
+          eas update --branch preview --platform android --message "$MSG" --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          MSG: ${{ github.event.head_commit.message }}
+
+      # The app asks for CHANNEL "preview". A channel is NOT created by `eas update`
+      # (builds made outside EAS Build never create one) → link it to the branch here.
+      - name: Link channel "preview" to branch "preview"
+        run: |
+          eas channel:create preview --non-interactive || true
+          eas channel:edit preview --branch preview --non-interactive
+          eas channel:view preview --non-interactive || true
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
