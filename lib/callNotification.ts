@@ -111,9 +111,38 @@ export async function cancelCallNotification(
   callId: string | null | undefined
 ): Promise<void> {
   if (!notifee || !callId) return;
+  const id = String(callId);
   try {
-    await notifee.cancelNotification(String(callId));
+    await notifee.cancelNotification(id);
   } catch {}
+  // Also remove the system "safety-net" notification for this call (best effort)
+  try {
+    const list = await notifee.getDisplayedNotifications();
+    for (const n of list || []) {
+      if (String(n?.notification?.data?.callId ?? '') === id) {
+        try {
+          await notifee.cancelDisplayedNotification(
+            String(n.id),
+            n?.notification?.android?.tag ?? id
+          );
+        } catch {}
+      }
+    }
+  } catch {}
+}
+
+// Tell the server "this phone is showing the call" → no safety-net notification
+export async function ackRinging(callId: string): Promise<void> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { supabase } = require('./supabase');
+    await supabase
+      .from('calls')
+      .update({ ringing_shown_at: new Date().toISOString() })
+      .eq('id', callId);
+  } catch (err) {
+    console.warn('[callnotif] ack failed:', err);
+  }
 }
 
 // A call notification that is still on screen (e.g. user opened the app from
