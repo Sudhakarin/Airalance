@@ -4,6 +4,10 @@
 // ✅ FIX: Calls are now DATA-ONLY (+ high priority). A `notification` block makes
 //         Android show its own plain notification when the app is closed and the
 //         app's background handler (call UI) never runs.
+// ✅ SAFETY NET: a call push is sent data-only first (app shows the WhatsApp-style
+//    call UI). If the phone does NOT confirm within 3s (OEM blocks data pushes,
+//    app force-stopped, handler crashed…), a normal system notification is sent
+//    — so an incoming call can never silently disappear.
 // ✅ NEW: screen:'call_cancel' push removes the ringing notification
 // ✅ FIX: chat — Expo push only when FCM failed (was sending BOTH = double notification)
 
@@ -12,6 +16,9 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { SignJWT, importPKCS8 } from 'https://deno.land/x/jose@v5.2.0/index.ts';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
+// Supabase background-task helper (keeps the function alive after responding)
+declare const EdgeRuntime: any;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -76,7 +83,8 @@ async function sendFcmMessage(
     title: string;
     body: string;
     data?: Record<string, string>;
-    isCall?: boolean;
+    isCall?: boolean; // system notification (guaranteed to show)
+    isCallData?: boolean; // data-only (app draws the call UI)
     isCancel?: boolean;
   }
 ): Promise<{ ok: boolean; error?: string }> {
@@ -101,18 +109,33 @@ async function sendFcmMessage(
         headers: { 'apns-priority': '5', 'apns-push-type': 'background' },
         payload: { aps: { 'content-available': 1 } },
       };
+    } else if (message.isCallData) {
+      // ============================================================
+      // DATA-ONLY (no `notification` block) → app's background handler runs and
+      // draws the WhatsApp-style full-screen call notification (notifee).
+      // ============================================================
+      fcmPayload.message.android = { priority: 'HIGH', ttl: '60s' };
     } else if (message.isCall) {
       // ============================================================
-      // ✅ DATA-ONLY on Android (NO `notification` block, NO android.notification)
-      // → app's setBackgroundMessageHandler runs even when killed and shows the
-      //   WhatsApp-style full-screen call notification (notifee).
-      // High priority + short TTL so a stale call never rings later.
+      // SYSTEM notification — guaranteed to be shown by Google Play Services,
+      // even when the app is killed. Used as the safety net (and on iOS).
       // ============================================================
+      fcmPayload.message.notification = {
+        title: message.title,
+        body: message.body,
+      };
       fcmPayload.message.android = {
         priority: 'HIGH',
         ttl: '60s',
+        notification: {
+          channelId: 'calls',
+          sound: 'ringtone',
+          tag: String(message.data?.callId ?? ''),
+          notificationPriority: 'PRIORITY_MAX',
+          visibility: 'PUBLIC',
+          defaultVibrateTimings: true,
+        },
       };
-
       fcmPayload.message.apns = {
         headers: {
           'apns-priority': '10',
@@ -299,19 +322,52 @@ serve(async (req) => {
       if (fcmServiceAccountJson && profile.fcm_token) {
         try {
           const serviceAccount = JSON.parse(fcmServiceAccountJson);
+          const callData: Record<string, string> = {
+            screen: 'call',
+            callId: String(data.callId),
+            callerId: String(data.callerId),
+            callType: String(data.callType),
+            role: 'receiver',
+            callerName: title,
+            callerAvatar: String(data.callerAvatar ?? ''),
+          };
+
+          // 1) data-only → the app draws the WhatsApp-style call UI
           fcmResult = await sendFcmMessage(serviceAccount, profile.fcm_token, {
             title,
             body,
-            isCall: true,
-            data: {
-              screen: 'call',
-              callId: String(data.callId),
-              callerId: String(data.callerId),
-              callType: String(data.callType),
-              role: 'receiver',
-              callerName: title,
-            },
+            isCallData: true,
+            data: callData,
           });
+
+          // 2) SAFETY NET — if the phone didn't confirm within 3s, send a normal
+          //    system notification so the call can never silently disappear
+          const fallbackTask = (async () => {
+            try {
+              await new Promise((r) => setTimeout(r, 3000));
+              const { data: row } = await supabase
+                .from('calls')
+                .select('*')
+                .eq('id', String(data.callId))
+                .maybeSingle();
+              if (!row || row.status !== 'ringing') return; // answered / ended
+              if (row.ringing_shown_at) return; // phone already shows the call
+              await sendFcmMessage(serviceAccount, profile.fcm_token, {
+                title,
+                body,
+                isCall: true,
+                data: callData,
+              });
+              console.log('[fcm] safety-net notification sent for', data.callId);
+            } catch (err) {
+              console.warn('[fcm] safety-net failed:', err);
+            }
+          })();
+          try {
+            EdgeRuntime.waitUntil(fallbackTask);
+          } catch {
+            /* no background-task support — task still runs while the instance lives */
+          }
         } catch (err) {
           console.warn('[fcm] call send failed:', err);
         }
