@@ -1,18 +1,18 @@
 name: Build Android APK
 
-# APK sirf tab banta hai jab native cheez badle (ya manually chalao).
-# Sirf JS/screens badle to ota-update.yml hi kaam karega.
+# APK is only needed when NATIVE things change (new library, plugin, app.json,
+# icons). Normal JS/TS edits go out through ota-update.yml in ~2 minutes.
+# You can also start it by hand: Actions → Build Android APK → Run workflow.
 on:
   push:
     branches: [main]
     paths:
-      - 'app.json'
       - 'package.json'
       - 'package-lock.json'
+      - 'app.json'
       - 'plugins/**'
       - 'assets/**'
-      - 'google-services.json'
-      - 'GoogleService-Info.plist'
+      - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
 jobs:
