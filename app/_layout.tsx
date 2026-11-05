@@ -441,6 +441,14 @@ export default function RootLayout() {
     };
   }, [authReady, userId]);
 
+  // Which notification taps we react to: calls + chat / follow / connect etc.
+  const isHandledTap = (d?: Record<string, any>) =>
+    !!d &&
+    ((d.screen === 'call' && !!d.callId) ||
+      d.screen === 'chat' ||
+      d.screen === 'chats' ||
+      d.screen === 'notifications');
+
   // ============================================================
   // BLACK-SCREEN FIX — STEP 1: Notification tap STASH
   // ============================================================
@@ -450,8 +458,8 @@ export default function RootLayout() {
         const data = response?.notification?.request?.content?.data as
           | Record<string, any>
           | undefined;
-        if (data?.screen === 'call' && data.callId) {
-          setPendingNotif(data);
+        if (isHandledTap(data)) {
+          setPendingNotif(data as Record<string, any>);
         }
       })
       .catch(() => {});
@@ -461,8 +469,8 @@ export default function RootLayout() {
         const data = response?.notification?.request?.content?.data as
           | Record<string, any>
           | undefined;
-        if (data?.screen === 'call' && data.callId) {
-          setPendingNotif(data);
+        if (isHandledTap(data)) {
+          setPendingNotif(data as Record<string, any>);
         }
       }
     );
@@ -475,7 +483,7 @@ export default function RootLayout() {
   useEffect(() => {
     if (Platform.OS === 'web') return;
     const unsub = onNotificationOpenedApp((data) => {
-      if (data?.screen === 'call' && data.callId) {
+      if (isHandledTap(data)) {
         setPendingNotif(data);
       }
     });
@@ -494,6 +502,31 @@ export default function RootLayout() {
     const t = setTimeout(() => {
       const d = pendingNotif;
       setPendingNotif(null);
+
+      // ---- chat / follow / connect etc. → open the right screen ----
+      if (d.screen !== 'call') {
+        const target =
+          d.screen === 'chat' && d.chatId
+            ? `/chat/${String(d.chatId)}`
+            : d.screen === 'notifications'
+            ? '/notifications'
+            : '/(tabs)/chats';
+        const navKey = `nav:${target}`;
+        const t0 = Date.now();
+        if (
+          lastNotifNavRef.current.key === navKey &&
+          t0 - lastNotifNavRef.current.time < 4000
+        ) {
+          return;
+        }
+        lastNotifNavRef.current = { key: navKey, time: t0 };
+        try {
+          router.push(target as any);
+        } catch (err) {
+          console.warn('[notif] Navigation failed:', err);
+        }
+        return;
+      }
 
       const callId = String(d.callId);
       const callType = d.callType === 'video' ? 'video' : 'audio';
