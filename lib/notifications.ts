@@ -1,5 +1,9 @@
 // lib/notifications.ts
-// In-app notification helpers (write to Supabase + optional push)
+// In-app notification helpers (write to Supabase + REAL phone push)
+// ✅ NEW: notifyUser now also sends a push to the phone (follow, connect request
+//         accepted/declined, verified, status like/mention/reply …).
+//         Before this it only wrote a row for the in-app bell list — nothing
+//         ever reached the phone for those events.
 
 import { supabase } from './supabase';
 
@@ -14,7 +18,7 @@ type NotificationType =
   | 'follow';
 
 /**
- * Write an in-app notification for a user.
+ * Write an in-app notification for a user AND push it to their phone.
  * Skips if the target is the current user (to avoid self-notifications).
  */
 export async function notifyUser(opts: {
@@ -37,6 +41,22 @@ export async function notifyUser(opts: {
     });
   } catch (e) {
     console.warn('notifyUser failed:', e);
+  }
+
+  // Phone push (fire and forget — never blocks or breaks the caller)
+  try {
+    supabase.functions
+      .invoke('send-push', {
+        body: {
+          userId: opts.userId,
+          title: opts.title,
+          body: opts.body,
+          data: { screen: 'notifications', type: opts.type },
+        },
+      })
+      .catch((e: any) => console.warn('notifyUser push failed:', e));
+  } catch (e) {
+    console.warn('notifyUser push failed:', e);
   }
 }
 
