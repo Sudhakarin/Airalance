@@ -28,7 +28,7 @@ type Message = {
   created_at: string;
   read_at: string | null;
   delivered_at?: string | null;
-  message_type: 'text' | 'image' | 'voice' | 'call';
+  message_type: 'text' | 'image' | 'video' | 'voice' | 'call';
   media_url: string | null;
   media_duration: number | null;
   reply_to_id: string | null;
@@ -142,6 +142,55 @@ function ImageContent({ message, isMine }: { message: Message; isMine: boolean }
 }
 
 const DOUBLE_TAP_MS = 300;
+
+// ============================================================
+// ✅ Video bubble — same frame as photos, dark poster + play button.
+//   Tap -> parent opens the video player (onImagePress).
+//   No player is mounted in the list, so scrolling stays light.
+// ============================================================
+function VideoContent({ message, isMine }: { message: Message; isMine: boolean }) {
+  const { width: screenW } = useWindowDimensions();
+  const dims = parseImageDims(message.media_url);
+  const maxW = Math.min(280, Math.round(screenW * 0.66)) - IMAGE_FRAME_EXTRA;
+  const maxH = 320;
+  const w0 = dims?.w ?? 720;
+  const h0 = dims?.h ?? 1280;
+  const k = Math.min(1, maxW / w0, maxH / h0);
+  const w = Math.max(150, Math.round(w0 * k));
+  const h = Math.max(120, Math.round(h0 * k));
+  const time = formatTime(message.created_at);
+  const dur = message.media_duration ?? 0;
+
+  return (
+    <LinearGradient
+      colors={['rgba(255,255,255,0.22)', 'rgba(255,255,255,0.05)', 'rgba(255,255,255,0.14)']}
+      locations={[0, 0.5, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[styles.imageFrame, { width: w + IMAGE_FRAME_EXTRA }]}
+    >
+      <View style={styles.imageInner}>
+        <View style={[styles.imageBox, styles.videoPoster, { width: w, height: h }]}>
+          <View style={styles.videoPlayCircle}>
+            <Ionicons name="play" size={26} color="#FFFFFF" style={{ marginLeft: 3 }} />
+          </View>
+          <View pointerEvents="none" style={styles.imageRing} />
+          <View style={styles.videoDurPill}>
+            <Ionicons name="videocam" size={12} color="#FFFFFF" />
+            <Text style={styles.imageTimePillText}>
+              {dur > 0 ? formatDuration(dur) : 'Video'}
+            </Text>
+          </View>
+          <View style={styles.imageTimePill}>
+            <Text style={styles.imageTimePillText}>{time}</Text>
+            {isMine && <DeliveryTicks message={message} />}
+          </View>
+        </View>
+      </View>
+    </LinearGradient>
+  );
+}
+
 const WAVE_BAR_COUNT = 32;
 const SWIPE_ICON_SIZE = 36;
 
@@ -186,6 +235,7 @@ function formatCallDuration(total: number) {
 function replyPreviewText(msg: Message): string {
   if (msg.is_deleted) return 'This message was deleted';
   if (msg.message_type === 'image') return '📷 Photo';
+  if (msg.message_type === 'video') return '🎥 Video';
   if (msg.message_type === 'voice') return '🎤 Voice message';
   if (msg.message_type === 'call') return '📞 Call';
   return msg.content || '';
@@ -496,6 +546,7 @@ function MessageBubbleBase({
 
   const isCall = message.message_type === 'call';
   const isImage = message.message_type === 'image' && !!message.media_url;
+  const isVideo = message.message_type === 'video' && !!message.media_url;
   const isVoice = message.message_type === 'voice' && !!message.media_url;
   const isDeleted = !!message.is_deleted;
 
@@ -630,7 +681,7 @@ function MessageBubbleBase({
       onDoubleTap?.(message);
     } else {
       lastTapRef.current = now;
-      if (isImage && onImagePress) {
+      if ((isImage || isVideo) && onImagePress) {
         clearImageTapTimer();
         imageTapTimerRef.current = setTimeout(() => {
           imageTapTimerRef.current = null;
@@ -643,6 +694,7 @@ function MessageBubbleBase({
     isDeleted,
     isCall,
     isImage,
+    isVideo,
     onDoubleTap,
     onImagePress,
     message,
@@ -764,6 +816,8 @@ function MessageBubbleBase({
                   isMine={isMine}
                   time={formatTime(message.created_at)}
                 />
+              ) : isVideo ? (
+                <VideoContent message={message} isMine={isMine} />
               ) : isImage ? (
                 <ImageContent message={message} isMine={isMine} />
               ) : isVoice ? (
@@ -810,7 +864,7 @@ function MessageBubbleBase({
               )}
             </View>
 
-            {!isCall && !(isImage && !isDeleted) && (
+            {!isCall && !((isImage || isVideo) && !isDeleted) && (
               <View style={styles.metaRow}>
                 <Text style={styles.time}>
                   {formatTime(message.created_at)}
@@ -1041,6 +1095,33 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.45,
     shadowRadius: 9,
     elevation: 4,
+  },
+  videoPoster: {
+    backgroundColor: '#0E1018',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPlayCircle: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoDurPill: {
+    position: 'absolute',
+    left: 8,
+    bottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(10,10,20,0.55)',
   },
   imageInner: {
     borderRadius: 23,
