@@ -67,7 +67,7 @@ import AvatarPreviewHost from '../../components/AvatarPreviewHost';
 import MessageBubble from '../../components/MessageBubble';
 import ImageEditor, { EditedImage } from '../../components/ImageEditor';
 import MediaPickerSheet, { PickedMedia } from '../../components/MediaPickerSheet';
-import InAppCamera from '../../components/InAppCamera';
+import InAppCamera, { IN_APP_CAMERA_AVAILABLE } from '../../components/InAppCamera';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import TypingDots from '../../components/TypingDots';
 import {
@@ -1677,6 +1677,31 @@ export default function ChatScreen() {
     }
   }
 
+  // Fallback when the installed build has no expo-camera (old APK)
+  async function openSystemCamera() {
+    const p = await ImagePicker.requestCameraPermissionsAsync();
+    if (!p.granted) {
+      Alert.alert('Permission needed', 'Please allow camera access.');
+      return;
+    }
+    const r = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      quality: 1,
+      videoMaxDuration: 60,
+    });
+    if (r.canceled || !r.assets?.[0]) return;
+    const a = r.assets[0];
+    handlePickedMedia([
+      {
+        uri: a.uri,
+        type: a.type === 'video' ? 'video' : 'image',
+        width: a.width,
+        height: a.height,
+        duration: (a.duration ?? 0) / 1000,
+      },
+    ]);
+  }
+
   // ✅ Video upload (streams from disk via FormData — no big ArrayBuffer in RAM)
   async function sendVideo(v: PickedMedia) {
     if (!myId || !convoId) return;
@@ -2713,7 +2738,10 @@ export default function ChatScreen() {
         onConfirm={handlePickedMedia}
         onOpenCamera={() => {
           setPickerOpen(false);
-          setTimeout(() => setCameraOpen(true), 350);
+          setTimeout(
+            () => (IN_APP_CAMERA_AVAILABLE ? setCameraOpen(true) : openSystemCamera()),
+            350
+          );
         }}
       />
 
