@@ -23,7 +23,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as MediaLibrary from 'expo-media-library';
-import * as ImagePicker from 'expo-image-picker';
 import { COLORS, FONTS, GRADIENTS } from '../constants/theme';
 import { hapticLight } from '../lib/haptics';
 
@@ -42,6 +41,8 @@ type Props = {
   maxSelect?: number;
   onClose: () => void;
   onConfirm: (items: PickedMedia[]) => void;
+  /** Camera tile tapped — parent closes this sheet and opens the in-app camera */
+  onOpenCamera: () => void;
 };
 
 const COLS = 3;
@@ -108,6 +109,7 @@ export default function MediaPickerSheet({
   maxSelect = 10,
   onClose,
   onConfirm,
+  onOpenCamera,
 }: Props) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -220,30 +222,6 @@ export default function MediaPickerSheet({
     return m;
   }, [selected]);
 
-  const openCamera = useCallback(async () => {
-    const p = await ImagePicker.requestCameraPermissionsAsync();
-    if (!p.granted) {
-      Alert.alert('Permission needed', 'Please allow camera access.');
-      return;
-    }
-    const r = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
-      quality: 1,
-      videoMaxDuration: 60,
-    });
-    if (r.canceled || !r.assets?.[0]) return;
-    const a = r.assets[0];
-    onConfirm([
-      {
-        uri: a.uri,
-        type: a.type === 'video' ? 'video' : 'image',
-        width: a.width,
-        height: a.height,
-        duration: (a.duration ?? 0) / 1000, // picker gives ms
-      },
-    ]);
-  }, [onConfirm]);
-
   const confirm = useCallback(async () => {
     if (!selected.length || resolving) return;
     setResolving(true);
@@ -283,10 +261,10 @@ export default function MediaPickerSheet({
         size={size}
         order={orderMap.get(item.id) ?? 0}
         onPress={toggle}
-        onCamera={openCamera}
+        onCamera={onOpenCamera}
       />
     ),
-    [size, orderMap, toggle, openCamera]
+    [size, orderMap, toggle, onOpenCamera]
   );
 
   return (
