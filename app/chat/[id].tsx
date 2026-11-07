@@ -67,6 +67,7 @@ import AvatarPreviewHost from '../../components/AvatarPreviewHost';
 import MessageBubble from '../../components/MessageBubble';
 import ImageEditor, { EditedImage } from '../../components/ImageEditor';
 import MediaPickerSheet, { PickedMedia } from '../../components/MediaPickerSheet';
+import InAppCamera from '../../components/InAppCamera';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import TypingDots from '../../components/TypingDots';
 import {
@@ -448,6 +449,8 @@ export default function ChatScreen() {
   const [editorUri, setEditorUri] = useState<string | null>(null);
   // ✅ NEW: in-app gallery sheet (opened by the + button)
   const [pickerOpen, setPickerOpen] = useState(false);
+  // ✅ NEW: in-app camera (WhatsApp style, no system camera app)
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [savingImage, setSavingImage] = useState(false);
   const { width: screenW, height: screenH } = useWindowDimensions();
   const handleImagePress = useCallback((msg: Message) => {
@@ -2708,6 +2711,19 @@ export default function ChatScreen() {
         recipientName={other?.display_name}
         onClose={() => setPickerOpen(false)}
         onConfirm={handlePickedMedia}
+        onOpenCamera={() => {
+          setPickerOpen(false);
+          setTimeout(() => setCameraOpen(true), 350);
+        }}
+      />
+
+      <InAppCamera
+        visible={cameraOpen}
+        onClose={() => setCameraOpen(false)}
+        onCapture={(item) => {
+          setCameraOpen(false);
+          setTimeout(() => handlePickedMedia([item]), 350);
+        }}
       />
 
       {/* ✅ NEW: WhatsApp-style editor shown after picking a photo */}
