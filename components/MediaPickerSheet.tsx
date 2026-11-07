@@ -162,7 +162,7 @@ export default function MediaPickerSheet({
     setAlbumMenu(false);
     albumIdRef.current = undefined;
     (async () => {
-      const p = await MediaLibrary.requestPermissionsAsync();
+      const p = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
       if (!alive) return;
       if (!p.granted) {
         setPerm('denied');
