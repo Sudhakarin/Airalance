@@ -25,6 +25,7 @@ import {
   Pressable,
   Animated,
   ScrollView,
+  Linking,
   useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -65,6 +66,7 @@ import Avatar from '../../components/Avatar';
 import AvatarPreviewHost from '../../components/AvatarPreviewHost';
 import MessageBubble from '../../components/MessageBubble';
 import ImageEditor, { EditedImage } from '../../components/ImageEditor';
+import MediaPickerSheet, { PickedMedia } from '../../components/MediaPickerSheet';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import TypingDots from '../../components/TypingDots';
 import {
@@ -108,7 +110,7 @@ type Message = {
   created_at: string;
   read_at: string | null;
   delivered_at?: string | null;
-  message_type: 'text' | 'image' | 'voice' | 'call';
+  message_type: 'text' | 'image' | 'video' | 'voice' | 'call';
   media_url: string | null;
   media_duration: number | null;
   reply_to_id: string | null;
@@ -163,6 +165,7 @@ function previewFromMessage(msg: {
   if (!msg) return '';
   if (msg.is_deleted) return 'This message was deleted';
   if (msg.message_type === 'image') return '📷 Photo';
+  if (msg.message_type === 'video') return '🎥 Video';
   if (msg.message_type === 'voice') return '🎤 Voice message';
   if (msg.message_type === 'call') {
     try {
@@ -443,10 +446,17 @@ export default function ChatScreen() {
   const [viewerImage, setViewerImage] = useState<Message | null>(null);
   // ✅ NEW: picked photo waiting in the editor (crop / draw / caption)
   const [editorUri, setEditorUri] = useState<string | null>(null);
+  // ✅ NEW: in-app gallery sheet (opened by the + button)
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [savingImage, setSavingImage] = useState(false);
   const { width: screenW, height: screenH } = useWindowDimensions();
   const handleImagePress = useCallback((msg: Message) => {
-    if (msg.media_url && !msg.is_deleted) setViewerImage(msg);
+    if (!msg.media_url || msg.is_deleted) return;
+    if (msg.message_type === 'video') {
+      Linking.openURL(msg.media_url).catch(() => {});
+      return;
+    }
+    setViewerImage(msg);
   }, []);
 
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1188,13 +1198,14 @@ export default function ChatScreen() {
     async (
       receiverId: string,
       messageText: string,
-      messageType: 'text' | 'image' | 'voice' = 'text'
+      messageType: 'text' | 'image' | 'video' | 'voice' = 'text'
     ) => {
       if (!myName || !receiverId) return;
       if (!isOnline()) return;
       try {
         let bodyText = messageText;
         if (messageType === 'image') bodyText = '📷 Image';
+        if (messageType === 'video') bodyText = '🎥 Video';
         if (messageType === 'voice') bodyText = '🎤 Voice message';
 
         await supabase.functions.invoke('send-push', {
@@ -1629,25 +1640,113 @@ export default function ChatScreen() {
     }
   }
 
-  // ✅ Step 1: pick -> open editor (NOT sent directly anymore)
-  async function pickImage() {
+  // ✅ Step 1: "+" opens the in-app gallery sheet (photos + videos)
+  function pickImage() {
     if (!myId || !convoId || uploading) return;
     if (!isOnline()) {
-      Alert.alert('Offline', 'Cannot upload photos while offline.');
+      Alert.alert('Offline', 'Cannot upload media while offline.');
       return;
     }
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Permission needed', 'Please allow photos access.');
+    setPickerOpen(true);
+  }
+
+  // ✅ Step 1b: gallery sheet confirmed
+  //   - exactly 1 photo  -> WhatsApp-style editor (crop / draw / caption)
+  //   - everything else  -> sent straight away, in the order selected
+  async function handlePickedMedia(items: PickedMedia[]) {
+    setPickerOpen(false);
+    if (!items.length) return;
+    if (items.length === 1 && items[0].type === 'image') {
+      setEditorUri(items[0].uri);
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 1,
-      allowsEditing: false,
-    });
-    if (result.canceled || !result.assets?.[0]) return;
-    setEditorUri(result.assets[0].uri);
+    for (const it of items) {
+      if (it.type === 'video') {
+        await sendVideo(it);
+      } else {
+        await sendEditedImage({
+          uri: it.uri,
+          width: it.width,
+          height: it.height,
+          caption: '',
+        } as EditedImage);
+      }
+    }
+  }
+
+  // ✅ Video upload (streams from disk via FormData — no big ArrayBuffer in RAM)
+  async function sendVideo(v: PickedMedia) {
+    if (!myId || !convoId) return;
+    if (!isOnline()) {
+      Alert.alert('Offline', 'Cannot upload media while offline.');
+      return;
+    }
+    setUploading(true);
+    try {
+      const rawExt = (v.uri.split('?')[0].split('.').pop() || 'mp4').toLowerCase();
+      const ext = ['mp4', 'mov', 'm4v', '3gp', 'webm'].includes(rawExt) ? rawExt : 'mp4';
+      const mime =
+        ext === 'mov' ? 'video/quicktime'
+        : ext === '3gp' ? 'video/3gpp'
+        : ext === 'webm' ? 'video/webm'
+        : 'video/mp4';
+      const path = `${convoId}/${myId}-${Date.now()}-${v.width}x${v.height}.${ext}`;
+
+      const form = new FormData();
+      form.append('file', { uri: v.uri, name: `video.${ext}`, type: mime } as any);
+
+      const { error: uploadError } = await supabase.storage
+        .from(CONSTANTS.CHAT_MEDIA_BUCKET)
+        .upload(path, form as any);
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from(CONSTANTS.CHAT_MEDIA_BUCKET)
+        .getPublicUrl(path);
+
+      const { data: inserted, error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: convoId,
+          sender_id: myId,
+          content: '',
+          message_type: 'video',
+          media_url: urlData.publicUrl,
+          media_duration: Math.round(v.duration || 0),
+          reply_to_id: replyingTo?.id ?? null,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+
+      if (inserted) {
+        await persistMessages([inserted as Message]);
+        markAnimating((inserted as Message).id);
+        setMessages((prev) =>
+          prev.some((m) => m.id === (inserted as Message).id)
+            ? prev
+            : [...prev, inserted as Message]
+        );
+        setReplyingTo(null);
+        hapticSuccess();
+        playSend();
+        bumpConvoPreview({
+          convoId,
+          preview: '🎥 Video',
+          atIso: (inserted as Message).created_at,
+        });
+        requestAnimationFrame(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        });
+        if (other?.id) triggerPushNotification(other.id, '', 'video');
+      }
+    } catch (err: any) {
+      console.warn('Video upload error:', err);
+      hapticError();
+      Alert.alert('Upload failed', err?.message ?? 'Please try again.');
+    } finally {
+      setUploading(false);
+    }
   }
 
   // ✅ Step 2: editor "Send" -> upload edited (cropped) image to Supabase
@@ -2327,7 +2426,7 @@ export default function ChatScreen() {
                   {uploading ? (
                     <ActivityIndicator size="small" color={COLORS.mist} />
                   ) : (
-                    <Ionicons name="image-outline" size={22} color={COLORS.mist} />
+                    <Ionicons name="add" size={28} color={COLORS.mist} />
                   )}
                 </TouchableOpacity>
 
@@ -2602,6 +2701,14 @@ export default function ChatScreen() {
           )}
         </View>
       </Modal>
+
+      {/* ✅ NEW: in-app gallery (photos + videos) */}
+      <MediaPickerSheet
+        visible={pickerOpen}
+        recipientName={other?.display_name}
+        onClose={() => setPickerOpen(false)}
+        onConfirm={handlePickedMedia}
+      />
 
       {/* ✅ NEW: WhatsApp-style editor shown after picking a photo */}
       <ImageEditor
