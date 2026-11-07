@@ -17,6 +17,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { COLORS, FONTS, GRADIENTS, SPACING } from '../constants/theme';
 import { hapticMedium } from '../lib/haptics';
 
@@ -148,6 +149,27 @@ const DOUBLE_TAP_MS = 300;
 //   Tap -> parent opens the video player (onImagePress).
 //   No player is mounted in the list, so scrolling stays light.
 // ============================================================
+// Paused, muted player that just shows the video's first frame as the poster.
+function VideoFrame({ url }: { url: string }) {
+  const player = useVideoPlayer(url, (p) => {
+    p.muted = true;
+    p.loop = false;
+  });
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <VideoView
+        player={player}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        nativeControls={false}
+        allowsFullscreen={false}
+        allowsPictureInPicture={false}
+        surfaceType="textureView"
+      />
+    </View>
+  );
+}
+
 function VideoContent({ message, isMine }: { message: Message; isMine: boolean }) {
   const { width: screenW } = useWindowDimensions();
   const dims = parseImageDims(message.media_url);
@@ -171,6 +193,7 @@ function VideoContent({ message, isMine }: { message: Message; isMine: boolean }
     >
       <View style={styles.imageInner}>
         <View style={[styles.imageBox, styles.videoPoster, { width: w, height: h }]}>
+          <VideoFrame url={message.media_url!} />
           <View style={styles.videoPlayCircle}>
             <Ionicons name="play" size={26} color="#FFFFFF" style={{ marginLeft: 3 }} />
           </View>
