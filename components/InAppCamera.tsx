@@ -14,12 +14,22 @@ import {
   Linking,
   ActivityIndicator,
 } from 'react-native';
-import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS } from '../constants/theme';
 import { hapticLight, hapticMedium } from '../lib/haptics';
 import type { PickedMedia } from './MediaPickerSheet';
+
+// expo-camera is loaded safely: if the installed APK was built WITHOUT the
+// native module, require() throws -> we fall back to the system camera
+// instead of crashing the app (so OTA updates stay safe on old builds).
+let Cam: any = null;
+try {
+  Cam = require('expo-camera');
+} catch {
+  Cam = null;
+}
+export const IN_APP_CAMERA_AVAILABLE = !!Cam?.CameraView;
 
 type Props = {
   visible: boolean;
@@ -34,8 +44,14 @@ function fmt(sec: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export default function InAppCamera({ visible, onClose, onCapture }: Props) {
-  const camRef = useRef<CameraView>(null);
+export default function InAppCamera(props: Props) {
+  if (!IN_APP_CAMERA_AVAILABLE) return null;
+  return <CameraInner {...props} />;
+}
+
+function CameraInner({ visible, onClose, onCapture }: Props) {
+  const { CameraView, useCameraPermissions, useMicrophonePermissions } = Cam;
+  const camRef = useRef<any>(null);
   const [camPerm, requestCam] = useCameraPermissions();
   const [micPerm, requestMic] = useMicrophonePermissions();
 
