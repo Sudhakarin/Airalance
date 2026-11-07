@@ -68,6 +68,7 @@ import MessageBubble from '../../components/MessageBubble';
 import ImageEditor, { EditedImage } from '../../components/ImageEditor';
 import MediaPickerSheet, { PickedMedia } from '../../components/MediaPickerSheet';
 import InAppCamera, { IN_APP_CAMERA_AVAILABLE } from '../../components/InAppCamera';
+import VideoViewerModal from '../../components/VideoViewerModal';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import TypingDots from '../../components/TypingDots';
 import {
@@ -445,6 +446,7 @@ export default function ChatScreen() {
   const [isMutedForConvo, setIsMutedForConvo] = useState(false);
 
   const [viewerImage, setViewerImage] = useState<Message | null>(null);
+  const [viewerVideo, setViewerVideo] = useState<Message | null>(null);
   // ✅ NEW: picked photo waiting in the editor (crop / draw / caption)
   const [editorUri, setEditorUri] = useState<string | null>(null);
   // ✅ NEW: in-app gallery sheet (opened by the + button)
@@ -456,7 +458,7 @@ export default function ChatScreen() {
   const handleImagePress = useCallback((msg: Message) => {
     if (!msg.media_url || msg.is_deleted) return;
     if (msg.message_type === 'video') {
-      Linking.openURL(msg.media_url).catch(() => {});
+      setViewerVideo(msg);
       return;
     }
     setViewerImage(msg);
@@ -2743,6 +2745,12 @@ export default function ChatScreen() {
             350
           );
         }}
+      />
+
+      <VideoViewerModal
+        url={viewerVideo?.media_url ?? null}
+        title={viewerVideo ? getSenderName(viewerVideo) : ''}
+        onClose={() => setViewerVideo(null)}
       />
 
       <InAppCamera
