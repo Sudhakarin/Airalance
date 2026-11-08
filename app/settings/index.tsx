@@ -1,7 +1,7 @@
 // app/settings/index.tsx
 // Settings — redesigned. Home (search, profile hero, usage summary, grouped rows),
 // Time management, Time limit, Verification, Blocked, Tag & mention,
-// Invite, Account status, Aira One.
+// Invite, Account status, Aira One, Management (admins only).
 //
 // ✅ Logout ab profile.tsx jaisa: SQLite wipe + cache clear + invalidateUserIdCache
 // ✅ Android hardware back sub-screen se Home par jaata hai (app se bahar nahi)
@@ -49,6 +49,9 @@ import { isOnline } from '../../lib/network';
 import { dbWipeAll } from '../../lib/db';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
+import AdminPanel from '../../components/AdminPanel';
+import { fetchAdminRole } from '../../lib/admin';
+import type { AdminRole } from '../../lib/admin';
 
 /* ================= TYPES & CONSTANTS ================= */
 
@@ -80,7 +83,8 @@ type ScreenId =
   | 'invite'
   | 'account'
   | 'updates'
-  | 'subscription';
+  | 'subscription'
+  | 'admin';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 type MentionValue = 'connections' | 'everyone';
@@ -92,6 +96,7 @@ const USAGE_KEY = (uid: string) => `airalance-usage:${uid}`;
 const USAGE_LIMIT_KEY = (uid: string) => `airalance-timelimit:${uid}`;
 const PROFILE_CACHE_KEY = (uid: string) => `airalance:profile:me:${uid}`;
 const LAST_CHECK_KEY = 'airalance-update-lastcheck';
+const ADMIN_ROLE_KEY = (uid: string) => `airalance:admin-role:${uid}`;
 
 const UI = {
   bg: '#000000',
@@ -285,6 +290,12 @@ export default function SettingsScreen() {
   const [screen, setScreen] = useState<ScreenId>('home');
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  // Admin / Management (UI ke liye; asli permission server par check hoti hai)
+  const [adminRole, setAdminRole] = useState<AdminRole | null>(null);
+  const adminBackRef = useRef<(() => boolean) | null>(null);
+  const registerAdminBack = useCallback((fn: (() => boolean) | null) => {
+    adminBackRef.current = fn;
+  }, []);
 
   const scrollRef = useRef<ScrollView>(null);
   const screenRef = useRef<ScreenId>('home');
@@ -326,6 +337,36 @@ export default function SettingsScreen() {
     load();
   }, [load]);
 
+  // Admin role: cache se turant, phir server se confirm (network error par cache nahi hatta)
+  useEffect(() => {
+    const uid = profile?.id;
+    if (!uid) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const cached = await AsyncStorage.getItem(ADMIN_ROLE_KEY(uid));
+        if (!cancelled && (cached === 'owner' || cached === 'admin' || cached === 'moderator')) {
+          setAdminRole(cached);
+        }
+      } catch {}
+      if (!isOnline()) return;
+      try {
+        const role = await fetchAdminRole();
+        if (cancelled) return;
+        setAdminRole(role);
+        if (role) {
+          await AsyncStorage.setItem(ADMIN_ROLE_KEY(uid), role);
+        } else {
+          await AsyncStorage.removeItem(ADMIN_ROLE_KEY(uid));
+          if (screenRef.current === 'admin') setScreen('home');
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.id]);
+
   const open = useCallback((next: ScreenId) => {
     dirRef.current = 1;
     setScreen(next);
@@ -337,6 +378,8 @@ export default function SettingsScreen() {
       router.back();
       return;
     }
+    // Admin panel ke andar (user detail) ho to pehle wahan se back
+    if (cur === 'admin' && adminBackRef.current?.()) return;
     dirRef.current = -1;
     setScreen(cur === 'timelimit' ? 'time' : 'home');
   }, [router]);
@@ -357,7 +400,11 @@ export default function SettingsScreen() {
     const uid = profile?.id;
     if (uid) {
       try {
-        await AsyncStorage.multiRemove([USAGE_KEY(uid), PROFILE_CACHE_KEY(uid)]);
+        await AsyncStorage.multiRemove([
+          USAGE_KEY(uid),
+          PROFILE_CACHE_KEY(uid),
+          ADMIN_ROLE_KEY(uid),
+        ]);
       } catch {}
     }
     try {
@@ -386,6 +433,7 @@ export default function SettingsScreen() {
     account: 'Account status',
     updates: 'Updates',
     subscription: 'Aira One',
+    admin: 'Management',
   };
 
   return (
@@ -436,6 +484,7 @@ export default function SettingsScreen() {
             {screen === 'home' && (
               <HomePanel
                 profile={profile}
+                adminRole={adminRole}
                 onOpen={open}
                 onLogout={() => setLogoutOpen(true)}
               />
@@ -463,6 +512,9 @@ export default function SettingsScreen() {
             {screen === 'account' && <AccountStatusPanel profile={profile} />}
             {screen === 'updates' && <UpdatesPanel />}
             {screen === 'subscription' && <SubscriptionPanel />}
+            {screen === 'admin' && adminRole && (
+              <AdminPanel myId={profile.id} role={adminRole} registerBack={registerAdminBack} />
+            )}
           </ScreenFade>
         </ScrollView>
       )}
@@ -536,10 +588,12 @@ type HomeItem = {
 
 function HomePanel({
   profile,
+  adminRole,
   onOpen,
   onLogout,
 }: {
   profile: Profile;
+  adminRole: AdminRole | null;
   onOpen: (s: ScreenId) => void;
   onLogout: () => void;
 }) {
@@ -631,6 +685,19 @@ function HomePanel({
       value: `v${getAppVersion()}`,
     },
   };
+
+  if (adminRole) {
+    items.admin = {
+      id: 'admin',
+      screen: 'admin',
+      icon: 'shield-checkmark',
+      tint: '#F4607A',
+      title: 'Management',
+      subtitle: 'Users, verification & moderation',
+      keywords: 'admin management users ban verify requests moderation staff team',
+      value: adminRole.charAt(0).toUpperCase() + adminRole.slice(1),
+    };
+  }
 
   function renderItem(it: HomeItem) {
     return (
@@ -794,6 +861,13 @@ function HomePanel({
               <Text style={styles.usageHint}>No daily limit set</Text>
             )}
           </TouchableOpacity>
+
+          {adminRole && (
+            <>
+              <SectionTitle>Management</SectionTitle>
+              {renderGroup(['admin'])}
+            </>
+          )}
 
           <SectionTitle>How you use Airalance</SectionTitle>
           {renderGroup(['time'])}
