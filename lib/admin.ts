@@ -21,6 +21,7 @@ export type AdminStats = {
   shadowbanned: number;
   restricted: number;
   pending: number;
+  appeals: number;
   admins: number;
   signups: number[]; // last 7 days, oldest -> newest
 };
@@ -66,12 +67,21 @@ export type AdminUserDetail = {
     shadowbanned: boolean | null;
     account_locked: boolean | null;
     ban_reason: string | null;
+    ban_category: string | null;
+    ban_until: string | null;
     banned_at: string | null;
   };
   email: string | null;
   last_sign_in_at: string | null;
-  banned_until: string | null;
   admin_role: AdminRole | null;
+  note: string | null;
+  appeals: {
+    id: string;
+    status: string;
+    message: string;
+    created_at: string;
+    review_note: string | null;
+  }[];
   requests: {
     id: string;
     status: string;
@@ -108,6 +118,34 @@ export type VerificationRequestRow = {
   avatar_url: string | null;
   email: string | null;
   verified: boolean;
+};
+
+export type AppealStatus = 'pending' | 'approved' | 'rejected' | 'all';
+
+export type AppealRow = {
+  id: string;
+  user_id: string;
+  message: string;
+  status: string;
+  created_at: string;
+  review_note: string | null;
+  reviewed_at: string | null;
+  ban_reason: string | null;
+  ban_category: string | null;
+  ban_until: string | null;
+  still_banned: boolean;
+  username: string | null;
+  display_name: string | null;
+  avatar_color: string | null;
+  avatar_url: string | null;
+  email: string | null;
+};
+
+export type BanOptions = {
+  reason?: string;
+  category?: string;
+  /** null / undefined = permanent */
+  days?: number | null;
 };
 
 export type AdminMember = {
@@ -188,12 +226,31 @@ export const adminSetFlag = (
     p_reason: reason ?? null,
   });
 
-export const adminBanUser = (userId: string, banned: boolean, reason?: string) =>
+export const adminBanUser = (userId: string, banned: boolean, opts: BanOptions = {}) =>
   rpc<void>('admin_ban_user', {
     p_user_id: userId,
     p_banned: banned,
-    p_reason: reason ?? null,
+    p_reason: opts.reason || null,
+    p_category: opts.category || null,
+    p_days: opts.days ?? null,
   });
+
+export const adminListAppeals = (status: AppealStatus, limit: number, offset: number) =>
+  rpc<AppealRow[]>('admin_list_appeals', {
+    p_status: status,
+    p_limit: limit,
+    p_offset: offset,
+  });
+
+export const adminReviewAppeal = (appealId: string, approve: boolean, note?: string) =>
+  rpc<void>('admin_review_appeal', {
+    p_appeal_id: appealId,
+    p_approve: approve,
+    p_note: note ?? null,
+  });
+
+export const adminSetNote = (userId: string, note: string) =>
+  rpc<void>('admin_set_note', { p_user_id: userId, p_note: note });
 
 export const adminListRequests = (status: RequestStatus, limit: number, offset: number) =>
   rpc<VerificationRequestRow[]>('admin_list_requests', {
