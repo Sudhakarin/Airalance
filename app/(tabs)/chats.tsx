@@ -92,6 +92,20 @@ type Conversation = {
 
 let rpcWarned = false;
 
+// Block: chat list me rahegi (purani chat dikhegi), par samne wale ki pehchan chhup jaati hai
+const BLOCKED_LABEL = '@undefined';
+const BLOCKED_COLOR = '#2A2A2E';
+function maskProfile(p: OtherProfile): OtherProfile {
+  return {
+    ...p,
+    username: 'undefined',
+    display_name: BLOCKED_LABEL,
+    avatar_color: BLOCKED_COLOR,
+    avatar_url: null,
+    verified: false,
+  };
+}
+
 const ROW_HEIGHT = 78;
 const LOCKED_H = 56;
 const PULL_OPEN_DISTANCE = 70;
@@ -311,6 +325,8 @@ const ChatRow = memo(
       ? item.name ?? 'Group'
       : item.other_profile?.display_name ?? 'Unknown';
     const color = item.other_profile?.avatar_color ?? COLORS.violet;
+    const isMasked =
+      !item.is_group && item.other_profile?.display_name === BLOCKED_LABEL;
     const hasUnread = item.unread_count > 0;
     const showUnread = hasUnread && !item.is_muted;
 
@@ -326,12 +342,18 @@ const ChatRow = memo(
           delayLongPress={350}
           activeOpacity={0.6}
         >
-          <Avatar
-            name={displayName}
-            color={color}
-            avatarUrl={item.other_profile?.avatar_url ?? null}
-            size={54}
-          />
+          {isMasked ? (
+            <View style={styles.blockedAvatar}>
+              <Ionicons name="person" size={26} color="rgba(255,255,255,0.35)" />
+            </View>
+          ) : (
+            <Avatar
+              name={displayName}
+              color={color}
+              avatarUrl={item.other_profile?.avatar_url ?? null}
+              size={54}
+            />
+          )}
           <View style={styles.rowInfo}>
             <View style={styles.rowTop}>
               <View style={styles.rowNameWrap}>
@@ -531,7 +553,7 @@ export default function ChatsScreen() {
         return;
       }
 
-      const [convosRes, othersRes, settingsRes, summaryRes] =
+      const [convosRes, othersRes, settingsRes, summaryRes, blockedRes] =
         await Promise.all([
           supabase
             .from('conversations')
@@ -551,6 +573,8 @@ export default function ChatsScreen() {
             .in('conversation_id', ids),
           // ✅ ONE request: last message + unread count for every chat
           supabase.rpc('get_my_chat_summaries'),
+          // block (kisi bhi taraf se) wale users ke ids
+          supabase.rpc('get_blocked_pair_ids'),
         ]);
 
       if (convosRes.error) {
@@ -644,7 +668,23 @@ export default function ChatsScreen() {
         conversationsRef.current.map((c) => [c.id, c])
       );
 
-      const updatedRows: Conversation[] = (convosRes.data ?? []).map((c: any) => {
+      let blockedIdList: string[] = [];
+      if (!blockedRes.error && Array.isArray(blockedRes.data)) {
+        blockedIdList = (blockedRes.data as any[]).map((r) =>
+          String(typeof r === 'object' && r !== null ? r.other_id : r)
+        );
+      } else {
+        // get_blocked_pair_ids abhi install nahi: sirf jinhe maine block kiya
+        const { data: mineBlocked } = await supabase
+          .from('blocked_users')
+          .select('blocked_id')
+          .eq('blocker_id', myId);
+        blockedIdList = (mineBlocked ?? []).map((r: any) => String(r.blocked_id));
+      }
+      const blockedSet = new Set<string>(blockedIdList);
+
+      const baseRows: Conversation[] = (convosRes.data ?? [])
+        .map((c: any) => {
         const last = lastPerConvo.get(c.id);
         const setting = settingsMap.get(c.id);
         const profile = otherProfiles.get(c.id);
@@ -677,6 +717,13 @@ export default function ChatsScreen() {
           is_locked: setting?.is_locked ?? false,
         };
       });
+
+      // Blocked chat list me rehti hai, bas samne wale ki avatar/username chhup jaati hai
+      const updatedRows: Conversation[] = baseRows.map((row) =>
+        row.other_profile && !row.is_group && blockedSet.has(row.other_profile.id)
+          ? { ...row, other_profile: maskProfile(row.other_profile) }
+          : row
+      );
 
       const idSet = new Set<string>(ids);
       setConversations((prev) =>
@@ -736,7 +783,8 @@ export default function ChatsScreen() {
 
     let hadSubscribed = false;
     const channel = supabase
-      .channel('chats-list-realtime-v3')
+      // unique naam: effect re-run par purana channel reuse na ho
+      .channel(`chats-list-realtime-v3-${myId}-${Date.now()}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
@@ -1113,22 +1161,16 @@ export default function ChatsScreen() {
         .from('blocked_users')
         .insert({ blocker_id: myId, blocked_id: targetUserId });
       if (blockErr && blockErr.code !== '23505') throw blockErr;
-      const { error: blkErr1 } = await supabase
-        .from('conversation_participants')
-        .delete()
-        .eq('conversation_id', convo.id)
-        .eq('user_id', myId);
-      if (blkErr1) throw blkErr1;
-      const { error: blkErr2 } = await supabase
-        .from('chat_settings')
-        .delete()
-        .eq('conversation_id', convo.id)
-        .eq('user_id', myId);
-      if (blkErr2) throw blkErr2;
-      const next = conversations.filter((c) => c.id !== convo.id);
+      // ✅ Participant/settings ab delete nahi hote: chat list se sync me hide hoti hai,
+      //    aur server par dono taraf se messages block rehte hain. Unblock par chat wapas aa jati hai.
+      // chat list me rehti hai, par samne wale ki pehchan chhup jaati hai
+      const next = conversations.map((c) =>
+        c.id === convo.id && c.other_profile
+          ? { ...c, other_profile: maskProfile(c.other_profile) }
+          : c
+      );
       setConversations(next);
       await persistConversations(next);
-      await dbDeleteConversation(convo.id);
       Alert.alert(
         'Blocked',
         `@${convo.other_profile?.username} has been blocked.`
@@ -1827,6 +1869,14 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
     paddingVertical: 12,
     paddingHorizontal: SPACING.sm,
+  },
+  blockedAvatar: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: '#2A2A2E',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rowInfo: { flex: 1, minWidth: 0 },
   rowTop: {
