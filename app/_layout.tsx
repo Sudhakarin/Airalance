@@ -9,6 +9,7 @@
 //         mic, camera, nearby devices, phone; blocked ones → "Open Settings";
 //         Expo push token registers only AFTER notification permission is granted
 //         and re-checks when user comes back from Settings
+// ✅ NEW: <BanGuard /> — banned user ko full-screen popup (Logout / Appeal)
 
 import { useEffect, useState, useRef } from 'react';
 import { Stack, useRouter, usePathname } from 'expo-router';
@@ -61,6 +62,7 @@ import {
 import { useOTAUpdate } from '../lib/useOTAUpdate';
 import UpdateOverlay from '../components/UpdateOverlay';
 import IncomingCallBridge from '../components/IncomingCallBridge';
+import BanGuard from '../components/BanGuard';
 import {
   runPermissionFlow,
   setupNotificationChannels,
@@ -587,6 +589,7 @@ export default function RootLayout() {
         ) : (
           <CallProvider>
             <IncomingCallBridge />
+            <BanGuard />
             <StatusBar style="light" />
             <Stack
               screenOptions={{
