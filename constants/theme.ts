@@ -219,15 +219,11 @@ export const PHOTO_FILTERS = [
   { id: 'fade', label: 'Fade', css: 'contrast(0.88) brightness(1.1) saturate(0.78) sepia(0.14)' },
 ] as const;
 
-// ===== Verified usernames (from website logic) =====
-// ✅ FIXED: type widened to readonly string[] so .includes(string) works everywhere
-export const VERIFIED_USERNAMES: readonly string[] = [
-  'sudhakarin',
-  'tanushree2251',
-  'airalance',
-  'shikhamishra',
-  'manjumishra',
-];
+// ===== Verified usernames (hardcoded) =====
+// ✅ Ab sirf owner hardcoded hai. Baaki sab ka verified badge Admin panel se
+//    (profiles.verified) aata hai — Management → Users → Verified badge.
+// ✅ type readonly string[] so .includes(string) works everywhere
+export const VERIFIED_USERNAMES: readonly string[] = ['sudhakarin'];
 
 // ===== Storage keys =====
 export const STORAGE_KEYS = {
