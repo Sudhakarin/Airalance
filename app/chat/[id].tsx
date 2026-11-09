@@ -55,9 +55,6 @@ import {
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { fetchBlockStatus } from '../../lib/blocks';
-
-// Block hone par samne wale ki pehchan chhup jaati hai
-const BLOCKED_LABEL = '@undefined';
 import { getCurrentUserId } from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
 import {
@@ -107,6 +104,9 @@ import {
   hapticError,
 } from '../../lib/haptics';
 import { playSend, playReceive } from '../../lib/sounds';
+
+// Block hone par samne wale ki pehchan chhup jaati hai
+const BLOCKED_LABEL = '@undefined';
 
 type Message = {
   id: string;
@@ -435,8 +435,16 @@ export default function ChatScreen() {
   const [online, setOnline] = useState(isOnline());
 
   // ✅ Block status (dono taraf): block hone par message/call band
-  const [blockState, setBlockState] = useState({ i_blocked: false, blocked_me: false });
+  const [blockState, setBlockState] = useState(() => {
+    const c = getMemConvoRow(convoId);
+    // chats list me ye chat masked thi => pehle se blocked maano (server confirm baad me)
+    return c?.other_display_name === BLOCKED_LABEL
+      ? { i_blocked: false, blocked_me: true }
+      : { i_blocked: false, blocked_me: false };
+  });
   const chatBlocked = blockState.i_blocked || blockState.blocked_me;
+  const chatBlockedRef = useRef(chatBlocked);
+  chatBlockedRef.current = chatBlocked;
   const otherLabel = chatBlocked ? BLOCKED_LABEL : other?.display_name ?? 'Unknown';
   const refreshBlock = useCallback(async () => {
     const otherId = other?.id;
@@ -625,6 +633,11 @@ export default function ChatScreen() {
       try {
         const cachedConvo = await dbGetConversation(convoId);
         if (cachedConvo && mounted) {
+          if (cachedConvo.other_display_name === BLOCKED_LABEL) {
+            setBlockState((p) =>
+              p.i_blocked || p.blocked_me ? p : { i_blocked: false, blocked_me: true }
+            );
+          }
           if (cachedConvo.other_user_id) {
             setOther({
               id: cachedConvo.other_user_id,
@@ -722,15 +735,18 @@ export default function ChatScreen() {
           const p = (otherRes.data[0] as any).profiles as OtherProfile;
           setOther(p);
           try {
-            await dbUpsertConversation({
-              id: convoId,
-              other_user_id: p.id,
-              other_username: p.username,
-              other_display_name: p.display_name,
-              other_avatar_color: p.avatar_color,
-              other_avatar_url: p.avatar_url,
-              other_verified: p.verified ? 1 : 0,
-            });
+            // blocked chat ka masked cache real naam se overwrite na ho
+            if (!chatBlockedRef.current) {
+              await dbUpsertConversation({
+                id: convoId,
+                other_user_id: p.id,
+                other_username: p.username,
+                other_display_name: p.display_name,
+                other_avatar_color: p.avatar_color,
+                other_avatar_url: p.avatar_url,
+                other_verified: p.verified ? 1 : 0,
+              });
+            }
           } catch (err) {
             console.warn('[chat] convo SQLite write error:', err);
           }
