@@ -27,6 +27,7 @@ import {
   VERIFIED_USERNAMES,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { fetchBlockStatus } from '../../lib/blocks';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 
@@ -465,6 +466,18 @@ export default function UserProfileScreen() {
 
   async function openChat() {
     if (!myId || !userId) return;
+    // ✅ Block (dono taraf) hone par chat/message nahi
+    try {
+      const bs = await fetchBlockStatus(userId);
+      if (bs.i_blocked) {
+        Alert.alert('You blocked this user', 'Unblock them to send messages.');
+        return;
+      }
+      if (bs.blocked_me) {
+        Alert.alert('Messaging unavailable', 'You can’t message this account.');
+        return;
+      }
+    } catch {}
     if (convoId) {
       router.push(`/chat/${convoId}`);
       return;
