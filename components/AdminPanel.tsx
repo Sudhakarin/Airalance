@@ -1,7 +1,8 @@
 // components/AdminPanel.tsx
 // Management (Admin) panel — Settings ke andar sirf admins ko dikhta hai.
-// Overview · Users (search/filter) · User detail (verify, ban, restrict, shadowban)
-// · Verification requests (selfie dekho, approve/reject) · Audit log · Team (owner only)
+// Overview · Users (search/filter) · User detail (verify, ban, restrict, shadowban, notes)
+// · Verification requests · Ban appeals · Audit log · Team (owner only)
+// Ban: category + duration (1/7/30 days ya permanent) — banned user login karke popup + appeal dekhta hai
 //
 // ✅ Saari permissions server par enforce hoti hain (admin.sql). Yahan ka role sirf UI ke liye.
 // ✅ Settings ke design (UI colors, rows, groups, dialogs) jaisa hi look.
@@ -46,6 +47,9 @@ import {
   adminAddAdmin,
   adminRemoveAdmin,
   adminAuditLog,
+  adminListAppeals,
+  adminReviewAppeal,
+  adminSetNote,
   getSelfieUrl,
 } from '../lib/admin';
 import type {
@@ -59,12 +63,14 @@ import type {
   UserFilter,
   UserFlag,
   VerificationRequestRow,
+  AppealRow,
+  AppealStatus,
 } from '../lib/admin';
 
 /* ================= CONSTANTS & HELPERS ================= */
 
 type IconName = keyof typeof Ionicons.glyphMap;
-type TabId = 'overview' | 'users' | 'requests' | 'log' | 'team';
+type TabId = 'overview' | 'users' | 'requests' | 'appeals' | 'log' | 'team';
 
 const VIOLET = '#7C5CFF';
 
@@ -191,6 +197,16 @@ function describeAction(a: string): { label: string; icon: IconName; color: stri
       return { label: 'Added to admin team', icon: 'person-add', color: VIOLET };
     case 'admin:remove':
       return { label: 'Removed from admin team', icon: 'person-remove', color: UI.red };
+    case 'ban:expired':
+      return { label: 'Ban expired automatically', icon: 'timer-outline', color: UI.green };
+    case 'appeal:submitted':
+      return { label: 'Appeal submitted', icon: 'megaphone-outline', color: UI.amber };
+    case 'appeal:approved':
+      return { label: 'Approved appeal (ban lifted)', icon: 'checkmark-circle', color: UI.green };
+    case 'appeal:rejected':
+      return { label: 'Rejected appeal', icon: 'close-circle', color: UI.red };
+    case 'note:update':
+      return { label: 'Updated admin note', icon: 'document-text-outline', color: UI.muted };
     default:
       return { label: a, icon: 'ellipse-outline', color: UI.muted };
   }
@@ -391,6 +407,116 @@ function PromptDialog({
   );
 }
 
+const BAN_CATEGORIES = ['Spam', 'Harassment', 'Fake account', 'Scam or fraud', 'Other'];
+const BAN_DURATIONS: { label: string; days: number | null }[] = [
+  { label: '1 day', days: 1 },
+  { label: '7 days', days: 7 },
+  { label: '30 days', days: 30 },
+  { label: 'Permanent', days: null },
+];
+
+function BanDialog({
+  visible,
+  username,
+  onConfirm,
+  onCancel,
+}: {
+  visible: boolean;
+  username: string;
+  onConfirm: (o: { reason: string; category: string; days: number | null }) => void;
+  onCancel: () => void;
+}) {
+  const [cat, setCat] = useState(BAN_CATEGORIES[0]);
+  const [days, setDays] = useState<number | null>(null);
+  const [reason, setReason] = useState('');
+  useEffect(() => {
+    if (visible) {
+      setCat(BAN_CATEGORIES[0]);
+      setDays(null);
+      setReason('');
+    }
+  }, [visible]);
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onCancel}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Pressable
+          style={styles.dialogBackdrop}
+          onPress={() => {
+            Keyboard.dismiss();
+            onCancel();
+          }}
+        >
+          <Pressable style={styles.dialogCard} onPress={(e) => e.stopPropagation()}>
+            <View style={[styles.dialogIconWrap, { backgroundColor: withAlpha('#EF4444', 0.15) }]}>
+              <Ionicons name="ban-outline" size={22} color={COLORS.danger} />
+            </View>
+            <Text style={styles.dialogTitle}>Ban @{username}?</Text>
+            <Text style={styles.dialogSub}>
+              They can still log in, but will only see a ban notice with Logout and Appeal.
+            </Text>
+
+            <Text style={styles.dLabel}>Category</Text>
+            <View style={styles.dChipWrap}>
+              {BAN_CATEGORIES.map((c) => (
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.dChip, cat === c && styles.dChipOn]}
+                  onPress={() => setCat(c)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.dChipText, cat === c && { color: '#FFFFFF' }]}>{c}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.dLabel}>Duration</Text>
+            <View style={styles.dChipWrap}>
+              {BAN_DURATIONS.map((d) => (
+                <TouchableOpacity
+                  key={d.label}
+                  style={[styles.dChip, days === d.days && styles.dChipOn]}
+                  onPress={() => setDays(d.days)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.dChipText, days === d.days && { color: '#FFFFFF' }]}>{d.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              style={styles.dialogInput}
+              value={reason}
+              onChangeText={setReason}
+              placeholder="Reason shown to the user (optional)"
+              placeholderTextColor={UI.faint}
+              multiline
+              maxLength={300}
+              underlineColorAndroid="transparent"
+            />
+
+            <View style={styles.dialogButtons}>
+              <TouchableOpacity style={styles.dialogBtnSecondary} onPress={onCancel} activeOpacity={0.75}>
+                <Text style={styles.dialogBtnSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.dialogBtn, { backgroundColor: COLORS.danger }]}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  onConfirm({ reason: reason.trim(), category: cat, days });
+                }}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.dialogBtnText}>Ban</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 function StatusPills({ u }: { u: Pick<AdminUserRow, 'account_locked' | 'shadowbanned' | 'messaging_restricted' | 'feature_restricted' | 'admin_role'> }) {
   const restricted = u.messaging_restricted || u.feature_restricted;
   if (!u.account_locked && !u.shadowbanned && !restricted && !u.admin_role) return null;
@@ -484,11 +610,14 @@ export default function AdminPanel({ myId, role, registerBack }: Props) {
   ];
   if (rank >= 2) {
     tabs.push({ id: 'requests', label: 'Requests', icon: 'shield-checkmark-outline' });
+    tabs.push({ id: 'appeals', label: 'Appeals', icon: 'megaphone-outline' });
     tabs.push({ id: 'log', label: 'Activity', icon: 'time-outline' });
   }
   if (rank >= 3) tabs.push({ id: 'team', label: 'Team', icon: 'key-outline' });
 
   const pending = stats?.pending ?? 0;
+  const badgeFor = (id: TabId) =>
+    id === 'requests' ? pending : id === 'appeals' ? stats?.appeals ?? 0 : 0;
 
   return (
     <View>
@@ -521,9 +650,9 @@ export default function AdminPanel({ myId, role, registerBack }: Props) {
               >
                 <Ionicons name={t.icon} size={15} color={on ? '#FFFFFF' : UI.muted} />
                 <Text style={[styles.tabText, on && styles.tabTextOn]}>{t.label}</Text>
-                {t.id === 'requests' && pending > 0 && (
+                {badgeFor(t.id) > 0 && (
                   <View style={styles.tabBadge}>
-                    <Text style={styles.tabBadgeText}>{pending > 99 ? '99+' : pending}</Text>
+                    <Text style={styles.tabBadgeText}>{badgeFor(t.id) > 99 ? '99+' : badgeFor(t.id)}</Text>
                   </View>
                 )}
               </TouchableOpacity>
@@ -540,6 +669,7 @@ export default function AdminPanel({ myId, role, registerBack }: Props) {
               onRetry={loadStats}
               onOpenUsers={openUsersWith}
               onOpenRequests={() => goTab('requests')}
+              onOpenAppeals={() => goTab('appeals')}
             />
           </View>
         )}
@@ -551,6 +681,11 @@ export default function AdminPanel({ myId, role, registerBack }: Props) {
         {rank >= 2 && visited.includes('requests') && (
           <View style={tab !== 'requests' ? styles.hidden : undefined}>
             <RequestsTab onOpenUser={setSelectedId} onChanged={loadStats} />
+          </View>
+        )}
+        {rank >= 2 && visited.includes('appeals') && (
+          <View style={tab !== 'appeals' ? styles.hidden : undefined}>
+            <AppealsTab onOpenUser={setSelectedId} onChanged={loadStats} />
           </View>
         )}
         {rank >= 2 && visited.includes('log') && (
@@ -577,6 +712,7 @@ function OverviewTab({
   onRetry,
   onOpenUsers,
   onOpenRequests,
+  onOpenAppeals,
 }: {
   role: AdminRole;
   stats: AdminStats | null;
@@ -584,6 +720,7 @@ function OverviewTab({
   onRetry: () => void;
   onOpenUsers: (f: UserFilter) => void;
   onOpenRequests: () => void;
+  onOpenAppeals: () => void;
 }) {
   const rank = roleRank(role);
   const meta = ROLE_META[role];
@@ -650,6 +787,25 @@ function OverviewTab({
                   {stats.pending} verification {stats.pending === 1 ? 'request' : 'requests'} waiting
                 </Text>
                 <Text style={styles.rowSub}>Review selfies and approve or reject</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={UI.faint} />
+            </TouchableOpacity>
+          )}
+
+          {rank >= 2 && stats.appeals > 0 && (
+            <TouchableOpacity
+              style={[styles.alertCard, { backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.3)' }]}
+              onPress={onOpenAppeals}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.rowIcon, { backgroundColor: withAlpha(UI.red, 0.16) }]}>
+                <Ionicons name="megaphone-outline" size={19} color={UI.red} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle}>
+                  {stats.appeals} ban {stats.appeals === 1 ? 'appeal' : 'appeals'} waiting
+                </Text>
+                <Text style={styles.rowSub}>Decide whether to lift or keep the ban</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={UI.faint} />
             </TouchableOpacity>
@@ -1004,6 +1160,10 @@ function UserDetail({
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [dlg, setDlg] = useState<'ban' | 'unban' | null>(null);
+  const [note, setNote] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
+  const noteInit = useRef(false);
 
   const rank = roleRank(myRole);
 
@@ -1019,6 +1179,13 @@ function UserDetail({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (d && !noteInit.current) {
+      noteInit.current = true;
+      setNote(d.note ?? '');
+    }
+  }, [d]);
 
   async function refreshSilently() {
     try {
@@ -1082,18 +1249,34 @@ function UserDetail({
     }
   }
 
-  async function doBan(ban: boolean, reason: string) {
+  async function doBan(
+    ban: boolean,
+    opts: { reason?: string; category?: string; days?: number | null } = {}
+  ) {
     setDlg(null);
     if (busy || !ensureOnline()) return;
     setBusy('ban');
     try {
-      await adminBanUser(userId, ban, reason);
-      onPatch(userId, { account_locked: ban, ban_reason: ban ? reason || null : null });
+      await adminBanUser(userId, ban, opts);
+      onPatch(userId, { account_locked: ban, ban_reason: ban ? opts.reason || null : null });
       await refreshSilently();
     } catch (e) {
       Alert.alert('Error', errMsg(e));
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function saveNote() {
+    if (noteSaving || !ensureOnline()) return;
+    setNoteSaving(true);
+    try {
+      await adminSetNote(userId, note.trim());
+      setNoteSaved(true);
+    } catch (e) {
+      Alert.alert('Error', errMsg(e));
+    } finally {
+      setNoteSaving(false);
     }
   }
 
@@ -1146,8 +1329,10 @@ function UserDetail({
           <View style={{ flex: 1 }}>
             <Text style={[styles.rowTitle, { color: UI.red }]}>This account is banned</Text>
             <Text style={styles.rowSub}>
+              {p.ban_category ? `${p.ban_category} · ` : ''}
               {p.ban_reason ? `Reason: ${p.ban_reason}` : 'No reason recorded.'}
               {p.banned_at ? `\nSince ${formatDateTime(p.banned_at)}` : ''}
+              {`\n${p.ban_until ? `Ends ${formatDateTime(p.ban_until)}` : 'Permanent'}`}
             </Text>
           </View>
         </View>
@@ -1254,6 +1439,59 @@ function UserDetail({
         </TouchableOpacity>
       )}
 
+      <SectionLabel>Admin note</SectionLabel>
+      <View style={styles.noteBox}>
+        <TextInput
+          style={styles.noteInput}
+          value={note}
+          onChangeText={(t) => {
+            setNote(t);
+            setNoteSaved(false);
+          }}
+          placeholder="Private note — only staff can see this"
+          placeholderTextColor={UI.faint}
+          multiline
+          maxLength={500}
+          underlineColorAndroid="transparent"
+        />
+        <View style={styles.noteFoot}>
+          <Text style={styles.rowSub}>{note.length}/500</Text>
+          <TouchableOpacity style={styles.noteSave} onPress={saveNote} disabled={noteSaving} activeOpacity={0.8}>
+            {noteSaving ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.noteSaveText}>{noteSaved ? 'Saved' : 'Save note'}</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {d.appeals.length > 0 && (
+        <>
+          <SectionLabel>Ban appeals</SectionLabel>
+          <Group>
+            {d.appeals.map((a, i) => {
+              const color = a.status === 'approved' ? UI.green : a.status === 'rejected' ? UI.red : UI.amber;
+              return (
+                <View key={a.id}>
+                  {i > 0 && <View style={styles.sepFull} />}
+                  <View style={[styles.histRow, { alignItems: 'flex-start' }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowTitle}>{formatDate(a.created_at)}</Text>
+                      <Text style={styles.appealMsg} numberOfLines={4}>
+                        {a.message}
+                      </Text>
+                      {!!a.review_note && <Text style={styles.rowSub}>Note: {a.review_note}</Text>}
+                    </View>
+                    <Pill label={a.status.charAt(0).toUpperCase() + a.status.slice(1)} color={color} />
+                  </View>
+                </View>
+              );
+            })}
+          </Group>
+        </>
+      )}
+
       {d.requests.length > 0 && (
         <>
           <SectionLabel>Verification history</SectionLabel>
@@ -1307,15 +1545,10 @@ function UserDetail({
         </>
       )}
 
-      <PromptDialog
+      <BanDialog
         visible={dlg === 'ban'}
-        icon="ban-outline"
-        tone="danger"
-        title={`Ban @${p.username}?`}
-        message="They will be signed out and won’t be able to log in. You can unban anytime."
-        confirmLabel="Ban"
-        inputPlaceholder="Reason (optional)"
-        onConfirm={(t) => doBan(true, t)}
+        username={p.username}
+        onConfirm={(o) => doBan(true, o)}
         onCancel={() => setDlg(null)}
       />
       <PromptDialog
@@ -1323,9 +1556,9 @@ function UserDetail({
         icon="lock-open-outline"
         tone="success"
         title={`Unban @${p.username}?`}
-        message="They will be able to log in and use Airalance again."
+        message="The ban notice will go away and they can use Airalance again."
         confirmLabel="Unban"
-        onConfirm={() => doBan(false, '')}
+        onConfirm={() => doBan(false)}
         onCancel={() => setDlg(null)}
       />
     </View>
@@ -1615,6 +1848,215 @@ function ReqField({ label, value, multiline }: { label: string; value: string | 
       <Text style={[styles.reqValue, multiline && { textAlign: 'left' }]} selectable>
         {value || '—'}
       </Text>
+    </View>
+  );
+}
+
+/* ================= BAN APPEALS ================= */
+
+const APPEAL_FILTERS: { id: AppealStatus; label: string }[] = [
+  { id: 'pending', label: 'Pending' },
+  { id: 'approved', label: 'Lifted' },
+  { id: 'rejected', label: 'Kept' },
+  { id: 'all', label: 'All' },
+];
+
+function AppealsTab({
+  onOpenUser,
+  onChanged,
+}: {
+  onOpenUser: (id: string) => void;
+  onChanged: () => void;
+}) {
+  const [status, setStatus] = useState<AppealStatus>('pending');
+  const [rows, setRows] = useState<AppealRow[] | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [dlg, setDlg] = useState<{ a: AppealRow; approve: boolean } | null>(null);
+  const reqId = useRef(0);
+  const countRef = useRef(0);
+
+  useEffect(() => {
+    countRef.current = rows?.length ?? 0;
+  }, [rows]);
+
+  const load = useCallback(
+    async (reset: boolean) => {
+      const id = ++reqId.current;
+      if (reset) {
+        setRows(null);
+        setError(null);
+      } else {
+        setLoadingMore(true);
+      }
+      try {
+        const offset = reset ? 0 : countRef.current;
+        const data = await adminListAppeals(status, PAGE, offset);
+        if (id !== reqId.current) return;
+        setRows((prev) => (reset ? data : [...(prev ?? []), ...data]));
+        setHasMore(data.length === PAGE);
+      } catch (e) {
+        if (id !== reqId.current) return;
+        setError(errMsg(e));
+        if (reset) setRows([]);
+      } finally {
+        if (id === reqId.current) setLoadingMore(false);
+      }
+    },
+    [status]
+  );
+
+  useEffect(() => {
+    load(true);
+  }, [load]);
+
+  async function review(a: AppealRow, approve: boolean, note: string) {
+    setDlg(null);
+    if (busyId || !ensureOnline()) return;
+    setBusyId(a.id);
+    try {
+      await adminReviewAppeal(a.id, approve, note);
+      setRows((prev) =>
+        (prev ?? [])
+          .map((r) =>
+            r.id === a.id
+              ? {
+                  ...r,
+                  status: approve ? 'approved' : 'rejected',
+                  review_note: note || null,
+                  reviewed_at: new Date().toISOString(),
+                  still_banned: approve ? false : r.still_banned,
+                }
+              : r
+          )
+          .filter((r) => status === 'all' || r.status === status)
+      );
+      onChanged();
+    } catch (e) {
+      Alert.alert('Error', errMsg(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <View>
+      <Chips items={APPEAL_FILTERS} value={status} onChange={setStatus} />
+
+      <View style={{ marginTop: 14 }}>
+        {rows === null ? (
+          <SkeletonRows n={3} />
+        ) : error && rows.length === 0 ? (
+          <EmptyCard icon="cloud-offline-outline" title="Couldn't load appeals" sub={error} onRetry={() => load(true)} />
+        ) : rows.length === 0 ? (
+          <EmptyCard
+            icon="megaphone-outline"
+            title={status === 'pending' ? 'No appeals waiting' : 'No appeals'}
+            sub={status === 'pending' ? 'Banned users’ appeals will show up here.' : 'Nothing here yet.'}
+          />
+        ) : (
+          <View style={{ gap: 12 }}>
+            {rows.map((a) => {
+              const color = a.status === 'approved' ? UI.green : a.status === 'rejected' ? UI.red : UI.amber;
+              return (
+                <View key={a.id} style={styles.reqCard}>
+                  <TouchableOpacity style={styles.reqHead} onPress={() => onOpenUser(a.user_id)} activeOpacity={0.75}>
+                    <Avatar
+                      name={a.display_name ?? a.username ?? '?'}
+                      color={a.avatar_color ?? '#7C5CFF'}
+                      avatarUrl={a.avatar_url}
+                      size={44}
+                    />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.userName} numberOfLines={1}>
+                        {a.display_name || a.username || 'Unknown'}
+                      </Text>
+                      <Text style={styles.userSub} numberOfLines={1}>
+                        @{a.username ?? '—'} · {timeAgo(a.created_at)}
+                      </Text>
+                    </View>
+                    <Pill
+                      label={a.status === 'approved' ? 'Lifted' : a.status === 'rejected' ? 'Kept' : 'Pending'}
+                      color={color}
+                    />
+                  </TouchableOpacity>
+
+                  <View style={styles.reqBody}>
+                    <ReqField label="Ban category" value={a.ban_category} />
+                    <ReqField label="Ban reason" value={a.ban_reason} multiline />
+                    <ReqField label="Ban ends" value={a.ban_until ? formatDateTime(a.ban_until) : 'Permanent'} />
+                    <ReqField label="Email" value={a.email} />
+                  </View>
+
+                  <View style={{ paddingHorizontal: 14, paddingBottom: 12 }}>
+                    <Text style={styles.reqLabel}>Appeal message</Text>
+                    <View style={styles.appealBox}>
+                      <Text style={styles.appealMsgFull} selectable>
+                        {a.message}
+                      </Text>
+                    </View>
+                    {!!a.review_note && (
+                      <Text style={[styles.rowSub, { marginTop: 8 }]}>Review note: {a.review_note}</Text>
+                    )}
+                  </View>
+
+                  {a.status === 'pending' && (
+                    <View style={styles.reqActions}>
+                      <TouchableOpacity
+                        style={styles.rejectBtn}
+                        onPress={() => setDlg({ a, approve: false })}
+                        disabled={busyId === a.id}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="ban-outline" size={16} color={COLORS.danger} />
+                        <Text style={styles.rejectText}>Keep ban</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.approveBtn}
+                        onPress={() => setDlg({ a, approve: true })}
+                        disabled={busyId === a.id}
+                        activeOpacity={0.8}
+                      >
+                        {busyId === a.id ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <>
+                            <Ionicons name="lock-open-outline" size={16} color="#FFFFFF" />
+                            <Text style={styles.approveText}>Lift ban</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+            {hasMore && (
+              <TouchableOpacity style={styles.moreBtn} onPress={() => load(false)} disabled={loadingMore} activeOpacity={0.8}>
+                {loadingMore ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.moreBtnText}>Load more</Text>}
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+
+      <PromptDialog
+        visible={!!dlg}
+        icon={dlg?.approve ? 'lock-open-outline' : 'ban-outline'}
+        tone={dlg?.approve ? 'success' : 'danger'}
+        title={dlg?.approve ? 'Lift this ban?' : 'Keep the ban?'}
+        message={
+          dlg?.approve
+            ? `@${dlg?.a.username ?? 'user'} will be unbanned right away.`
+            : `@${dlg?.a.username ?? 'user'} will see your note and can appeal again after 24 hours.`
+        }
+        confirmLabel={dlg?.approve ? 'Lift ban' : 'Keep ban'}
+        inputPlaceholder={dlg?.approve ? 'Note (optional)' : 'Note shown to the user (optional)'}
+        onConfirm={(t) => dlg && review(dlg.a, dlg.approve, t)}
+        onCancel={() => setDlg(null)}
+      />
     </View>
   );
 }
@@ -2265,6 +2707,68 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   removeBtnText: { color: '#FFFFFF', fontSize: 13, fontFamily: FONTS.bodySemiBold },
+
+  // notes / appeals / ban dialog
+  noteBox: {
+    borderRadius: RADII.xl,
+    backgroundColor: UI.card,
+    borderWidth: 1,
+    borderColor: UI.border,
+    padding: 12,
+  },
+  noteInput: {
+    minHeight: 64,
+    maxHeight: 140,
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontFamily: FONTS.body,
+    lineHeight: 20,
+    textAlignVertical: 'top',
+    paddingTop: 2,
+  },
+  noteFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  noteSave: {
+    minWidth: 92,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: '#2E2E2E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noteSaveText: { color: '#FFFFFF', fontSize: 13, fontFamily: FONTS.bodySemiBold },
+  appealMsg: { fontSize: 13, fontFamily: FONTS.body, color: 'rgba(255,255,255,0.8)', marginTop: 4, lineHeight: 18 },
+  appealBox: {
+    marginTop: 6,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: UI.cardAlt,
+    borderWidth: 1,
+    borderColor: UI.border,
+  },
+  appealMsgFull: { fontSize: 13.5, fontFamily: FONTS.body, color: '#FFFFFF', lineHeight: 19 },
+  dLabel: {
+    fontSize: 11.5,
+    fontFamily: FONTS.bodySemiBold,
+    color: UI.muted,
+    marginLeft: 8,
+    marginBottom: 7,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  dChipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingHorizontal: 6, marginBottom: 14 },
+  dChip: {
+    paddingHorizontal: 12,
+    height: 32,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+  },
+  dChipOn: { backgroundColor: 'rgba(239,68,68,0.28)', borderColor: 'rgba(239,68,68,0.7)' },
+  dChipText: { fontSize: 12.5, fontFamily: FONTS.bodyMedium, color: UI.muted },
 
   // dialog
   dialogBackdrop: {
