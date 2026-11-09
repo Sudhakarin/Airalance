@@ -1377,19 +1377,26 @@ export default function ChatsScreen() {
             >
               {actionSheetConvo && (
                 <View style={styles.dialogHeader}>
-                  <Avatar
-                    name={
-                      actionSheetConvo.other_profile?.display_name ?? 'Unknown'
-                    }
-                    color={
-                      actionSheetConvo.other_profile?.avatar_color ??
-                      COLORS.violet
-                    }
-                    avatarUrl={
-                      actionSheetConvo.other_profile?.avatar_url ?? null
-                    }
-                    size={40}
-                  />
+                  {!actionSheetConvo.is_group &&
+                  actionSheetConvo.other_profile?.display_name === BLOCKED_LABEL ? (
+                    <View style={[styles.blockedAvatar, { width: 40, height: 40, borderRadius: 20 }]}>
+                      <Ionicons name="person" size={20} color="rgba(255,255,255,0.35)" />
+                    </View>
+                  ) : (
+                    <Avatar
+                      name={
+                        actionSheetConvo.other_profile?.display_name ?? 'Unknown'
+                      }
+                      color={
+                        actionSheetConvo.other_profile?.avatar_color ??
+                        COLORS.violet
+                      }
+                      avatarUrl={
+                        actionSheetConvo.other_profile?.avatar_url ?? null
+                      }
+                      size={40}
+                    />
+                  )}
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={styles.dialogHeaderName} numberOfLines={1}>
                       {actionSheetConvo.other_profile?.display_name ?? 'Chat'}
