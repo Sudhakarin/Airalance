@@ -54,6 +54,10 @@ import {
   CONSTANTS,
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
+import { fetchBlockStatus } from '../../lib/blocks';
+
+// Block hone par samne wale ki pehchan chhup jaati hai
+const BLOCKED_LABEL = '@undefined';
 import { getCurrentUserId } from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
 import {
@@ -429,6 +433,40 @@ export default function ChatScreen() {
   const [uploading, setUploading] = useState(false);
 
   const [online, setOnline] = useState(isOnline());
+
+  // ✅ Block status (dono taraf): block hone par message/call band
+  const [blockState, setBlockState] = useState({ i_blocked: false, blocked_me: false });
+  const chatBlocked = blockState.i_blocked || blockState.blocked_me;
+  const otherLabel = chatBlocked ? BLOCKED_LABEL : other?.display_name ?? 'Unknown';
+  const refreshBlock = useCallback(async () => {
+    const otherId = other?.id;
+    if (!otherId || !isOnline()) return;
+    try {
+      const s = await fetchBlockStatus(otherId);
+      setBlockState((prev) =>
+        prev.i_blocked === s.i_blocked && prev.blocked_me === s.blocked_me ? prev : s
+      );
+    } catch {}
+  }, [other?.id]);
+  useEffect(() => {
+    refreshBlock();
+    const t = setInterval(refreshBlock, 20000);
+    return () => clearInterval(t);
+  }, [refreshBlock, online]);
+  async function unblockFromChat() {
+    if (!myId || !other?.id) return;
+    const { error } = await supabase
+      .from('blocked_users')
+      .delete()
+      .eq('blocker_id', myId)
+      .eq('blocked_id', other.id);
+    if (error) {
+      Alert.alert('Error', 'Could not unblock. Try again.');
+      return;
+    }
+    setBlockState((p) => ({ ...p, i_blocked: false }));
+    refreshBlock();
+  }
 
   const [lockRequired, setLockRequired] = useState(() => {
     const c = getMemConvoRow(convoId);
@@ -1515,6 +1553,10 @@ export default function ChatScreen() {
   async function sendMessage() {
     const content = input.trim();
     if (!content || !myId || !convoId || sending) return;
+    if (chatBlocked) {
+      Alert.alert('Messaging unavailable', 'You can’t send messages in this chat.');
+      return;
+    }
 
     const replyTarget = replyingTo;
     setSending(true);
@@ -2011,7 +2053,7 @@ export default function ChatScreen() {
 
   function getSenderName(msg: Message | null | undefined): string {
     if (!msg) return '';
-    return msg.sender_id === myId ? 'You' : other?.display_name ?? 'Them';
+    return msg.sender_id === myId ? 'You' : chatBlocked ? BLOCKED_LABEL : other?.display_name ?? 'Them';
   }
 
   const keyExtractor = useCallback((item: Message) => item.id, []);
@@ -2180,25 +2222,31 @@ export default function ChatScreen() {
 
           <TouchableOpacity
             style={styles.headerCenter}
-            onPress={() => other && router.push(`/profile/${other.id}`)}
+            onPress={() => other && !chatBlocked && router.push(`/profile/${other.id}`)}
             activeOpacity={0.7}
           >
-            <Avatar
-              name={other?.display_name ?? 'Unknown'}
-              color={other?.avatar_color ?? COLORS.violet}
-              avatarUrl={other?.avatar_url ?? null}
-              size={42}
-              previewOnHold
-              onPress={() => other && router.push(`/profile/${other.id}`)}
-            />
+            {chatBlocked ? (
+              <View style={styles.blockedAvatar}>
+                <Ionicons name="person" size={22} color="rgba(255,255,255,0.35)" />
+              </View>
+            ) : (
+              <Avatar
+                name={other?.display_name ?? 'Unknown'}
+                color={other?.avatar_color ?? COLORS.violet}
+                avatarUrl={other?.avatar_url ?? null}
+                size={42}
+                previewOnHold
+                onPress={() => other && router.push(`/profile/${other.id}`)}
+              />
+            )}
             <View style={{ marginLeft: 12, flex: 1 }}>
               <View style={styles.headerNameRow}>
                 <Text style={styles.headerName} numberOfLines={1}>
-                  {other?.display_name ?? 'Unknown'}
+                  {otherLabel}
                 </Text>
-                {other?.verified && <VerifiedBadge size={15} />}
+                {!chatBlocked && other?.verified && <VerifiedBadge size={15} />}
               </View>
-              {peerTyping ? (
+              {chatBlocked ? null : peerTyping ? (
                 <View
                   style={{
                     flexDirection: 'row',
@@ -2230,9 +2278,9 @@ export default function ChatScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.headerActionBtn}
+            style={[styles.headerActionBtn, chatBlocked && { opacity: 0.35 }]}
             onPress={() => {
-              if (!other || callState !== 'idle') return;
+              if (!other || callState !== 'idle' || chatBlocked) return;
               hapticMedium();
               startCall(
                 other.id,
@@ -2250,9 +2298,9 @@ export default function ChatScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.headerActionBtn}
+            style={[styles.headerActionBtn, chatBlocked && { opacity: 0.35 }]}
             onPress={() => {
-              if (!other || callState !== 'idle') return;
+              if (!other || callState !== 'idle' || chatBlocked) return;
               hapticMedium();
               startCall(
                 other.id,
@@ -2414,7 +2462,25 @@ export default function ChatScreen() {
         )}
 
         <View style={styles.inputBar}>
-          {isRecording ? (
+          {chatBlocked ? (
+            <View style={styles.blockedBar}>
+              <Ionicons name="ban-outline" size={18} color={COLORS.danger} />
+              <Text style={styles.blockedBarText} numberOfLines={2}>
+                {blockState.i_blocked
+                  ? 'You blocked this user'
+                  : 'You can’t reply to this conversation'}
+              </Text>
+              {blockState.i_blocked && (
+                <TouchableOpacity
+                  style={styles.blockedBarBtn}
+                  onPress={unblockFromChat}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.blockedBarBtnText}>Unblock</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : isRecording ? (
             <>
               <View style={styles.recordingWrap}>
                 <View style={styles.recordingDot} />
@@ -3106,6 +3172,36 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  blockedAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#2A2A2E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  blockedBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 46,
+    paddingHorizontal: 14,
+    borderRadius: 24,
+    backgroundColor: 'rgba(239,68,68,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.28)',
+  },
+  blockedBarText: { flex: 1, fontSize: 13.5, color: '#FFFFFF' },
+  blockedBarBtn: {
+    paddingHorizontal: 14,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  blockedBarBtnText: { fontSize: 13, fontWeight: '600', color: '#FFFFFF' },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
