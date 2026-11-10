@@ -75,6 +75,15 @@ export type AdminUserDetail = {
   last_sign_in_at: string | null;
   admin_role: AdminRole | null;
   note: string | null;
+  permissions: {
+    permission: string;
+    status: string;
+    can_ask_again: boolean | null;
+    platform: string | null;
+    app_version: string | null;
+    changed_at: string;
+    updated_at: string;
+  }[];
   appeals: {
     id: string;
     status: string;
