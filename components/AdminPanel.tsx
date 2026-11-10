@@ -517,6 +517,35 @@ function BanDialog({
   );
 }
 
+const PERM_ORDER = ['notifications', 'camera', 'microphone', 'photos'];
+const PERM_META: Record<string, { label: string; icon: IconName }> = {
+  notifications: { label: 'Notifications', icon: 'notifications-outline' },
+  camera: { label: 'Camera', icon: 'camera-outline' },
+  microphone: { label: 'Microphone', icon: 'mic-outline' },
+  photos: { label: 'Photos and media', icon: 'images-outline' },
+};
+
+function permInfo(
+  status?: string,
+  canAsk?: boolean | null
+): { label: string; color: string } {
+  switch (status) {
+    case 'granted':
+      return { label: 'Allowed', color: UI.green };
+    case 'limited':
+      return { label: 'Limited', color: UI.blue };
+    case 'denied':
+      return {
+        label: canAsk === false ? 'Denied (blocked)' : 'Denied',
+        color: UI.red,
+      };
+    case 'undetermined':
+      return { label: 'Not asked yet', color: UI.amber };
+    default:
+      return { label: 'No data', color: '#8A8F9C' };
+  }
+}
+
 function StatusPills({ u }: { u: Pick<AdminUserRow, 'account_locked' | 'shadowbanned' | 'messaging_restricted' | 'feature_restricted' | 'admin_role'> }) {
   const restricted = u.messaging_restricted || u.feature_restricted;
   if (!u.account_locked && !u.shadowbanned && !restricted && !u.admin_role) return null;
@@ -1438,6 +1467,42 @@ function UserDetail({
           )}
         </TouchableOpacity>
       )}
+
+      <SectionLabel>Permissions</SectionLabel>
+      <Group>
+        {PERM_ORDER.map((key, i) => {
+          const row = (d.permissions ?? []).find((x) => x.permission === key);
+          const meta = PERM_META[key];
+          const info = permInfo(row?.status, row?.can_ask_again);
+          return (
+            <View key={key}>
+              {i > 0 && <View style={styles.sep} />}
+              <View style={styles.row}>
+                <View style={[styles.rowIcon, { backgroundColor: withAlpha(info.color, 0.16) }]}>
+                  <Ionicons name={meta.icon} size={19} color={info.color} />
+                </View>
+                <View style={styles.rowBody}>
+                  <Text style={styles.rowTitle}>{meta.label}</Text>
+                  <Text style={styles.rowSub}>
+                    {row ? `Changed ${timeAgo(row.changed_at)}` : 'Not reported yet'}
+                  </Text>
+                </View>
+                <Pill label={info.label} color={info.color} />
+              </View>
+            </View>
+          );
+        })}
+      </Group>
+      <Text style={styles.permFoot}>
+        {(d.permissions ?? []).length > 0
+          ? `${(d.permissions[0].platform ?? 'unknown').toString()} · app v${d.permissions[0].app_version ?? '?'} · last reported ${timeAgo(
+              d.permissions
+                .map((x) => x.updated_at)
+                .sort()
+                .slice(-1)[0]
+            )}`
+          : 'Shows up after this user opens the latest app version.'}
+      </Text>
 
       <SectionLabel>Admin note</SectionLabel>
       <View style={styles.noteBox}>
@@ -2769,6 +2834,8 @@ const styles = StyleSheet.create({
   },
   dChipOn: { backgroundColor: 'rgba(239,68,68,0.28)', borderColor: 'rgba(239,68,68,0.7)' },
   dChipText: { fontSize: 12.5, fontFamily: FONTS.bodyMedium, color: UI.muted },
+
+  permFoot: { fontSize: 12, fontFamily: FONTS.body, color: UI.faint, marginTop: 8, marginLeft: 6 },
 
   // dialog
   dialogBackdrop: {
