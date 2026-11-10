@@ -46,6 +46,8 @@ import { supabase } from '../../lib/supabase';
 import { getCurrentUserId } from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
 import Avatar from '../../components/Avatar';
+import BlockedAvatar from '../../components/BlockedAvatar';
+import { BLOCKED_LABEL, BLOCKED_COLOR, isMaskedIdentity } from '../../lib/blockedProfile';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import {
   dbGetConversations,
@@ -93,8 +95,6 @@ type Conversation = {
 let rpcWarned = false;
 
 // Block: chat list me rahegi (purani chat dikhegi), par samne wale ki pehchan chhup jaati hai
-const BLOCKED_LABEL = '@undefined';
-const BLOCKED_COLOR = '#2A2A2E';
 function maskProfile(p: OtherProfile): OtherProfile {
   return {
     ...p,
@@ -326,7 +326,8 @@ const ChatRow = memo(
       : item.other_profile?.display_name ?? 'Unknown';
     const color = item.other_profile?.avatar_color ?? COLORS.violet;
     const isMasked =
-      !item.is_group && item.other_profile?.display_name === BLOCKED_LABEL;
+      !item.is_group &&
+      isMaskedIdentity(item.other_profile?.display_name, item.other_profile?.avatar_color);
     const hasUnread = item.unread_count > 0;
     const showUnread = hasUnread && !item.is_muted;
 
@@ -343,9 +344,7 @@ const ChatRow = memo(
           activeOpacity={0.6}
         >
           {isMasked ? (
-            <View style={styles.blockedAvatar}>
-              <Ionicons name="person" size={26} color="rgba(255,255,255,0.35)" />
-            </View>
+            <BlockedAvatar size={54} />
           ) : (
             <Avatar
               name={displayName}
@@ -1378,10 +1377,11 @@ export default function ChatsScreen() {
               {actionSheetConvo && (
                 <View style={styles.dialogHeader}>
                   {!actionSheetConvo.is_group &&
-                  actionSheetConvo.other_profile?.display_name === BLOCKED_LABEL ? (
-                    <View style={[styles.blockedAvatar, { width: 40, height: 40, borderRadius: 20 }]}>
-                      <Ionicons name="person" size={20} color="rgba(255,255,255,0.35)" />
-                    </View>
+                  isMaskedIdentity(
+                    actionSheetConvo.other_profile?.display_name,
+                    actionSheetConvo.other_profile?.avatar_color
+                  ) ? (
+                    <BlockedAvatar size={40} />
                   ) : (
                     <Avatar
                       name={
