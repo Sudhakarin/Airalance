@@ -55,6 +55,8 @@ import {
 } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 import { fetchBlockStatus } from '../../lib/blocks';
+import { BLOCKED_LABEL, isMaskedIdentity } from '../../lib/blockedProfile';
+import BlockedAvatar from '../../components/BlockedAvatar';
 import { getCurrentUserId } from '../../lib/auth';
 import { subscribeNetwork, isOnline } from '../../lib/network';
 import {
@@ -104,9 +106,6 @@ import {
   hapticError,
 } from '../../lib/haptics';
 import { playSend, playReceive } from '../../lib/sounds';
-
-// Block hone par samne wale ki pehchan chhup jaati hai
-const BLOCKED_LABEL = '@undefined';
 
 type Message = {
   id: string;
@@ -438,7 +437,7 @@ export default function ChatScreen() {
   const [blockState, setBlockState] = useState(() => {
     const c = getMemConvoRow(convoId);
     // chats list me ye chat masked thi => pehle se blocked maano (server confirm baad me)
-    return c?.other_display_name === BLOCKED_LABEL
+    return isMaskedIdentity(c?.other_display_name, c?.other_avatar_color)
       ? { i_blocked: false, blocked_me: true }
       : { i_blocked: false, blocked_me: false };
   });
@@ -633,7 +632,7 @@ export default function ChatScreen() {
       try {
         const cachedConvo = await dbGetConversation(convoId);
         if (cachedConvo && mounted) {
-          if (cachedConvo.other_display_name === BLOCKED_LABEL) {
+          if (isMaskedIdentity(cachedConvo.other_display_name, cachedConvo.other_avatar_color)) {
             setBlockState((p) =>
               p.i_blocked || p.blocked_me ? p : { i_blocked: false, blocked_me: true }
             );
@@ -2242,9 +2241,7 @@ export default function ChatScreen() {
             activeOpacity={0.7}
           >
             {chatBlocked ? (
-              <View style={styles.blockedAvatar}>
-                <Ionicons name="person" size={22} color="rgba(255,255,255,0.35)" />
-              </View>
+              <BlockedAvatar size={42} />
             ) : (
               <Avatar
                 name={other?.display_name ?? 'Unknown'}
@@ -2262,7 +2259,11 @@ export default function ChatScreen() {
                 </Text>
                 {!chatBlocked && other?.verified && <VerifiedBadge size={15} />}
               </View>
-              {chatBlocked ? null : peerTyping ? (
+              {chatBlocked ? (
+                <Text style={styles.headerSub} numberOfLines={1}>
+                  Offline
+                </Text>
+              ) : peerTyping ? (
                 <View
                   style={{
                     flexDirection: 'row',
