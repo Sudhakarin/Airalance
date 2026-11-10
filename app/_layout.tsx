@@ -10,6 +10,8 @@
 //         Expo push token registers only AFTER notification permission is granted
 //         and re-checks when user comes back from Settings
 // ✅ NEW: <BanGuard /> — banned user ko full-screen popup (Logout / Appeal)
+// ✅ NEW: <AppDialogHost /> — saare Alert.alert popups app ke theme me
+// ✅ NEW: <PermissionsSync /> — user ki permissions admin panel ke liye sync
 
 import { useEffect, useState, useRef } from 'react';
 import { Stack, useRouter, usePathname } from 'expo-router';
@@ -63,6 +65,8 @@ import { useOTAUpdate } from '../lib/useOTAUpdate';
 import UpdateOverlay from '../components/UpdateOverlay';
 import IncomingCallBridge from '../components/IncomingCallBridge';
 import BanGuard from '../components/BanGuard';
+import AppDialogHost from '../components/AppDialogHost';
+import PermissionsSync from '../components/PermissionsSync';
 import {
   runPermissionFlow,
   setupNotificationChannels,
@@ -590,6 +594,8 @@ export default function RootLayout() {
           <CallProvider>
             <IncomingCallBridge />
             <BanGuard />
+            <PermissionsSync />
+            <AppDialogHost />
             <StatusBar style="light" />
             <Stack
               screenOptions={{
