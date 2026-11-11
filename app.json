@@ -2,7 +2,7 @@
   "expo": {
     "name": "Airalance",
     "slug": "airalance-new",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "airalance",
@@ -13,7 +13,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.airalance.app",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Airalance needs microphone access to send voice messages and make calls.",
@@ -22,12 +22,14 @@
           "audio",
           "voip",
           "remote-notification"
-        ]
+        ],
+        "NSContactsUsageDescription": "Airalance uses your contacts to show which of your friends are on Airalance. Only encrypted fingerprints of emails and phone numbers are uploaded, never names or readable numbers.",
+        "NSLocationWhenInUseUsageDescription": "Airalance uses your location to show news from your area."
       }
     },
     "android": {
       "package": "com.airalance.app",
-      "versionCode": 8,
+      "versionCode": 9,
       "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": false,
       "permissions": [
@@ -55,7 +57,10 @@
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "READ_MEDIA_IMAGES",
-        "READ_MEDIA_VIDEO"
+        "READ_MEDIA_VIDEO",
+        "READ_CONTACTS",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -120,6 +125,20 @@
               "expo-sqlite"
             ]
           }
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Airalance uses your contacts to show which of your friends are on Airalance. Only encrypted fingerprints of emails and phone numbers are uploaded, never names or readable numbers."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Airalance uses your location to show news from your area.",
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false
         }
       ],
       "expo-video",
