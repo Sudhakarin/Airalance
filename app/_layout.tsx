@@ -12,6 +12,7 @@
 // ✅ NEW: <BanGuard /> — banned user ko full-screen popup (Logout / Appeal)
 // ✅ NEW: <AppDialogHost /> — saare Alert.alert popups app ke theme me
 // ✅ NEW: <PermissionsSync /> — user ki permissions admin panel ke liye sync
+// ✅ NEW: <PermissionPrompts /> — pehli baar Contacts + Location ka Allow/Deny (notification ki tarah)
 
 import { useEffect, useState, useRef } from 'react';
 import { Stack, useRouter, usePathname } from 'expo-router';
@@ -67,6 +68,7 @@ import IncomingCallBridge from '../components/IncomingCallBridge';
 import BanGuard from '../components/BanGuard';
 import AppDialogHost from '../components/AppDialogHost';
 import PermissionsSync from '../components/PermissionsSync';
+import PermissionPrompts from '../components/PermissionPrompts';
 import {
   runPermissionFlow,
   setupNotificationChannels,
@@ -595,6 +597,7 @@ export default function RootLayout() {
             <IncomingCallBridge />
             <BanGuard />
             <PermissionsSync />
+            <PermissionPrompts />
             <AppDialogHost />
             <StatusBar style="light" />
             <Stack
