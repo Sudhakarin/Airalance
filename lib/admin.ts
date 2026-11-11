@@ -70,11 +70,16 @@ export type AdminUserDetail = {
     ban_category: string | null;
     ban_until: string | null;
     banned_at: string | null;
+    location_city: string | null;
+    location_district: string | null;
+    location_region: string | null;
+    location_country: string | null;
   };
   email: string | null;
   last_sign_in_at: string | null;
   admin_role: AdminRole | null;
   note: string | null;
+  contacts_count: number;
   permissions: {
     permission: string;
     status: string;
