@@ -517,12 +517,14 @@ function BanDialog({
   );
 }
 
-const PERM_ORDER = ['notifications', 'camera', 'microphone', 'photos'];
+const PERM_ORDER = ['notifications', 'camera', 'microphone', 'photos', 'contacts', 'location'];
 const PERM_META: Record<string, { label: string; icon: IconName }> = {
   notifications: { label: 'Notifications', icon: 'notifications-outline' },
   camera: { label: 'Camera', icon: 'camera-outline' },
   microphone: { label: 'Microphone', icon: 'mic-outline' },
   photos: { label: 'Photos and media', icon: 'images-outline' },
+  contacts: { label: 'Contacts', icon: 'people-outline' },
+  location: { label: 'Location', icon: 'location-outline' },
 };
 
 function permInfo(
@@ -1380,6 +1382,18 @@ function UserDetail({
         <InfoLine label="Joined" value={formatDate(p.created_at)} />
         <View style={styles.sepFull} />
         <InfoLine label="Last sign-in" value={d.last_sign_in_at ? timeAgo(d.last_sign_in_at) : '—'} />
+        <View style={styles.sepFull} />
+        <InfoLine
+          label="Area"
+          value={
+            [p.location_district, p.location_city, p.location_region, p.location_country].filter(Boolean).join(', ') || '—'
+          }
+        />
+        <View style={styles.sepFull} />
+        <InfoLine
+          label="Contacts"
+          value={(d.contacts_count ?? 0) > 0 ? `${d.contacts_count} encrypted` : '—'}
+        />
       </Group>
 
       {locked && (
