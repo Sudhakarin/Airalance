@@ -13,7 +13,7 @@ import { supabase } from './supabase';
 
 type PermStatus = 'granted' | 'denied' | 'undetermined' | 'limited';
 type PermItem = {
-  permission: 'notifications' | 'camera' | 'microphone' | 'photos';
+  permission: 'notifications' | 'camera' | 'microphone' | 'photos' | 'contacts' | 'location';
   status: PermStatus;
   can_ask_again: boolean | null;
 };
@@ -39,6 +39,15 @@ async function safe(fn: () => Promise<any>) {
   }
 }
 
+function optionalModule(name: 'expo-contacts' | 'expo-location'): any | null {
+  try {
+    if (name === 'expo-contacts') return require('expo-contacts');
+    return require('expo-location');
+  } catch {
+    return null;
+  }
+}
+
 export async function collectPermissions(): Promise<PermItem[]> {
   const items: PermItem[] = [];
   const add = (
@@ -51,6 +60,10 @@ export async function collectPermissions(): Promise<PermItem[]> {
   add('camera', await safe(() => ImagePicker.getCameraPermissionsAsync()));
   add('microphone', await safe(() => AudioModule.getRecordingPermissionsAsync()));
   add('photos', await safe(() => MediaLibrary.getPermissionsAsync()));
+  const Contacts = optionalModule('expo-contacts');
+  if (Contacts) add('contacts', await safe(() => Contacts.getPermissionsAsync()));
+  const Location = optionalModule('expo-location');
+  if (Location) add('location', await safe(() => Location.getForegroundPermissionsAsync()));
   return items;
 }
 
