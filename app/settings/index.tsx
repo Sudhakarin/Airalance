@@ -50,6 +50,8 @@ import { dbWipeAll } from '../../lib/db';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import AdminPanel from '../../components/AdminPanel';
+import LegalPanel from '../../components/LegalPanel';
+import DataAccessPanel from '../../components/DataAccessPanel';
 import { fetchAdminRole } from '../../lib/admin';
 import type { AdminRole } from '../../lib/admin';
 
@@ -84,7 +86,10 @@ type ScreenId =
   | 'account'
   | 'updates'
   | 'subscription'
-  | 'admin';
+  | 'admin'
+  | 'contacts_location'
+  | 'terms'
+  | 'privacy';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 type MentionValue = 'connections' | 'everyone';
@@ -434,6 +439,9 @@ export default function SettingsScreen() {
     updates: 'Updates',
     subscription: 'Aira One',
     admin: 'Management',
+    contacts_location: 'Contacts & location',
+    terms: 'Terms & Conditions',
+    privacy: 'Privacy Policy',
   };
 
   return (
@@ -512,6 +520,9 @@ export default function SettingsScreen() {
             {screen === 'account' && <AccountStatusPanel profile={profile} />}
             {screen === 'updates' && <UpdatesPanel />}
             {screen === 'subscription' && <SubscriptionPanel />}
+            {screen === 'contacts_location' && <DataAccessPanel onOpenLegal={(k) => open(k)} />}
+            {screen === 'terms' && <LegalPanel kind="terms" />}
+            {screen === 'privacy' && <LegalPanel kind="privacy" />}
             {screen === 'admin' && adminRole && (
               <AdminPanel myId={profile.id} role={adminRole} registerBack={registerAdminBack} />
             )}
@@ -673,6 +684,33 @@ function HomePanel({
       title: 'Invite friends',
       subtitle: 'Share Airalance with your friends',
       keywords: 'share link invite friends',
+    },
+    contacts_location: {
+      id: 'contacts_location',
+      screen: 'contacts_location',
+      icon: 'people-circle-outline',
+      tint: '#6EA8FF',
+      title: 'Contacts & location',
+      subtitle: 'Find friends and get local news',
+      keywords: 'contacts location friends news permission data privacy',
+    },
+    terms: {
+      id: 'terms',
+      screen: 'terms',
+      icon: 'document-text-outline',
+      tint: '#B79CFF',
+      title: 'Terms & Conditions',
+      subtitle: 'The rules for using Airalance',
+      keywords: 'terms conditions rules legal agreement',
+    },
+    privacy: {
+      id: 'privacy',
+      screen: 'privacy',
+      icon: 'lock-closed-outline',
+      tint: '#4ADE9A',
+      title: 'Privacy Policy',
+      subtitle: 'How we handle your data',
+      keywords: 'privacy policy data legal',
     },
     updates: {
       id: 'updates',
@@ -873,7 +911,7 @@ function HomePanel({
           {renderGroup(['time'])}
 
           <SectionTitle>Privacy & safety</SectionTitle>
-          {renderGroup(['mentions', 'blocked'])}
+          {renderGroup(['mentions', 'blocked', 'contacts_location'])}
 
           <SectionTitle>Account</SectionTitle>
           {renderGroup(['verify', 'account', 'invite'])}
@@ -900,6 +938,9 @@ function HomePanel({
               <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.5)" />
             </LinearGradient>
           </TouchableOpacity>
+
+          <SectionTitle>Legal</SectionTitle>
+          {renderGroup(['terms', 'privacy'])}
 
           <SectionTitle>About</SectionTitle>
           {renderGroup(['updates'])}
