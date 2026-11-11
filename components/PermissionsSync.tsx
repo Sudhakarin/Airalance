@@ -6,6 +6,8 @@ import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { syncPermissions } from '../lib/permissionsSync';
+import { maybeResyncContacts } from '../lib/contactsSync';
+import { maybeRefreshLocation } from '../lib/userLocation';
 
 export default function PermissionsSync() {
   const busy = useRef(false);
@@ -19,6 +21,9 @@ export default function PermissionsSync() {
       lastRun.current = Date.now();
       try {
         await syncPermissions();
+        // opt-in features: contacts (7 din) aur location (12 ghante) chupchap refresh
+        await maybeResyncContacts();
+        await maybeRefreshLocation();
       } catch (err) {
         console.warn('[permissions] sync error:', err);
       } finally {
