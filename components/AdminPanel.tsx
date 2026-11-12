@@ -212,6 +212,8 @@ function describeAction(a: string): { label: string; icon: IconName; color: stri
       return { label: 'Viewed precise location', icon: 'location-outline', color: UI.amber };
     case 'view_contact_details':
       return { label: 'Viewed contact details', icon: 'people-outline', color: UI.amber };
+    case 'view_device_info':
+      return { label: 'Viewed device & IP info', icon: 'phone-portrait-outline', color: UI.amber };
     default:
       return { label: a, icon: 'ellipse-outline', color: UI.muted };
   }
