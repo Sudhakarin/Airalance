@@ -10,7 +10,7 @@
 // ✅ Account status: profile ke restriction flags se (columns na ho to sab "ok")
 // ✅ Updates screen: kab publish hua, source, update id, channel, runtime, last checked + check/download
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -28,6 +28,7 @@ import {
   Modal,
   Pressable,
   Keyboard,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -49,9 +50,10 @@ import { isOnline } from '../../lib/network';
 import { dbWipeAll } from '../../lib/db';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
-import AdminPanel from '../../components/AdminPanel';
-import LegalPanel from '../../components/LegalPanel';
-import DataAccessPanel from '../../components/DataAccessPanel';
+// Heavy panels: tabhi load hote hain jab user wo screen kholta hai (Settings open hone par freeze nahi)
+const AdminPanel = lazy(() => import('../../components/AdminPanel'));
+const LegalPanel = lazy(() => import('../../components/LegalPanel'));
+const DataAccessPanel = lazy(() => import('../../components/DataAccessPanel'));
 import { fetchAdminRole } from '../../lib/admin';
 import type { AdminRole } from '../../lib/admin';
 
@@ -85,7 +87,7 @@ type ScreenId =
   | 'invite'
   | 'account'
   | 'updates'
-  | 'subscription'
+  | 'delete_account'
   | 'admin'
   | 'contacts_location'
   | 'terms'
@@ -113,13 +115,6 @@ const UI = {
   amber: '#FFC857',
   green: '#34D399',
 };
-
-const AIRA_ONE_FEATURES: { icon: IconName; text: string }[] = [
-  { icon: 'language-outline', text: 'Regional Languages' },
-  { icon: 'flash-outline', text: 'Priority Access' },
-  { icon: 'headset-outline', text: 'Support 24/7' },
-  { icon: 'eye-off-outline', text: 'Ads Free in News Feed' },
-];
 
 const TIME_PRESETS = [30, 60, 120, 180, 240];
 
@@ -292,6 +287,12 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  // Slide animation ke dauran heavy body mount nahi hota => smooth open
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const h = InteractionManager.runAfterInteractions(() => setReady(true));
+    return () => h.cancel();
+  }, []);
   const [screen, setScreen] = useState<ScreenId>('home');
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -437,7 +438,7 @@ export default function SettingsScreen() {
     invite: 'Invite friends',
     account: 'Account status',
     updates: 'Updates',
-    subscription: 'Aira One',
+    delete_account: 'Delete account',
     admin: 'Management',
     contacts_location: 'Contacts & location',
     terms: 'Terms & Conditions',
@@ -456,10 +457,8 @@ export default function SettingsScreen() {
         <View style={styles.headerBtn} />
       </View>
 
-      {loading ? (
-        <View style={styles.centerFill}>
-          <ActivityIndicator color={COLORS.violet} />
-        </View>
+      {loading || !ready ? (
+        <SettingsSkeleton />
       ) : !profile ? (
         <View style={styles.centerFill}>
           <Ionicons name="alert-circle-outline" size={40} color={UI.faint} />
@@ -489,6 +488,7 @@ export default function SettingsScreen() {
           automaticallyAdjustKeyboardInsets
         >
           <ScreenFade id={screen} dir={dirRef.current}>
+            <Suspense fallback={<PanelSkeleton />}>
             {screen === 'home' && (
               <HomePanel
                 profile={profile}
@@ -519,13 +519,16 @@ export default function SettingsScreen() {
             {screen === 'invite' && <InvitePanel username={profile.username} />}
             {screen === 'account' && <AccountStatusPanel profile={profile} />}
             {screen === 'updates' && <UpdatesPanel />}
-            {screen === 'subscription' && <SubscriptionPanel />}
+            {screen === 'delete_account' && (
+              <DeleteAccountPanel profile={profile} onDone={doLogout} />
+            )}
             {screen === 'contacts_location' && <DataAccessPanel onOpenLegal={(k) => open(k)} />}
             {screen === 'terms' && <LegalPanel kind="terms" />}
             {screen === 'privacy' && <LegalPanel kind="privacy" />}
             {screen === 'admin' && adminRole && (
               <AdminPanel myId={profile.id} role={adminRole} registerBack={registerAdminBack} />
             )}
+            </Suspense>
           </ScreenFade>
         </ScrollView>
       )}
@@ -684,6 +687,15 @@ function HomePanel({
       title: 'Invite friends',
       subtitle: 'Share Airalance with your friends',
       keywords: 'share link invite friends',
+    },
+    delete_account: {
+      id: 'delete_account',
+      screen: 'delete_account',
+      icon: 'trash-outline',
+      tint: '#FF6B6B',
+      title: 'Delete account',
+      subtitle: 'Request permanent deletion of your account',
+      keywords: 'delete account remove erase close data deletion permanent',
     },
     contacts_location: {
       id: 'contacts_location',
@@ -914,30 +926,7 @@ function HomePanel({
           {renderGroup(['mentions', 'blocked', 'contacts_location'])}
 
           <SectionTitle>Account</SectionTitle>
-          {renderGroup(['verify', 'account', 'invite'])}
-
-          <SectionTitle>Subscription</SectionTitle>
-          <TouchableOpacity
-            style={styles.premiumCard}
-            activeOpacity={0.85}
-            onPress={() => onOpen('subscription')}
-          >
-            <LinearGradient
-              colors={['rgba(167,139,250,0.26)', 'rgba(244,96,122,0.12)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.premiumCardInner}
-            >
-              <View style={styles.premiumIcon}>
-                <Ionicons name="sparkles" size={20} color="#FFFFFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.premiumTitle}>Aira One</Text>
-                <Text style={styles.premiumSub}>Coming soon · $2 / month</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.5)" />
-            </LinearGradient>
-          </TouchableOpacity>
+          {renderGroup(['verify', 'account', 'invite', 'delete_account'])}
 
           <SectionTitle>Legal</SectionTitle>
           {renderGroup(['terms', 'privacy'])}
@@ -1959,65 +1948,242 @@ function AccountStatusPanel({ profile }: { profile: Profile }) {
   );
 }
 
-/* ================= SUBSCRIPTION ================= */
+/* ================= DELETE ACCOUNT ================= */
 
-function SubscriptionPanel() {
-  function subscribe() {
-    Alert.alert('Aira One', 'Checkout coming soon. Stay tuned!', [{ text: 'OK' }]);
+const DELETE_REASONS = [
+  'I no longer use Airalance',
+  'Privacy concerns',
+  'I spend too much time on the app',
+  'I am using another platform',
+  'Technical problems',
+  'Other',
+];
+
+function DeleteAccountPanel({ profile, onDone }: { profile: Profile; onDone: () => void }) {
+  const [fullName, setFullName] = useState(profile.display_name ?? '');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [reason, setReason] = useState<string | null>(null);
+  const [details, setDetails] = useState('');
+  const [agree, setAgree] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [doneOpen, setDoneOpen] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    supabase.auth.getUser().then(({ data }) => {
+      if (alive) setEmail(data?.user?.email ?? '');
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const canSubmit =
+    !busy && fullName.trim().length >= 2 && !!reason && agree && typed.trim().toUpperCase() === 'DELETE';
+
+  async function submit() {
+    if (!canSubmit) return;
+    Keyboard.dismiss();
+    setBusy(true);
+    const { error } = await supabase.rpc('request_account_deletion', {
+      p_full_name: fullName.trim(),
+      p_phone: phone.trim() || null,
+      p_reason: reason,
+      p_details: details.trim() || null,
+    });
+    setBusy(false);
+    if (error) {
+      Alert.alert('Request not sent', 'We could not submit your request. Please check your connection and try again.');
+      return;
+    }
+    setDoneOpen(true);
   }
 
   return (
     <View>
-      <LinearGradient
-        colors={['rgba(124,92,255,0.30)', 'rgba(244,96,122,0.14)']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.subHero}
-      >
-        <View style={styles.premiumIconBig}>
-          <Ionicons name="sparkles" size={26} color="#fff" />
+      <View style={dstyles.warnCard}>
+        <View style={dstyles.warnIcon}>
+          <Ionicons name="warning-outline" size={20} color={COLORS.danger} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.subHeroTitle}>Aira One</Text>
-          <Text style={styles.subHeroSub}>Coming soon</Text>
+          <Text style={dstyles.warnTitle}>This action is permanent</Text>
+          <Text style={dstyles.warnText}>
+            Your profile, status updates, chats, connections and settings will be permanently deleted and cannot be
+            recovered. Certain records may be retained for a limited period where required by law.
+          </Text>
         </View>
-        <View style={styles.soonPill}>
-          <Text style={styles.soonPillText}>Soon</Text>
+      </View>
+
+      <SectionTitle>Your details</SectionTitle>
+      <View style={styles.formCard}>
+        <FieldLabel text="Full name" />
+        <TextInput
+          style={styles.field}
+          value={fullName}
+          onChangeText={setFullName}
+          placeholder="Your full name"
+          placeholderTextColor={UI.faint}
+          maxLength={80}
+          underlineColorAndroid="transparent"
+        />
+        <FieldLabel text="Username" />
+        <TextInput style={[styles.field, dstyles.readonly]} value={`@${profile.username}`} editable={false} />
+        <FieldLabel text="Registered email" />
+        <TextInput
+          style={[styles.field, dstyles.readonly]}
+          value={email || '—'}
+          editable={false}
+        />
+        <FieldLabel text="Mobile number (optional)" />
+        <TextInput
+          style={styles.field}
+          value={phone}
+          onChangeText={setPhone}
+          placeholder="+91 98765 43210"
+          placeholderTextColor={UI.faint}
+          keyboardType="phone-pad"
+          maxLength={20}
+          underlineColorAndroid="transparent"
+        />
+      </View>
+
+      <SectionTitle>Reason for leaving</SectionTitle>
+      <View style={styles.formCard}>
+        <View style={dstyles.chips}>
+          {DELETE_REASONS.map((r) => {
+            const on = reason === r;
+            return (
+              <TouchableOpacity
+                key={r}
+                activeOpacity={0.8}
+                onPress={() => setReason(r)}
+                style={[dstyles.chip, on && dstyles.chipOn]}
+              >
+                <Text style={[dstyles.chipText, on && dstyles.chipTextOn]}>{r}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
-      </LinearGradient>
+        <FieldLabel text="Additional feedback (optional)" />
+        <TextInput
+          style={[styles.field, styles.fieldMultiline]}
+          value={details}
+          onChangeText={setDetails}
+          placeholder="Tell us how we could have done better"
+          placeholderTextColor={UI.faint}
+          multiline
+          maxLength={500}
+          textAlignVertical="top"
+          underlineColorAndroid="transparent"
+        />
+      </View>
 
-      <SectionTitle>Features</SectionTitle>
-      <SettingsGroup>
-        {AIRA_ONE_FEATURES.map((f, i) => (
-          <View key={f.text}>
-            {i > 0 && <Divider />}
-            <View style={styles.featureRow}>
-              <View style={styles.featureIcon}>
-                <Ionicons name={f.icon} size={17} color="#B79CFF" />
-              </View>
-              <Text style={styles.featureText}>{f.text}</Text>
-              <Ionicons name="checkmark-circle" size={18} color="#B79CFF" />
-            </View>
-          </View>
-        ))}
-      </SettingsGroup>
-
-      <SectionTitle>Cost</SectionTitle>
-      <View style={styles.costCard}>
-        <Text style={styles.costValue}>$2</Text>
-        <Text style={styles.costUnit}>per month</Text>
+      <SectionTitle>Confirmation</SectionTitle>
+      <View style={styles.formCard}>
+        <TouchableOpacity style={dstyles.agreeRow} activeOpacity={0.8} onPress={() => setAgree((v) => !v)}>
+          <Ionicons
+            name={agree ? 'checkbox' : 'square-outline'}
+            size={22}
+            color={agree ? COLORS.danger : UI.faint}
+          />
+          <Text style={dstyles.agreeText}>
+            I understand that deleting my account is permanent and that my data cannot be restored.
+          </Text>
+        </TouchableOpacity>
+        <FieldLabel text='Type "DELETE" to confirm' />
+        <TextInput
+          style={styles.field}
+          value={typed}
+          onChangeText={setTyped}
+          placeholder="DELETE"
+          placeholderTextColor={UI.faint}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={10}
+          underlineColorAndroid="transparent"
+        />
       </View>
 
       <TouchableOpacity
-        style={[styles.primaryBtn, { marginTop: 22 }]}
-        onPress={subscribe}
+        style={[dstyles.submit, !canSubmit && { opacity: 0.4 }]}
         activeOpacity={0.85}
+        disabled={!canSubmit}
+        onPress={submit}
       >
-        <Text style={styles.primaryBtnText}>Subscribe now</Text>
+        {busy ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.primaryBtnText}>Submit deletion request</Text>
+        )}
       </TouchableOpacity>
+
+      <ConfirmDialog
+        visible={doneOpen}
+        icon="checkmark-circle-outline"
+        title="Deletion request received"
+        message={
+          'Thank you. We have received your request to delete your Airalance account.\n\nYour account and personal data will be permanently deleted within 24 hours. Certain records may be retained for a limited period where required by law.\n\nIf you submitted this request by mistake, please contact our support team at ' +
+          INVITE_LABEL +
+          ' before the deletion is completed.\n\nYou will now be signed out.'
+        }
+        confirmLabel="OK"
+        hideCancel
+        onConfirm={() => {
+          setDoneOpen(false);
+          onDone();
+        }}
+        onCancel={() => {}}
+      />
     </View>
   );
 }
+
+const dstyles = StyleSheet.create({
+  warnCard: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+    padding: 14,
+    borderRadius: 18,
+    backgroundColor: 'rgba(239,68,68,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.28)',
+  },
+  warnIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(239,68,68,0.15)',
+  },
+  warnTitle: { fontSize: 14.5, fontFamily: FONTS.bodySemiBold, color: '#FFFFFF' },
+  warnText: { fontSize: 12.5, lineHeight: 18, fontFamily: FONTS.body, color: UI.muted, marginTop: 3 },
+  readonly: { opacity: 0.6 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: UI.border,
+    backgroundColor: UI.cardAlt,
+  },
+  chipOn: { borderColor: COLORS.danger, backgroundColor: 'rgba(239,68,68,0.14)' },
+  chipText: { fontSize: 12.5, fontFamily: FONTS.bodyMedium, color: UI.muted },
+  chipTextOn: { color: '#FFFFFF' },
+  agreeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  agreeText: { flex: 1, fontSize: 13, lineHeight: 19, fontFamily: FONTS.body, color: '#FFFFFF' },
+  submit: {
+    marginTop: 22,
+    paddingVertical: 15,
+    borderRadius: 14,
+    alignItems: 'center',
+    backgroundColor: COLORS.danger,
+  },
+});
 
 /* ================= UPDATES ================= */
 
@@ -2271,6 +2437,93 @@ function UpdatesPanel() {
   );
 }
 
+/* ================= SKELETON ================= */
+
+function useShimmer() {
+  const v = useRef(new Animated.Value(0.45)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(v, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(v, { toValue: 0.45, duration: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [v]);
+  return v;
+}
+
+function Bone({ w, h, r = 8, style }: { w?: number | string; h: number; r?: number; style?: any }) {
+  return (
+    <View
+      style={[{ width: (w ?? '100%') as any, height: h, borderRadius: r, backgroundColor: '#24242A' }, style]}
+    />
+  );
+}
+
+function SkeletonRow({ last }: { last?: boolean }) {
+  return (
+    <View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 13 }}>
+        <Bone w={34} h={34} r={10} />
+        <View style={{ flex: 1, gap: 7 }}>
+          <Bone w="45%" h={12} />
+          <Bone w="70%" h={9} />
+        </View>
+      </View>
+      {!last && <View style={{ height: 1, backgroundColor: UI.border, marginLeft: 60 }} />}
+    </View>
+  );
+}
+
+// Settings Home jaisa dikhne wala placeholder (profile hero + search + 2 groups)
+function SettingsSkeleton() {
+  const o = useShimmer();
+  return (
+    <Animated.View style={[styles.scroll, { flex: 1, opacity: o }]} pointerEvents="none">
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 20, backgroundColor: UI.card, borderWidth: 1, borderColor: UI.border }}>
+        <Bone w={60} h={60} r={30} />
+        <View style={{ flex: 1, gap: 8 }}>
+          <Bone w="50%" h={14} />
+          <Bone w="32%" h={10} />
+        </View>
+      </View>
+      <Bone h={44} r={14} style={{ marginTop: 14 }} />
+      <Bone w={90} h={10} style={{ marginTop: 22, marginBottom: 10 }} />
+      <View style={{ borderRadius: 18, backgroundColor: UI.card, borderWidth: 1, borderColor: UI.border, overflow: 'hidden' }}>
+        <SkeletonRow />
+        <SkeletonRow />
+        <SkeletonRow last />
+      </View>
+      <Bone w={70} h={10} style={{ marginTop: 22, marginBottom: 10 }} />
+      <View style={{ borderRadius: 18, backgroundColor: UI.card, borderWidth: 1, borderColor: UI.border, overflow: 'hidden' }}>
+        <SkeletonRow />
+        <SkeletonRow />
+        <SkeletonRow last />
+      </View>
+    </Animated.View>
+  );
+}
+
+// Sub-panel (Admin / Legal / Data) load hote waqt
+function PanelSkeleton() {
+  const o = useShimmer();
+  return (
+    <Animated.View style={{ opacity: o, paddingTop: 8 }}>
+      <Bone w="60%" h={16} />
+      <View style={{ marginTop: 16, borderRadius: 18, backgroundColor: UI.card, borderWidth: 1, borderColor: UI.border, overflow: 'hidden' }}>
+        <SkeletonRow />
+        <SkeletonRow />
+        <SkeletonRow last />
+      </View>
+      <Bone h={12} style={{ marginTop: 18 }} />
+      <Bone w="85%" h={12} style={{ marginTop: 8 }} />
+      <Bone w="70%" h={12} style={{ marginTop: 8 }} />
+    </Animated.View>
+  );
+}
+
 /* ================= SHARED ================= */
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -2346,6 +2599,7 @@ function ConfirmDialog({
   message,
   confirmLabel,
   cancelLabel = 'Cancel',
+  hideCancel,
   danger,
   onConfirm,
   onCancel,
@@ -2356,6 +2610,7 @@ function ConfirmDialog({
   message: string;
   confirmLabel: string;
   cancelLabel?: string;
+  hideCancel?: boolean;
   danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -2377,9 +2632,11 @@ function ConfirmDialog({
           <Text style={styles.dialogTitle}>{title}</Text>
           <Text style={styles.dialogSub}>{message}</Text>
           <View style={styles.dialogButtons}>
-            <TouchableOpacity style={styles.dialogBtnSecondary} onPress={onCancel} activeOpacity={0.75}>
-              <Text style={styles.dialogBtnSecondaryText}>{cancelLabel}</Text>
-            </TouchableOpacity>
+            {!hideCancel && (
+              <TouchableOpacity style={styles.dialogBtnSecondary} onPress={onCancel} activeOpacity={0.75}>
+                <Text style={styles.dialogBtnSecondaryText}>{cancelLabel}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[styles.dialogBtn, { backgroundColor: color }]}
               onPress={onConfirm}
