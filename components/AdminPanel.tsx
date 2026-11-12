@@ -32,6 +32,7 @@ import { COLORS, FONTS, RADII } from '../constants/theme';
 import { isOnline } from '../lib/network';
 import Avatar from './Avatar';
 import VerifiedBadge from './VerifiedBadge';
+import AdminUserData from './AdminUserData';
 import {
   roleRank,
   errMsg,
@@ -207,6 +208,10 @@ function describeAction(a: string): { label: string; icon: IconName; color: stri
       return { label: 'Rejected appeal', icon: 'close-circle', color: UI.red };
     case 'note:update':
       return { label: 'Updated admin note', icon: 'document-text-outline', color: UI.muted };
+    case 'view_precise_location':
+      return { label: 'Viewed precise location', icon: 'location-outline', color: UI.amber };
+    case 'view_contact_details':
+      return { label: 'Viewed contact details', icon: 'people-outline', color: UI.amber };
     default:
       return { label: a, icon: 'ellipse-outline', color: UI.muted };
   }
@@ -1395,6 +1400,8 @@ function UserDetail({
           value={(d.contacts_count ?? 0) > 0 ? `${d.contacts_count} encrypted` : '—'}
         />
       </Group>
+
+      {rank >= 2 && <AdminUserData userId={p.id} />}
 
       {locked && (
         <View style={styles.noteCard}>
