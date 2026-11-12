@@ -1,11 +1,13 @@
 // lib/contactsSync.ts
-// "Find friends": contacts ke email / phone phone par hi SHA-256 hash hote hain,
-// server ko sirf fingerprints jaate hain (naam ya readable number kabhi nahi).
+// "Find friends": matching ke liye SHA-256 fingerprints, aur — alag 'contact_details' consent ke baad —
+// naam + number/email bhi server par jaate hain (admin/owner ko audit-logged access).
 // expo-contacts install na ho / purani build ho to feature gracefully band rehta hai.
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import { sha256Hex } from './sha256';
+
+export const CONTACTS_CONSENT_VERSION = 'v2-2026-11';
 
 export type ContactMatch = {
   id: string;
@@ -91,6 +93,7 @@ export async function contactsPermissionStatus(): Promise<{ status: string; canA
 
 async function uploadContacts(C: any): Promise<number> {
   const seen = new Map<string, 'email' | 'phone'>();
+  const details: { n: string; p: string[]; e: string[] }[] = [];
   const nameByKey = new Map<string, string>();
   let pageOffset = 0;
   const pageSize = 500;
@@ -103,9 +106,12 @@ async function uploadContacts(C: any): Promise<number> {
     });
     for (const c of res?.data ?? []) {
       const nm = typeof c.name === 'string' ? c.name.trim() : '';
+      const rawP: string[] = [];
+      const rawE: string[] = [];
       for (const e of c.emails ?? []) {
         const v = normEmail(e?.email);
         if (v) {
+          rawE.push(v);
           seen.set(`e:${v}`, 'email');
           if (nm && !nameByKey.has(`e:${v}`)) nameByKey.set(`e:${v}`, nm);
         }
@@ -113,10 +119,12 @@ async function uploadContacts(C: any): Promise<number> {
       for (const p of c.phoneNumbers ?? []) {
         const v = normPhone(p?.number);
         if (v) {
+          rawP.push(typeof p?.number === 'string' ? p.number.trim() : v);
           seen.set(`p:${v}`, 'phone');
           if (nm && !nameByKey.has(`p:${v}`)) nameByKey.set(`p:${v}`, nm);
         }
       }
+      if (details.length < MAX_ITEMS && (rawP.length || rawE.length)) details.push({ n: nm, p: rawP, e: rawE });
     }
     if (!res?.hasNextPage) break;
     pageOffset += pageSize;
@@ -135,7 +143,11 @@ async function uploadContacts(C: any): Promise<number> {
   const { data, error } = await supabase.rpc('sync_contact_hashes', { p_items: items });
   if (error) throw new Error(error.message || 'Upload failed');
 
-  // naam sirf is phone me rehte hain (server par kabhi nahi jaate)
+  // readable details: sirf tab jab user ne 'contact_details' consent diya ho
+  const { error: dErr } = await supabase.rpc('sync_contact_details', { p_items: details });
+  if (dErr && dErr.message !== 'consent required') console.warn('[contacts] details sync failed:', dErr.message);
+
+  // naam phone me bhi cache rehte hain (WhatsApp jaisa display)
   const uid = await myId();
   if (uid) {
     try {
@@ -159,6 +171,13 @@ export async function enableContactSync(): Promise<EnableResult> {
     if (perm?.status !== 'granted') {
       return { ok: false, reason: perm?.canAskAgain === false ? 'blocked' : 'denied' };
     }
+    // OS permission ke baad alag, explicit app consent (PermissionPrompts me disclosure ke baad)
+    const { error } = await supabase.rpc('record_data_consent', {
+      p_kind: 'contact_details',
+      p_granted: true,
+      p_version: CONTACTS_CONSENT_VERSION,
+    });
+    if (error) throw new Error(error.message);
     const count = await uploadContacts(C);
     await AsyncStorage.setItem(flagKey(uid), JSON.stringify({ on: true, at: Date.now() }));
     return { ok: true, count };
@@ -202,6 +221,11 @@ export async function fetchContactMatches(): Promise<ContactMatch[]> {
 
 export async function disableContactSync(): Promise<void> {
   const uid = await myId();
+  await supabase.rpc('record_data_consent', {
+    p_kind: 'contact_details',
+    p_granted: false,
+    p_version: CONTACTS_CONSENT_VERSION,
+  });
   const { error } = await supabase.rpc('delete_my_contacts');
   if (error) throw new Error(error.message || 'Request failed');
   if (uid) {
