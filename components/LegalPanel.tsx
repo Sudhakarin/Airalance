@@ -171,6 +171,7 @@ const PRIVACY: Section[] = [
       'We keep your information while your account is active. When you delete your account we delete or anonymise your data, except where we must keep some records for legal or safety reasons (for example to enforce a ban or comply with a legal order).',
       'Contact details, fingerprints and precise location are deleted when you withdraw consent or delete your account.',
       'IP address and device logs are kept for 180 days from last use, or longer if the law or a legal order requires.',
+      'You can request deletion of your account in Settings → Delete account. We delete your account and personal data within 24 hours of your request. We may keep a limited record (such as your email, username and IP or device logs) for up to 180 days after deletion, or longer if the law or a legal order requires.',
     ],
   },
   {
