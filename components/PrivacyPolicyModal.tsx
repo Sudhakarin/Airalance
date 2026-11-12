@@ -20,7 +20,7 @@ const SECTIONS: { title: string; body: string[] }[] = [
       'Information you provide:',
       '• Account details (name, email, phone number) when you sign up',
       '• Profile information you choose to add',
-      '• Messages and content you send through chat',
+      '• Messages, voice notes, and media you send through chat',
       '• Comments, reactions, and posts you make on the news feed',
       '• Any feedback or support requests',
       '',
@@ -28,7 +28,14 @@ const SECTIONS: { title: string; body: string[] }[] = [
       '• Device information (model, OS version, unique identifiers, IP address)',
       '• Usage data (features accessed, time spent, interactions)',
       '• Log data (app crashes, system activity, clickstream)',
-      '• Approximate location (for local news relevance, only with your permission)',
+      '• Precise location (to show news from your area and keep the community safe, only with your permission)',
+      '',
+      'Device permissions (only with your consent):',
+      '• Camera and Microphone — for voice/video calls, voice messages, and sending media',
+      '• Photos/Storage — to send images and save media',
+      '• Contacts (names, phone numbers, emails) — to show which friends are on Airalance, improve recommendations, and keep the community safe',
+      '• Notifications — to send updates, security alerts, and call notifications',
+      'You can change or withdraw these permissions at any time in your device settings.',
       '',
       'Information from third parties:',
       'If you log in via social media platforms, we may access your name, email, and profile picture as per your authorization settings.',
@@ -38,8 +45,9 @@ const SECTIONS: { title: string; body: string[] }[] = [
     title: '2. How We Use Your Information',
     body: [
       '• To create and manage your account',
-      '• To enable chat and messaging features',
-      '• To deliver personalized news feed content',
+      '• To enable chat, voice/video calling, and messaging features',
+      '• To deliver personalized and local news feed content',
+      '• To show which friends are on Airalance and improve recommendations',
       '• To improve app performance and user experience',
       '• To send important updates, security alerts, and support messages',
       '• To maintain platform safety and prevent fraud/abuse',
@@ -164,7 +172,7 @@ export default function PrivacyPolicyModal({ visible, onClose }: Props) {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.updated}>Last Updated: August 21, 2026</Text>
+            <Text style={styles.updated}>Last Updated: November 12, 2026</Text>
             <Text style={styles.intro}>
               Airalance (referred to as "we," "our," or "us") is an application
               under AiraThink. We are committed to protecting your privacy.
