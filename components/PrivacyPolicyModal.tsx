@@ -104,8 +104,9 @@ const SECTIONS: { title: string; body: string[] }[] = [
     title: '10. Grievance Redressal',
     body: [
       'If you have privacy concerns or complaints, please contact our Grievance Officer:',
+      'Name: Priya Sharma',
       'Email: help@airalance.com',
-      'Phone: 7055520186',
+      'Phone: 9848796053',
       '',
       'Response Time: We aim to respond within 30 days.',
     ],
@@ -181,7 +182,8 @@ export default function PrivacyPolicyModal({ visible, onClose }: Props) {
                       line === ''
                         ? styles.spacer
                         : line.startsWith('•') ||
-                          line.startsWith('Email:') ||
+                          line.startsWith('Name:') ||
+          line.startsWith('Email:') ||
                           line.startsWith('Phone:') ||
                           line.startsWith('Response')
                         ? styles.bullet
