@@ -1,6 +1,6 @@
 // components/DataAccessPanel.tsx
 // Settings → Contacts & location
-//  • Find friends: contacts ke encrypted fingerprints se pata chalta hai kaun Airalance par hai
+//  • Find friends: contacts (naam, number, email) + fingerprints se pata chalta hai kaun Airalance par hai
 //  • Local news: approximate location (city/region/country) personalised news ke liye
 // Dono opt-in hain; kabhi bhi band karke data delete kar sakte ho.
 
@@ -145,7 +145,7 @@ export default function DataAccessPanel({
     }
     Alert.alert(
       'Find friends from contacts',
-      'Airalance will read the emails and phone numbers in your contacts and turn each into an encrypted fingerprint on your phone. Only those fingerprints are uploaded, never names or readable numbers. You can turn this off and delete them anytime.',
+      'Airalance will save the names, phone numbers and emails in your contacts on our servers to show which friends are on Airalance, improve recommendations and keep the community safe. Our authorised team can view this data, and we may share it with authorities only when the law requires. You can withdraw consent and delete it anytime. Tap Allow to agree.',
       [
         { text: 'Not now', style: 'cancel' },
         {
@@ -176,7 +176,7 @@ export default function DataAccessPanel({
     if (!needOnline()) return;
     Alert.alert(
       'Turn off Find friends?',
-      'We will delete the contact fingerprints we hold for you.',
+      'We will delete the contact details and fingerprints we hold for you.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -224,7 +224,7 @@ export default function DataAccessPanel({
     }
     Alert.alert(
       'Local news',
-      'Airalance will use your location to find your area and show news from your city and neighbourhood. We save only your area (city, locality and postal code), never your exact coordinates.',
+      'Airalance will save your precise (GPS) location while you use the app, to show news from your area, improve relevance and keep the community safe. Our authorised team can view it, and we may share it with authorities only when the law requires. You can withdraw consent and delete it anytime. Tap Allow to agree.',
       [
         { text: 'Not now', style: 'cancel' },
         {
@@ -303,7 +303,7 @@ export default function DataAccessPanel({
           title="Contacts"
           subtitle={
             contactsOn
-              ? 'On · only encrypted fingerprints are stored'
+              ? 'On · contact details are saved with your consent'
               : 'See which of your contacts are on Airalance'
           }
           right={
@@ -423,7 +423,7 @@ export default function DataAccessPanel({
               icon="refresh-outline"
               tint="#4ADE9A"
               title="Update location"
-              subtitle="Only your area (city, locality, postal code) is saved"
+              subtitle="Your precise location and area are saved with your consent"
               onPress={updateLocation}
               right={<Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.32)" />}
             />
