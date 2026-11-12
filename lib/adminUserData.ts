@@ -49,3 +49,6 @@ export type DeviceRow = {
 
 export const adminListUserDevices = (userId: string, reason: string) =>
   rpc<DeviceRow[]>('admin_list_user_devices', { p_user_id: userId, p_reason: reason, p_limit: 50 });
+
+export const adminExportUserBundle = (userId: string, requestRef: string, authority: string) =>
+  rpc<any>('admin_export_user_bundle', { p_user_id: userId, p_request_ref: requestRef, p_authority: authority });
