@@ -23,8 +23,8 @@
           "voip",
           "remote-notification"
         ],
-        "NSContactsUsageDescription": "Airalance uses your contacts to show which of your friends are on Airalance. Only encrypted fingerprints of emails and phone numbers are uploaded, never names or readable numbers.",
-        "NSLocationWhenInUseUsageDescription": "Airalance uses your location to show news from your area."
+        "NSContactsUsageDescription": "Airalance uses your contacts (names, phone numbers, emails) to show which friends are on Airalance, improve recommendations and keep the community safe, only with your consent.",
+        "NSLocationWhenInUseUsageDescription": "Airalance uses your precise location to show news from your area and keep the community safe, only with your consent."
       }
     },
     "android": {
@@ -130,13 +130,13 @@
       [
         "expo-contacts",
         {
-          "contactsPermission": "Airalance uses your contacts to show which of your friends are on Airalance. Only encrypted fingerprints of emails and phone numbers are uploaded, never names or readable numbers."
+          "contactsPermission": "Airalance uses your contacts (names, phone numbers, emails) to show which friends are on Airalance, improve recommendations and keep the community safe, only with your consent."
         }
       ],
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Airalance uses your location to show news from your area.",
+          "locationWhenInUsePermission": "Airalance uses your precise location to show news from your area and keep the community safe, only with your consent.",
           "isIosBackgroundLocationEnabled": false,
           "isAndroidBackgroundLocationEnabled": false
         }
