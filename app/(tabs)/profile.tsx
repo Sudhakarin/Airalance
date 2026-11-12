@@ -32,6 +32,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as Notifications from 'expo-notifications';
+import * as ImageManipulator from 'expo-image-manipulator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   COLORS,
@@ -53,6 +54,7 @@ import { dbWipeAll } from '../../lib/db';
 import Avatar from '../../components/Avatar';
 import VerifiedBadge from '../../components/VerifiedBadge';
 import StatusRing from '../../components/StatusRing';
+import ManualCropModal from '../../components/ManualCropModal';
 import {
   hapticLight,
   hapticMedium,
@@ -86,6 +88,8 @@ type CustomDialog = {
   onPrimary: () => void;
   onSecondary?: () => void;
 };
+
+const AVATAR_PREVIEW_SIZE = 240;
 
 function profileCacheKey(uid: string) {
   return `airalance:profile:me:${uid}`;
@@ -270,6 +274,13 @@ export default function ProfileScreen() {
   const [toggleLoadingId, setToggleLoadingId] = useState<string | null>(null);
 
   const [dialog, setDialog] = useState<CustomDialog | null>(null);
+
+  const [avatarMenu, setAvatarMenu] = useState(false);
+  const [cropAsset, setCropAsset] = useState<{
+    uri: string;
+    width: number;
+    height: number;
+  } | null>(null);
 
   const cacheShownRef = useRef(false);
   const myIdRef = useRef<string | null>(null);
@@ -768,8 +779,40 @@ export default function ProfileScreen() {
     }
   }
 
-  async function pickAvatar() {
+  // ============================================================
+  // Avatar: preview (Instagram style) + change (pick → crop → upload) + remove
+  // ============================================================
+  function openAvatarMenu() {
     if (!profile || uploading) return;
+    hapticLight();
+    setAvatarMenu(true);
+  }
+
+  // public url → storage path ("<uid>/avatar-123.jpg"); sirf apne folder ki file
+  function avatarStoragePath(url: string | null | undefined): string | null {
+    if (!url || !profile) return null;
+    const marker = '/avatars/';
+    const idx = url.indexOf(marker);
+    if (idx === -1) return null;
+    const path = decodeURIComponent(
+      url.slice(idx + marker.length).split('?')[0]
+    );
+    return path.startsWith(`${profile.id}/`) ? path : null;
+  }
+
+  // Purani file storage se hatao (best-effort, fail ho to ignore)
+  async function removeStorageFile(url: string | null | undefined) {
+    const path = avatarStoragePath(url);
+    if (!path) return;
+    try {
+      await supabase.storage.from('avatars').remove([path]);
+    } catch {}
+  }
+
+  // Step 1: gallery se image chuno (editing yahan nahi — crop modal alag hai)
+  async function changeAvatar() {
+    if (!profile || uploading) return;
+    setAvatarMenu(false);
     if (!isOnline()) {
       Alert.alert('Offline', 'Cannot upload avatar while offline.');
       return;
@@ -786,53 +829,132 @@ export default function ProfileScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.85,
+      allowsEditing: false,
+      quality: 1,
     });
 
     if (result.canceled || !result.assets?.[0]) return;
+    const a = result.assets[0];
+    // Step 2: crop editor kholo
+    setCropAsset({ uri: a.uri, width: a.width, height: a.height });
+  }
 
-    const asset = result.assets[0];
+  // Step 3: crop apply → manipulate → upload
+  async function handleCropApply(crop: {
+    originX: number;
+    originY: number;
+    width: number;
+    height: number;
+  }) {
+    const src = cropAsset;
+    setCropAsset(null);
+    if (!src || !profile) return;
+
+    // rounding se image ke bahar na jaye
+    const originX = Math.max(0, Math.min(crop.originX, src.width - 1));
+    const originY = Math.max(0, Math.min(crop.originY, src.height - 1));
+    const width = Math.max(1, Math.min(crop.width, src.width - originX));
+    const height = Math.max(1, Math.min(crop.height, src.height - originY));
+
     setUploading(true);
-
     try {
-      const response = await fetch(asset.uri);
+      const actions: ImageManipulator.Action[] = [
+        { crop: { originX, originY, width, height } },
+      ];
+      // avatar ke liye 800px kaafi hai
+      if (width > 800) actions.push({ resize: { width: 800 } });
+
+      const out = await ImageManipulator.manipulateAsync(src.uri, actions, {
+        compress: 0.85,
+        format: ImageManipulator.SaveFormat.JPEG,
+      });
+
+      const response = await fetch(out.uri);
       const arrayBuffer = await response.arrayBuffer();
-      const ext =
-        (asset.uri.split('.').pop() ?? 'jpg').toLowerCase().slice(0, 5);
-      const path = `${profile.id}/avatar-${Date.now()}.${ext}`;
+      const path = `${profile.id}/avatar-${Date.now()}.jpg`;
 
       const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(path, arrayBuffer, {
-          contentType: asset.mimeType ?? 'image/jpeg',
+          contentType: 'image/jpeg',
           upsert: true,
         });
-
       if (uploadError) throw uploadError;
 
       const { data: publicUrlData } = supabase.storage
         .from('avatars')
         .getPublicUrl(path);
-
       const avatarUrl = publicUrlData.publicUrl;
 
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ avatar_url: avatarUrl })
         .eq('id', profile.id);
-
       if (updateError) throw updateError;
 
+      const oldUrl = profile.avatar_url;
       const nextProfile = { ...profile, avatar_url: avatarUrl };
       setProfile(nextProfile);
       await syncCache({ profile: nextProfile });
       hapticSuccess();
+      removeStorageFile(oldUrl);
     } catch (err: any) {
       console.warn('Avatar upload error:', err);
       hapticError();
       Alert.alert('Upload failed', err?.message ?? 'Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // Remove: confirm dialog → avatar_url = null (initials/color avatar wapas)
+  function confirmRemoveAvatar() {
+    if (!profile?.avatar_url) return;
+    setAvatarMenu(false);
+    // iOS me ek modal band hone ke baad doosra kholna padta hai
+    setTimeout(() => {
+      setDialog({
+        icon: 'trash-outline',
+        iconColor: COLORS.danger,
+        iconBg: 'rgba(239,68,68,0.15)',
+        title: 'Remove profile photo?',
+        message: 'Your profile photo will be removed.',
+        primaryLabel: 'Remove',
+        secondaryLabel: 'Cancel',
+        danger: true,
+        onPrimary: () => {
+          setDialog(null);
+          removeAvatar();
+        },
+        onSecondary: () => setDialog(null),
+      });
+    }, 250);
+  }
+
+  async function removeAvatar() {
+    if (!profile || uploading) return;
+    if (!isOnline()) {
+      Alert.alert('Offline', 'Cannot remove avatar while offline.');
+      return;
+    }
+    setUploading(true);
+    try {
+      const oldUrl = profile.avatar_url;
+      const { error } = await supabase
+        .from('profiles')
+        .update({ avatar_url: null })
+        .eq('id', profile.id);
+      if (error) throw error;
+
+      const nextProfile = { ...profile, avatar_url: null };
+      setProfile(nextProfile);
+      await syncCache({ profile: nextProfile });
+      hapticSuccess();
+      removeStorageFile(oldUrl);
+    } catch (err: any) {
+      console.warn('Avatar remove error:', err);
+      hapticError();
+      Alert.alert('Remove failed', err?.message ?? 'Please try again.');
     } finally {
       setUploading(false);
     }
@@ -1053,7 +1175,9 @@ export default function ProfileScreen() {
       >
         <View style={styles.topSection}>
           <TouchableOpacity
-            onPress={pickAvatar}
+            onPress={openAvatarMenu}
+            onLongPress={openAvatarMenu}
+            delayLongPress={250}
             disabled={uploading}
             activeOpacity={0.85}
             style={styles.avatarWrap}
@@ -1240,6 +1364,92 @@ export default function ProfileScreen() {
           </LinearGradient>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Avatar preview (Instagram style): bada circle + Change / Remove */}
+      <Modal
+        visible={avatarMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAvatarMenu(false)}
+        statusBarTranslucent
+      >
+        <BlurView
+          intensity={60}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={styles.blurBackdrop}
+        >
+          <Pressable
+            style={styles.avatarMenuBackdrop}
+            onPress={() => setAvatarMenu(false)}
+          >
+            <Pressable onPress={(e) => e.stopPropagation()} style={styles.avatarMenuBody}>
+              <View style={styles.avatarPreviewRing}>
+                <Avatar
+                  name={profile.display_name}
+                  color={profile.avatar_color}
+                  avatarUrl={profile.avatar_url}
+                  size={AVATAR_PREVIEW_SIZE}
+                />
+              </View>
+              <Text style={styles.avatarPreviewName} numberOfLines={1}>
+                {profile.display_name}
+              </Text>
+              <Text style={styles.avatarPreviewUser}>@{profile.username}</Text>
+
+              <View style={styles.avatarMenuCard}>
+                <TouchableOpacity
+                  style={styles.avatarMenuItem}
+                  onPress={() => {
+                    setAvatarMenu(false);
+                    // iOS: modal dismiss hone ke baad picker kholo
+                    setTimeout(changeAvatar, 300);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="image-outline" size={20} color="#FFFFFF" />
+                  <Text style={styles.avatarMenuText}>
+                    {profile.avatar_url ? 'Change photo' : 'Add photo'}
+                  </Text>
+                </TouchableOpacity>
+
+                {!!profile.avatar_url && (
+                  <>
+                    <View style={styles.avatarMenuDivider} />
+                    <TouchableOpacity
+                      style={styles.avatarMenuItem}
+                      onPress={confirmRemoveAvatar}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons
+                        name="trash-outline"
+                        size={20}
+                        color={COLORS.danger}
+                      />
+                      <Text
+                        style={[styles.avatarMenuText, { color: COLORS.danger }]}
+                      >
+                        Remove photo
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            </Pressable>
+          </Pressable>
+        </BlurView>
+      </Modal>
+
+      {/* Crop editor — image chunne ke baad */}
+      {cropAsset && (
+        <ManualCropModal
+          visible
+          imageUri={cropAsset.uri}
+          initialRatio="1:1"
+          onCancel={() => setCropAsset(null)}
+          onApply={handleCropApply}
+        />
+      )}
 
       {listTab && (
         <Modal
@@ -1958,6 +2168,66 @@ const styles = StyleSheet.create({
   blurBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  avatarMenuBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  avatarMenuBody: {
+    width: '100%',
+    maxWidth: 320,
+    alignItems: 'center',
+  },
+  avatarPreviewRing: {
+    padding: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  avatarPreviewName: {
+    marginTop: 16,
+    fontSize: 18,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  avatarPreviewUser: {
+    marginTop: 2,
+    fontSize: 13.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+  },
+  avatarMenuCard: {
+    width: '100%',
+    marginTop: 22,
+    backgroundColor: 'rgba(20,22,30,0.96)',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.09)',
+    overflow: 'hidden',
+  },
+  avatarMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 15,
+    paddingHorizontal: 18,
+  },
+  avatarMenuText: {
+    fontSize: 14.5,
+    fontFamily: FONTS.bodyMedium,
+    color: '#FFFFFF',
+  },
+  avatarMenuDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginLeft: 18,
   },
   backdropPress: {
     flex: 1,
