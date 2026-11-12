@@ -85,7 +85,7 @@ const SECTIONS: { title: string; body: string[] }[] = [
   {
     title: "7. Children's Privacy",
     body: [
-      'Airalance is not intended for users under 18 years of age. We do not knowingly collect data from children without verifiable parental consent, as required under applicable laws.',
+      'Airalance is not intended for users under 13 years of age. We do not knowingly collect data from children without verifiable parental consent, as required under applicable laws.',
     ],
   },
   {
