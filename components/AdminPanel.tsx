@@ -33,6 +33,7 @@ import { isOnline } from '../lib/network';
 import Avatar from './Avatar';
 import VerifiedBadge from './VerifiedBadge';
 import AdminUserData from './AdminUserData';
+import AdminDeletionsTab from './AdminDeletionsTab';
 import {
   roleRank,
   errMsg,
@@ -71,7 +72,7 @@ import type {
 /* ================= CONSTANTS & HELPERS ================= */
 
 type IconName = keyof typeof Ionicons.glyphMap;
-type TabId = 'overview' | 'users' | 'requests' | 'appeals' | 'log' | 'team';
+type TabId = 'overview' | 'users' | 'requests' | 'appeals' | 'deletions' | 'log' | 'team';
 
 const VIOLET = '#7C5CFF';
 
@@ -214,6 +215,8 @@ function describeAction(a: string): { label: string; icon: IconName; color: stri
       return { label: 'Viewed contact details', icon: 'people-outline', color: UI.amber };
     case 'export_user_bundle':
       return { label: 'Exported user data (legal request)', icon: 'download-outline', color: UI.amber };
+    case 'cancel_account_deletion':
+      return { label: 'Cancelled account deletion', icon: 'close-circle-outline', color: UI.amber };
     case 'view_device_info':
       return { label: 'Viewed device & IP info', icon: 'phone-portrait-outline', color: UI.amber };
     default:
@@ -651,6 +654,7 @@ export default function AdminPanel({ myId, role, registerBack }: Props) {
   if (rank >= 2) {
     tabs.push({ id: 'requests', label: 'Requests', icon: 'shield-checkmark-outline' });
     tabs.push({ id: 'appeals', label: 'Appeals', icon: 'megaphone-outline' });
+    tabs.push({ id: 'deletions', label: 'Deletions', icon: 'trash-outline' });
     tabs.push({ id: 'log', label: 'Activity', icon: 'time-outline' });
   }
   if (rank >= 3) tabs.push({ id: 'team', label: 'Team', icon: 'key-outline' });
@@ -726,6 +730,11 @@ export default function AdminPanel({ myId, role, registerBack }: Props) {
         {rank >= 2 && visited.includes('appeals') && (
           <View style={tab !== 'appeals' ? styles.hidden : undefined}>
             <AppealsTab onOpenUser={setSelectedId} onChanged={loadStats} />
+          </View>
+        )}
+        {rank >= 2 && visited.includes('deletions') && (
+          <View style={tab !== 'deletions' ? styles.hidden : undefined}>
+            <AdminDeletionsTab onOpenUser={setSelectedId} />
           </View>
         )}
         {rank >= 2 && visited.includes('log') && (
