@@ -1,6 +1,6 @@
 // lib/userLocation.ts
-// Personalised news ke liye precise location (GPS) se area nikalta hai: city + locality + postal code.
-// Server par sirf ye area save hota hai — exact coordinates kahin store nahi hote. expo-location install na ho to feature band rehta hai.
+// Precise location (GPS) + area (city/locality/postal code). Precise coordinates sirf tab server par jaate hain
+// jab user ne alag se 'precise_location' consent diya ho (record_data_consent). Consent wapas lene par delete.
 //
 // News screen me use:   const region = await getNewsRegion();   // { city, region, country, country_code } | null
 
@@ -17,7 +17,8 @@ export type UserLocation = {
   at: number;
 };
 
-const REFRESH_MS = 12 * 60 * 60 * 1000;
+export const LOCATION_CONSENT_VERSION = 'v2-2026-11';
+const REFRESH_MS = 10 * 60 * 1000; // 'live': app foreground par har ~10 min me fresh fix
 
 function loadLocationModule(): any | null {
   try {
@@ -57,9 +58,9 @@ export async function getNewsRegion(): Promise<UserLocation | null> {
 
 async function getPosition(L: any): Promise<any> {
   try {
-    // fresh GPS fix (Balanced ~ 100 m)
+    // fresh GPS fix (High ~ 10 m)
     const cur = await Promise.race([
-      L.getCurrentPositionAsync({ accuracy: L.Accuracy?.Balanced ?? 3 }),
+      L.getCurrentPositionAsync({ accuracy: L.Accuracy?.High ?? 4 }),
       new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 12000)),
     ]);
     if (cur) return cur;
@@ -95,6 +96,13 @@ async function resolveAndSave(L: any, uid: string): Promise<UserLocation> {
     at: Date.now(),
   };
 
+  const { error: pErr } = await supabase.rpc('set_my_precise_location', {
+    p_lat: latitude,
+    p_lng: longitude,
+    p_accuracy: typeof pos.coords.accuracy === 'number' ? pos.coords.accuracy : null,
+  });
+  if (pErr) console.warn('[location] precise save failed:', pErr.message);
+
   const { error } = await supabase.rpc('set_my_location', {
     p_city: loc.city,
     p_region: loc.region,
@@ -105,7 +113,7 @@ async function resolveAndSave(L: any, uid: string): Promise<UserLocation> {
   });
   if (error) throw new Error(error.message || 'Could not save location');
   await AsyncStorage.setItem(key(uid), JSON.stringify(loc));
-  return loc; // coordinates yahin chhod diye jaate hain, kahin store nahi hote
+  return loc;
 }
 
 export type EnableLocationResult =
@@ -122,6 +130,13 @@ export async function enableLocation(): Promise<EnableLocationResult> {
     if (perm?.status !== 'granted') {
       return { ok: false, reason: perm?.canAskAgain === false ? 'blocked' : 'denied' };
     }
+    // OS permission ke baad alag, explicit app consent (PermissionPrompts me disclosure dikhane ke baad)
+    const { error } = await supabase.rpc('record_data_consent', {
+      p_kind: 'precise_location',
+      p_granted: true,
+      p_version: LOCATION_CONSENT_VERSION,
+    });
+    if (error) throw new Error(error.message);
     return { ok: true, location: await resolveAndSave(L, uid) };
   } catch (err) {
     console.warn('[location] enable failed:', err);
@@ -151,6 +166,11 @@ export async function maybeRefreshLocation(): Promise<void> {
 
 export async function disableLocation(): Promise<void> {
   const uid = await myId();
+  await supabase.rpc('record_data_consent', {
+    p_kind: 'precise_location',
+    p_granted: false,
+    p_version: LOCATION_CONSENT_VERSION,
+  });
   const { error } = await supabase.rpc('clear_my_location');
   if (error) throw new Error(error.message || 'Request failed');
   if (uid) {
