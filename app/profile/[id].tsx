@@ -12,7 +12,9 @@ import {
   Alert,
   Modal,
   FlatList,
+  Pressable,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -115,6 +117,7 @@ export default function UserProfileScreen() {
   >(null);
   const [sendingRequest, setSendingRequest] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState(false);
 
   const [listTab, setListTab] = useState<ListTab | null>(null);
   const [followers, setFollowers] = useState<Profile[]>([]);
@@ -618,14 +621,20 @@ export default function UserProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.avatarWrap}>
-          <View style={styles.avatarInner}>
-            <Avatar
-              name={profile.display_name}
-              color={profile.avatar_color}
-              avatarUrl={profile.avatar_url}
-              size={90}
-            />
-          </View>
+          <Pressable
+            onPress={() => setAvatarPreview(true)}
+            onLongPress={() => setAvatarPreview(true)}
+            delayLongPress={250}
+          >
+            <View style={styles.avatarInner}>
+              <Avatar
+                name={profile.display_name}
+                color={profile.avatar_color}
+                avatarUrl={profile.avatar_url}
+                size={90}
+              />
+            </View>
+          </Pressable>
         </View>
 
         <View style={styles.nameBlock}>
@@ -770,6 +779,40 @@ export default function UserProfileScreen() {
           <Text style={styles.bioLink}>{profile.bio_link}</Text>
         ) : null}
       </ScrollView>
+
+      {/* Avatar preview — bada circle, bahar tap karke band */}
+      <Modal
+        visible={avatarPreview}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setAvatarPreview(false)}
+        statusBarTranslucent
+      >
+        <BlurView
+          intensity={60}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' }}
+        >
+          <Pressable
+            style={styles.previewBackdrop}
+            onPress={() => setAvatarPreview(false)}
+          >
+            <View style={styles.previewRing}>
+              <Avatar
+                name={profile.display_name}
+                color={profile.avatar_color}
+                avatarUrl={profile.avatar_url}
+                size={260}
+              />
+            </View>
+            <Text style={styles.previewName} numberOfLines={1}>
+              {profile.display_name}
+            </Text>
+            <Text style={styles.previewUser}>@{profile.username}</Text>
+          </Pressable>
+        </BlurView>
+      </Modal>
 
       {connectPopup && (
         <Modal
@@ -1250,6 +1293,36 @@ const styles = StyleSheet.create({
   },
 
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  previewBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  previewRing: {
+    padding: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  previewName: {
+    marginTop: 16,
+    fontSize: 18,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  previewUser: {
+    marginTop: 2,
+    fontSize: 13.5,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+  },
 
   modalOverlay: {
     flex: 1,
