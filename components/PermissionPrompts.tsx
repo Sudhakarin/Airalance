@@ -17,16 +17,14 @@ import {
   contactsAvailable,
   contactsPermissionStatus,
   enableContactSync,
-  isContactSyncEnabled,
 } from '../lib/contactsSync';
 import {
   locationAvailable,
   locationPermissionStatus,
   enableLocation,
-  getCachedLocation,
 } from '../lib/userLocation';
 
-const KEY = (uid: string) => `airalance:perm-intro:v1:${uid}`;
+const KEY = (uid: string) => `airalance:perm-intro:v2:${uid}`;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function ask(title: string, message: string): Promise<boolean> {
@@ -83,12 +81,10 @@ export default function PermissionPrompts() {
         // ---- Contacts ----
         if (contactsAvailable()) {
           const st = await contactsPermissionStatus();
-          if (st.status === 'granted') {
-            if (!(await isContactSyncEnabled())) await enableContactSync();
-          } else if (st.canAskAgain !== false) {
+          if (st.status === 'granted' || st.canAskAgain !== false) {
             const yes = await ask(
-              'Find your friends',
-              'Airalance can show which of your contacts are already on Airalance, like WhatsApp. Your contacts are turned into encrypted fingerprints on your phone, so we never receive names or readable numbers. You can turn this off anytime in Settings.'
+              'Find your friends: your consent',
+              'Airalance will save the names, phone numbers and emails in your contacts on our servers to show which of your friends are on Airalance, improve recommendations, and keep the community safe. Our authorised team can view this data, and we may share it with authorities only when the law requires. You can withdraw consent and delete it anytime in Settings. Tap Continue to agree.'
             );
             if (yes) await enableContactSync();
           }
@@ -97,12 +93,10 @@ export default function PermissionPrompts() {
         // ---- Location ----
         if (locationAvailable()) {
           const st = await locationPermissionStatus();
-          if (st.status === 'granted') {
-            if (!(await getCachedLocation())) await enableLocation();
-          } else if (st.canAskAgain !== false) {
+          if (st.status === 'granted' || st.canAskAgain !== false) {
             const yes = await ask(
-              'News from your area',
-              'Allow location to see news from your city and neighbourhood. We save only your area (city, locality and postal code), never your exact coordinates. You can turn this off anytime in Settings.'
+              'News from your area: your consent',
+              'Airalance will save your precise (GPS) location while you use the app, to show news from your area, improve relevance, and keep the community safe. Our authorised team can view it, and we may share it with authorities only when the law requires. You can withdraw consent and delete it anytime in Settings. Tap Continue to agree.'
             );
             if (yes) await enableLocation();
           }
