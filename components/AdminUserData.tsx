@@ -4,25 +4,29 @@
 // Data tabhi dikhta hai jab user ne consent diya ho. Har "Reveal" audit log me jaata hai.
 
 import { useCallback, useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, Linking, Alert, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, Linking, Alert, TextInput, Share } from 'react-native';
 import {
   adminUserDataStatus,
   adminGetUserLocation,
   adminListUserContacts,
   adminListUserDevices,
+  adminExportUserBundle,
 } from '../lib/adminUserData';
 import type { UserDataStatus, PreciseLocation, ContactDetail, DeviceRow } from '../lib/adminUserData';
 
 const C = { card: '#121212', line: '#1F1F23', text: '#FFFFFF', sub: 'rgba(255,255,255,0.6)', accent: '#7C5CFF', green: '#4ADE9A', red: '#FF6B6B' };
 const PAGE = 50;
 
-export default function AdminUserData({ userId }: { userId: string }) {
+export default function AdminUserData({ userId, canExport = false }: { userId: string; canExport?: boolean }) {
   const [st, setSt] = useState<UserDataStatus | null>(null);
   const [reason, setReason] = useState('');
   const [loc, setLoc] = useState<PreciseLocation | null>(null);
   const [contacts, setContacts] = useState<ContactDetail[]>([]);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [reqRef, setReqRef] = useState('');
+  const [authority, setAuthority] = useState('');
   const [devices, setDevices] = useState<DeviceRow[] | null>(null);
-  const [busy, setBusy] = useState<'loc' | 'con' | 'dev' | null>(null);
+  const [busy, setBusy] = useState<'loc' | 'con' | 'dev' | 'exp' | null>(null);
 
   useEffect(() => {
     adminUserDataStatus(userId).then(setSt).catch(() => setSt(null));
@@ -59,6 +63,22 @@ export default function AdminUserData({ userId }: { userId: string }) {
       setBusy(null);
     }
   }, [userId, reason]);
+
+  const exportBundle = useCallback(async () => {
+    if (reqRef.trim().length < 3 || authority.trim().length < 3) {
+      Alert.alert('Details required', 'Request reference number aur authority (jaise court / police / ministry) likho.');
+      return;
+    }
+    setBusy('exp');
+    try {
+      const bundle = await adminExportUserBundle(userId, reqRef.trim(), authority.trim());
+      await Share.share({ message: JSON.stringify(bundle, null, 2), title: `legal-export-${reqRef.trim()}` });
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed');
+    } finally {
+      setBusy(null);
+    }
+  }, [userId, reqRef, authority]);
 
   const loadContacts = useCallback(
     async (more: boolean) => {
@@ -168,6 +188,30 @@ export default function AdminUserData({ userId }: { userId: string }) {
             <TouchableOpacity onPress={() => loadContacts(true)} disabled={busy === 'con'}>
               <Text style={{ color: C.accent, marginTop: 8 }}>Load more ({contacts.length}/{total})</Text>
             </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {canExport && (
+        <View style={{ marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: C.line }}>
+          <Text style={{ color: C.text, fontWeight: '600' }}>Legal request export (owner)</Text>
+          {!exportOpen ? (
+            <TouchableOpacity onPress={() => setExportOpen(true)}>
+              <Text style={{ color: C.accent, marginTop: 4 }}>Export user data for legal request</Text>
+            </TouchableOpacity>
+          ) : (
+            <View>
+              <TextInput value={reqRef} onChangeText={setReqRef} placeholder="Request reference no." placeholderTextColor={C.sub}
+                style={{ marginTop: 8, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.line, color: C.text }} />
+              <TextInput value={authority} onChangeText={setAuthority} placeholder="Authority (court / police / ministry)" placeholderTextColor={C.sub}
+                style={{ marginTop: 8, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.line, color: C.text }} />
+              <TouchableOpacity onPress={exportBundle} disabled={busy === 'exp'}>
+                {busy === 'exp' ? <ActivityIndicator /> : <Text style={{ color: C.red, marginTop: 8 }}>Export now (logged)</Text>}
+              </TouchableOpacity>
+              <Text style={{ color: C.sub, fontSize: 11.5, marginTop: 4 }}>
+                Sirf valid legal order par. Export register me record hota hai.
+              </Text>
+            </View>
           )}
         </View>
       )}
