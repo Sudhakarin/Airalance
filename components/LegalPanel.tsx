@@ -124,7 +124,7 @@ const PRIVACY: Section[] = [
     p: [
       'Account and profile: email, username, display name, profile photo, bio and the settings you choose.',
       'Your activity: status updates, messages and media you send, connection requests, blocks, game activity and verification requests (including a selfie if you apply for a badge).',
-      'Device and usage: device type, app version, push notification token, time-limit usage, crash and security logs, and your IP address.',
+      'Device and network: IP address, device brand and model, operating system and version, app version, network type (Wi-Fi or mobile data) and carrier, language, time zone, and an app-install ID. We also keep push notification token, time-limit usage, crash and security logs.',
       'Permission choices: whether you allowed or denied notifications, camera, microphone, photos, contacts and location.',
       'Contacts (only with your consent): the names, phone numbers and email addresses saved in your phone.',
       'Precise location (only with your consent): your GPS location (latitude, longitude and accuracy) and the area worked out from it (city, locality, postal code).',
@@ -170,6 +170,7 @@ const PRIVACY: Section[] = [
     p: [
       'We keep your information while your account is active. When you delete your account we delete or anonymise your data, except where we must keep some records for legal or safety reasons (for example to enforce a ban or comply with a legal order).',
       'Contact details, fingerprints and precise location are deleted when you withdraw consent or delete your account.',
+      'IP address and device logs are kept for 180 days from last use, or longer if the law or a legal order requires.',
     ],
   },
   {
