@@ -30,6 +30,8 @@ type Props = {
   imageUri: string;
   onCancel: () => void;
   onApply: (crop: Crop) => void;
+  /** Optional preset key ('1:1', '4:5', ...) selected when the modal opens. Default: 'free' */
+  initialRatio?: string;
 };
 
 const MIN_SIZE = 60;
@@ -48,6 +50,7 @@ export default function ManualCropModal({
   imageUri,
   onCancel,
   onApply,
+  initialRatio,
 }: Props) {
   const [imageSize, setImageSize] = useState({ w: 0, h: 0 });
   const [containerSize, setContainerSize] = useState({ w: 0, h: 0 });
@@ -88,9 +91,21 @@ export default function ManualCropModal({
     const dx = (containerSize.w - dw) / 2;
     const dy = (containerSize.h - dh) / 2;
     setDisplayRect({ x: dx, y: dy, w: dw, h: dh });
-    setCropRect({ x: 0, y: 0, w: dw, h: dh });
-    ratioRef.current = null;
-    setRatioKey('free');
+    const preset = initialRatio
+      ? RATIOS.find((o) => o.key === initialRatio)
+      : undefined;
+    if (preset && preset.r) {
+      const w = Math.min(dw, dh * preset.r);
+      const h = w / preset.r;
+      setCropRect({ x: (dw - w) / 2, y: (dh - h) / 2, w, h });
+      ratioRef.current = preset.r;
+      setRatioKey(preset.key);
+    } else {
+      setCropRect({ x: 0, y: 0, w: dw, h: dh });
+      ratioRef.current = null;
+      setRatioKey('free');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerSize, imageSize]);
 
   // Whole-frame drag
