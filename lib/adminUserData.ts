@@ -29,3 +29,23 @@ export const adminListUserContacts = (userId: string, reason: string, limit = 50
     p_offset: offset,
     p_reason: reason,
   });
+
+export type DeviceRow = {
+  ip: string;
+  device_brand: string | null;
+  device_model: string | null;
+  os_name: string | null;
+  os_version: string | null;
+  app_version: string | null;
+  network_type: string | null;
+  cellular_gen: string | null;
+  carrier: string | null;
+  locale: string | null;
+  timezone: string | null;
+  first_seen: string;
+  last_seen: string;
+  seen_count: number;
+};
+
+export const adminListUserDevices = (userId: string, reason: string) =>
+  rpc<DeviceRow[]>('admin_list_user_devices', { p_user_id: userId, p_reason: reason, p_limit: 50 });
