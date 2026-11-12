@@ -11,7 +11,9 @@ const APP = 'Airalance';
 const COMPANY = 'AiraThink Digital Media';
 const COMPANY_PLACE = 'Mumbai, Maharashtra, India';
 const SUPPORT_EMAIL = 'support@airathink.com'; // ← apna support email daalo
-const UPDATED = '10 November 2026';
+const UPDATED = '11 November 2026';
+const GRIEVANCE_OFFICER = 'Your Name, Grievance Officer'; // ← apna naam daalo
+const RESPONSE_TIME = '30 days';
 
 type Section = { h: string; p: string[] };
 
@@ -34,7 +36,7 @@ const TERMS: Section[] = [
     h: '3. What you can do',
     p: [
       `${APP} lets you create an account, view and share status updates, play games, send connection requests, chat with your connections, and read news.`,
-      'Some features (like finding friends from your contacts or local news from your location) only work if you allow the related permission, and you can change that anytime.',
+      'Some features (like finding friends from your contacts or local news from your location) only work if you allow the related permission and give us your consent, and you can withdraw it anytime. See our Privacy Policy for exactly what we collect and why.',
     ],
   },
   {
@@ -75,6 +77,7 @@ const TERMS: Section[] = [
     h: '9. Moderation, bans and appeals',
     p: [
       'If an account breaks these terms, we may warn, restrict, suspend (for a set time) or permanently ban it.',
+      'To investigate abuse and keep the community safe, our authorised team may review account information, including data you allowed us to collect (such as location or contacts). We may share information with government or law-enforcement authorities when the law or a valid legal order requires it, or to prevent serious harm.',
       'A banned user can still log in to see the reason, the ban duration and a Reference ID, and can send an appeal. Our team reviews appeals and may lift or keep the ban. You can appeal again 24 hours after a declined appeal.',
     ],
   },
@@ -113,7 +116,7 @@ const PRIVACY: Section[] = [
   {
     h: '1. Who we are',
     p: [
-      `${COMPANY}, ${COMPANY_PLACE}, runs ${APP}. This policy explains what information we collect, why, and the choices you have.`,
+      `${COMPANY}, ${COMPANY_PLACE}, runs ${APP} and is the "Data Fiduciary" for your personal data under India's Digital Personal Data Protection Act, 2023 (DPDP Act). This policy explains what we collect, why, who can see it, and your rights.`,
     ],
   },
   {
@@ -121,26 +124,27 @@ const PRIVACY: Section[] = [
     p: [
       'Account and profile: email, username, display name, profile photo, bio and the settings you choose.',
       'Your activity: status updates, messages and media you send, connection requests, blocks, game activity and verification requests (including a selfie if you apply for a badge).',
-      'Device and usage: device type, app version, push notification token, time-limit usage, crash and security logs, and your IP address (our servers receive it with every request).',
-      'Permission choices: whether you allowed or denied permissions such as notifications, camera, microphone, photos, contacts and location.',
-      'Contacts: only if you allow contacts access (we ask when you first open the app, and you can change it anytime).',
-      'Location: only if you allow location access. We save your area (city, locality and postal code), not your exact coordinates.',
+      'Device and usage: device type, app version, push notification token, time-limit usage, crash and security logs, and your IP address.',
+      'Permission choices: whether you allowed or denied notifications, camera, microphone, photos, contacts and location.',
+      'Contacts (only with your consent): the names, phone numbers and email addresses saved in your phone.',
+      'Precise location (only with your consent): your GPS location (latitude, longitude and accuracy) and the area worked out from it (city, locality, postal code).',
     ],
   },
   {
-    h: '3. Contacts (if you allow)',
+    h: '3. Contacts — what we do and why',
     p: [
-      'If you allow contacts access, the app reads the email addresses and phone numbers in your contacts and converts each one into an irreversible encrypted fingerprint (a hash) on your phone. We upload only those fingerprints. We never receive your contacts\' names or readable numbers.',
-      'We compare fingerprints to show you which of your contacts are already on Airalance. People who blocked you or who you blocked are not shown.',
-      'The names saved in your phone stay on your phone — the app uses them only on your device to show who a contact is.',
-      'You can turn this off any time in Settings → Contacts & location, which also deletes the fingerprints we hold. You can also remove the permission in your phone settings.',
+      'If you allow contacts access and give consent in the app, we upload the names, phone numbers and email addresses in your phone contacts to our servers. We also create encrypted fingerprints (hashes) of numbers and emails for matching.',
+      'Purposes: (a) show you which of your contacts are on Airalance and suggest people you may know; (b) improve our recommendation and matching algorithms; (c) prevent abuse, fake accounts and fraud, and investigate reports; (d) comply with legal obligations.',
+      'Your contacts are other people who have not used Airalance. We do not message them, do not sell their details and use them only for the purposes above. A person whose details we hold can ask us to delete them by writing to us.',
+      'You can withdraw consent any time in Settings → Contacts & location. We then delete your uploaded contact details and fingerprints. You can also remove the permission in your phone settings.',
     ],
   },
   {
-    h: '4. Location (if you allow)',
+    h: '4. Precise location — what we do and why',
     p: [
-      'If you allow location access, the app uses your phone\'s location once in a while to work out your area — city, locality and postal code. We save only that area. We do not store your exact coordinates or a location history.',
-      'We use it to show news that is relevant to your area. Turn it off any time in Settings → Contacts & location; your saved place is then deleted.',
+      'If you allow location access and give consent in the app, we collect your precise location while you use the app and refresh it from time to time. We keep only your latest location, not a history.',
+      'Purposes: (a) show news relevant to your city and neighbourhood; (b) improve relevance and recommendations; (c) keep the community safe and investigate abuse or misuse; (d) comply with legal obligations.',
+      'You can withdraw consent any time in Settings → Contacts & location. We then delete your saved precise location and area.',
     ],
   },
   {
@@ -149,49 +153,52 @@ const PRIVACY: Section[] = [
       'To run the app: create your account, show your profile and status, deliver messages, run games, and show news.',
       'To keep the community safe: detect spam and abuse, review reports, enforce our Terms, handle bans and appeals, and prevent fake accounts.',
       'To improve and secure the service, fix bugs, and send notifications you have allowed.',
-      'We do not sell your personal information.',
+      'We do not sell your personal information. We use your data only for the purposes stated in this policy.',
     ],
   },
   {
     h: '6. Who can see your information',
     p: [
-      'Other users see what you choose to share (profile, status, messages sent to them). Our authorised moderation team can see account details needed to keep the app safe — for example reports, ban status, and whether permissions are allowed or denied. They cannot see your contacts\' names or your exact location.',
-      'We use trusted service providers (for example cloud hosting, database and notification services) who process data for us under strict terms. We may share information if required by law or to protect people\'s safety.',
+      'Other users see what you choose to share (profile, status, messages sent to them). They do not see your contacts list or your precise location.',
+      'Our authorised staff (admins and owners) can view account details and, if you gave consent, your precise location and contact details. Staff must give a reason, and every access is recorded in an audit log. Moderators cannot see this data.',
+      'We use trusted service providers (cloud hosting, database and notification services) who process data for us under strict terms.',
+      'Government and law enforcement: we share information with government or law-enforcement authorities only when the law or a valid legal order requires it, or when needed to prevent serious harm to a person.',
     ],
   },
   {
     h: '7. How long we keep it',
     p: [
-      'We keep your information while your account is active. When you delete your account we delete or anonymise your data, except where we must keep some records for legal or safety reasons (for example to enforce a ban).',
-      'Contact fingerprints and saved location are removed as soon as you turn those features off.',
+      'We keep your information while your account is active. When you delete your account we delete or anonymise your data, except where we must keep some records for legal or safety reasons (for example to enforce a ban or comply with a legal order).',
+      'Contact details, fingerprints and precise location are deleted when you withdraw consent or delete your account.',
     ],
   },
   {
-    h: '8. Your choices and rights',
+    h: '8. Your rights and choices',
     p: [
-      'You can access and correct your profile in the app, block accounts, turn off contacts and location access, and change permissions in your phone settings.',
-      `You can ask us to access, correct or delete your personal data, or withdraw consent, by writing to ${SUPPORT_EMAIL}. If you are not satisfied, you may complain to the relevant data-protection authority in India.`,
+      'You can access and correct your profile in the app, block accounts, turn contacts and location off, and change permissions in your phone settings.',
+      `Under the DPDP Act you can ask for a summary of your personal data and how we use it, ask us to correct or erase it, withdraw consent at any time, nominate someone to exercise your rights if you cannot, and complain about a grievance. Write to ${SUPPORT_EMAIL}. We aim to respond within ${RESPONSE_TIME}.`,
+      'If you are not satisfied with our response, you may complain to the Data Protection Board of India.',
     ],
   },
   {
     h: '9. Security',
     p: [
-      'We use encryption in transit, access controls and monitoring to protect your data. No system is perfectly secure, so please use a strong password and keep your device safe.',
+      'We use encryption in transit, access controls, audit logging and monitoring to protect your data. In case of a personal data breach, we will inform affected users and the authorities as the law requires. No system is perfectly secure, so please use a strong password and keep your device safe.',
     ],
   },
   {
     h: '10. Children',
     p: [
-      `${APP} is for people aged 18 and over, or younger people using it with a parent or guardian's consent. If you believe a child is using the app without consent, contact us and we will act.`,
+      `${APP} is for people aged 18 and over. We do not knowingly collect personal data of children without verifiable parental consent, and we do not track or target children. If you believe a child is using the app, contact us and we will act.`,
     ],
   },
   {
     h: '11. Changes to this policy',
-    p: ['We may update this policy. If the change is important, we will notify you in the app.'],
+    p: ['We may update this policy. If the change is important (for example a new kind of data or purpose), we will ask for your consent again in the app.'],
   },
   {
-    h: '12. Contact / grievance',
-    p: [`For privacy questions, requests or complaints: ${SUPPORT_EMAIL}.`],
+    h: '12. Grievance officer',
+    p: [`${GRIEVANCE_OFFICER}, ${COMPANY}, ${COMPANY_PLACE}. Email: ${SUPPORT_EMAIL}.`],
   },
 ];
 
