@@ -9,8 +9,9 @@ import {
   adminUserDataStatus,
   adminGetUserLocation,
   adminListUserContacts,
+  adminListUserDevices,
 } from '../lib/adminUserData';
-import type { UserDataStatus, PreciseLocation, ContactDetail } from '../lib/adminUserData';
+import type { UserDataStatus, PreciseLocation, ContactDetail, DeviceRow } from '../lib/adminUserData';
 
 const C = { card: '#121212', line: '#1F1F23', text: '#FFFFFF', sub: 'rgba(255,255,255,0.6)', accent: '#7C5CFF', green: '#4ADE9A', red: '#FF6B6B' };
 const PAGE = 50;
@@ -20,7 +21,8 @@ export default function AdminUserData({ userId }: { userId: string }) {
   const [reason, setReason] = useState('');
   const [loc, setLoc] = useState<PreciseLocation | null>(null);
   const [contacts, setContacts] = useState<ContactDetail[]>([]);
-  const [busy, setBusy] = useState<'loc' | 'con' | null>(null);
+  const [devices, setDevices] = useState<DeviceRow[] | null>(null);
+  const [busy, setBusy] = useState<'loc' | 'con' | 'dev' | null>(null);
 
   useEffect(() => {
     adminUserDataStatus(userId).then(setSt).catch(() => setSt(null));
@@ -39,6 +41,18 @@ export default function AdminUserData({ userId }: { userId: string }) {
     setBusy('loc');
     try {
       setLoc(await adminGetUserLocation(userId, reason.trim()));
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed');
+    } finally {
+      setBusy(null);
+    }
+  }, [userId, reason]);
+
+  const showDevices = useCallback(async () => {
+    if (!needReason()) return;
+    setBusy('dev');
+    try {
+      setDevices(await adminListUserDevices(userId, reason.trim()));
     } catch (e: any) {
       Alert.alert('Error', e?.message ?? 'Failed');
     } finally {
@@ -79,6 +93,36 @@ export default function AdminUserData({ userId }: { userId: string }) {
         placeholderTextColor={C.sub}
         style={{ marginTop: 10, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: C.line, color: C.text }}
       />
+
+      {/* Device & network */}
+      <Text style={{ color: C.text, marginTop: 14, fontWeight: '600' }}>Device, IP & network</Text>
+      {devices === null ? (
+        <TouchableOpacity onPress={showDevices} disabled={busy === 'dev'}>
+          {busy === 'dev' ? <ActivityIndicator /> : <Text style={{ color: C.accent, marginTop: 4 }}>Reveal device info</Text>}
+        </TouchableOpacity>
+      ) : devices.length === 0 ? (
+        <Text style={{ color: C.sub, marginTop: 4 }}>Abhi koi device log nahi hai.</Text>
+      ) : (
+        <View style={{ marginTop: 6 }}>
+          {devices.map((d, i) => (
+            <View key={i} style={{ paddingVertical: 8, borderTopWidth: i ? 1 : 0, borderTopColor: C.line }}>
+              <Text style={{ color: C.green }}>{d.ip || '(IP n/a)'}</Text>
+              <Text style={{ color: C.text, fontSize: 13 }}>
+                {[d.device_brand, d.device_model].filter(Boolean).join(' ') || 'Unknown device'} · {d.os_name} {d.os_version}
+              </Text>
+              <Text style={{ color: C.sub, fontSize: 12 }}>
+                {[d.network_type, d.cellular_gen, d.carrier].filter(Boolean).join(' · ') || 'network n/a'} · app {d.app_version ?? '?'}
+              </Text>
+              <Text style={{ color: C.sub, fontSize: 12 }}>
+                {d.locale ?? ''} {d.timezone ?? ''}
+              </Text>
+              <Text style={{ color: C.sub, fontSize: 12 }}>
+                First {new Date(d.first_seen).toLocaleString()} · Last {new Date(d.last_seen).toLocaleString()} · {d.seen_count}x
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Location */}
       <Text style={{ color: C.text, marginTop: 14, fontWeight: '600' }}>Precise location</Text>
