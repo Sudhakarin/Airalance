@@ -212,6 +212,8 @@ function describeAction(a: string): { label: string; icon: IconName; color: stri
       return { label: 'Viewed precise location', icon: 'location-outline', color: UI.amber };
     case 'view_contact_details':
       return { label: 'Viewed contact details', icon: 'people-outline', color: UI.amber };
+    case 'export_user_bundle':
+      return { label: 'Exported user data (legal request)', icon: 'download-outline', color: UI.amber };
     case 'view_device_info':
       return { label: 'Viewed device & IP info', icon: 'phone-portrait-outline', color: UI.amber };
     default:
@@ -1403,7 +1405,7 @@ function UserDetail({
         />
       </Group>
 
-      {rank >= 2 && <AdminUserData userId={p.id} />}
+      {rank >= 2 && <AdminUserData userId={p.id} canExport={rank >= 3} />}
 
       {locked && (
         <View style={styles.noteCard}>
