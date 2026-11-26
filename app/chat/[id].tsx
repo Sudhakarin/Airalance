@@ -26,6 +26,7 @@ import {
   Animated,
   ScrollView,
   Linking,
+  AppState,
   useWindowDimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -255,7 +256,66 @@ function messageToDbRow(m: Message) {
   };
 }
 
-async function persistMessages(list: Message[]) {
+// ============================================================
+// ✅ Duplicate / missing message protection
+//  - sentTempIds : temp messages jo server pe ja chuke hain (kabhi wapas
+//                  SQLite/memory me likhe nahi jayenge -> "purana msg again" fix)
+//  - inflightSends: jo temp abhi send ho rahe hain (retry unko dubara nahi bhejega)
+// ============================================================
+const sentTempIds = new Set<string>();
+const inflightSends = new Set<string>();
+
+function rememberSentTemp(id: string) {
+  if (sentTempIds.size > 2000) sentTempIds.clear();
+  sentTempIds.add(id);
+}
+
+function dropSentTemps(list: Message[]): Message[] {
+  if (sentTempIds.size === 0) return list;
+  return list.filter((m) => !sentTempIds.has(m.id));
+}
+
+// Latest server-synced message ka time (temp messages ignore)
+function newestSyncedIso(list: Message[]): string | null {
+  let best: string | null = null;
+  let bestT = -Infinity;
+  for (const m of list) {
+    if (!m.created_at || m.id.startsWith('temp-')) continue;
+    const t = Date.parse(m.created_at);
+    if (!isNaN(t) && t > bestT) {
+      bestT = t;
+      best = m.created_at;
+    }
+  }
+  return best;
+}
+
+// Server se aaye messages ko list me merge karo.
+// Agar mera apna temp message server pe pahunch chuka hai to us temp ko hata do.
+function reconcileFetched(
+  prev: Message[],
+  fetched: Message[],
+  uid: string
+): Message[] {
+  const prevIds = new Set(prev.map((m) => m.id));
+  let base = prev;
+  for (const sm of fetched) {
+    if (prevIds.has(sm.id) || sm.sender_id !== uid) continue;
+    const sT = Date.parse(sm.created_at);
+    const idx = base.findIndex(
+      (m) =>
+        m.id.startsWith('temp-') &&
+        m.sender_id === sm.sender_id &&
+        m.content === sm.content &&
+        (isNaN(sT) || sT + 5000 >= Date.parse(m.created_at))
+    );
+    if (idx >= 0) base = base.filter((_, i) => i !== idx);
+  }
+  return mergeMessages(base, fetched);
+}
+
+async function persistMessages(rawList: Message[]) {
+  const list = dropSentTemps(rawList);
   try {
     await dbUpsertMessages(list.map(messageToDbRow));
   } catch (err) {
@@ -307,7 +367,7 @@ function getMemConvoRow(id: string | undefined): any | null {
 function getInitialMessages(id: string | undefined): Message[] {
   if (!id) return [];
   const m = getMemMsgs(id);
-  if (m && m.length > 0) return m as Message[];
+  if (m && m.length > 0) return dropSentTemps(m as Message[]);
   const rows = getMemMsgRows(id);
   return rows && rows.length > 0
     ? ([...rows].reverse().map(dbRowToMessage) as Message[])
@@ -538,6 +598,17 @@ export default function ChatScreen() {
   const retryInProgressRef = useRef(false);
   const bootstrapDoneRef = useRef(false);
 
+  // ✅ refs for duplicate/missing-message fixes
+  const messagesRef = useRef<Message[]>(messages);
+  messagesRef.current = messages;
+  const mutedRef = useRef(false);
+  mutedRef.current = isMutedForConvo;
+  const sendingRef = useRef(false);
+  const syncingRef = useRef(false);
+  const syncMissedRef = useRef<
+    ((afterIso?: string | null, uidArg?: string) => Promise<void>) | null
+  >(null);
+
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 100);
   const [isRecording, setIsRecording] = useState(false);
@@ -578,7 +649,9 @@ export default function ChatScreen() {
       try {
         const rows = await dbGetMessages(convoId, MESSAGES_SQLITE_LIMIT);
         if (rows.length > 0) {
-          const ordered = [...rows].reverse().map(dbRowToMessage);
+          const ordered = dropSentTemps(
+            [...rows].reverse().map(dbRowToMessage)
+          );
           setMessages((prev) => mergeMessages(prev, ordered));
           prevMsgCountRef.current = ordered.length;
         }
@@ -594,7 +667,7 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!convoId) return;
     if (messages.length === 0) return;
-    setMemMsgs(convoId, messages);
+    setMemMsgs(convoId, dropSentTemps(messages));
     const timer = setTimeout(() => {
       persistMessages(messages);
     }, 500);
@@ -754,11 +827,23 @@ export default function ChatScreen() {
         const msgs = msgRes.data;
         if (msgs) {
           const ordered = [...msgs].reverse() as Message[];
-          setMessages((prev) => mergeMessages(prev, ordered));
+          // ✅ cache ka sabse naya synced message (gap detect karne ke liye)
+          const cachedNewest = newestSyncedIso(messagesRef.current);
+          setMessages((prev) => reconcileFetched(prev, ordered, uid));
           prevMsgCountRef.current = ordered.length;
           setHasMore(msgs.length === PAGE_SIZE);
 
           await persistMessages(ordered);
+
+          // ✅ Agar cache aur latest page ke bich gap hai (>PAGE_SIZE naye msgs)
+          //    to bich ke saare missing messages fetch karo
+          if (
+            cachedNewest &&
+            ordered.length === PAGE_SIZE &&
+            Date.parse(ordered[0].created_at) > Date.parse(cachedNewest)
+          ) {
+            syncMissedRef.current?.(cachedNewest, uid);
+          }
 
           // ✅ Sync conversation preview with server's latest message
           if (ordered.length > 0) {
@@ -833,21 +918,129 @@ export default function ChatScreen() {
     };
   }, [convoId]);
 
-  // ✅ Retry pending messages
+  // ✅ Missed messages sync (gap-aware)
+  // Realtime miss ho jaye (channel reconnect / background / net flap) to
+  // last synced message ke baad ke saare messages server se laata hai.
+  const syncMissedMessages = useCallback(
+    async (afterIso?: string | null, uidArg?: string) => {
+      const uid = uidArg ?? myId;
+      if (!uid || !convoId || lockRequired || !isOnline()) return;
+      if (syncingRef.current) return;
+      const after = afterIso ?? newestSyncedIso(messagesRef.current);
+      if (!after) return;
+
+      syncingRef.current = true;
+      try {
+        let cursor = new Date(Date.parse(after) - 3000).toISOString();
+        const collected: Message[] = [];
+        for (let page = 0; page < 10; page++) {
+          const { data, error } = await supabase
+            .from('messages')
+            .select('*')
+            .eq('conversation_id', convoId)
+            .gte('created_at', cursor)
+            .order('created_at', { ascending: true })
+            .limit(100);
+          if (error || !data) break;
+          collected.push(...(data as Message[]));
+          if (data.length < 100) break;
+          cursor = (data[data.length - 1] as Message).created_at;
+        }
+        if (collected.length === 0) return;
+
+        await persistMessages(collected);
+        setMessages((prev) => reconcileFetched(prev, collected, uid));
+
+        const latest = collected[collected.length - 1];
+        bumpConvoPreview({
+          convoId,
+          preview: previewFromMessage(latest),
+          atIso: latest.created_at,
+        });
+
+        if (collected.some((m) => m.sender_id !== uid && !m.read_at)) {
+          supabase
+            .from('messages')
+            .update({ read_at: new Date().toISOString() })
+            .eq('conversation_id', convoId)
+            .neq('sender_id', uid)
+            .is('read_at', null)
+            .then(() => {});
+        }
+      } catch (err) {
+        console.warn('[chat] sync missed messages failed:', err);
+      } finally {
+        syncingRef.current = false;
+      }
+    },
+    [myId, convoId, lockRequired]
+  );
+  syncMissedRef.current = syncMissedMessages;
+
+  // ✅ Retry pending messages — duplicate-safe
+  //  - jo message abhi send ho raha hai use skip karta hai
+  //  - jo message server pe pahunch chuka hai use dobara nahi bhejta
   const retryPendingMessages = useCallback(async () => {
     if (!myId || !convoId) return;
     if (lockRequired) return;
+    if (chatBlockedRef.current) return;
     if (retryInProgressRef.current) return;
     if (!isOnline()) return;
 
     retryInProgressRef.current = true;
+    const insertedThisRun = new Set<string>();
     try {
       const pending = await dbGetPendingMessages();
       const forThisConvo = pending.filter(
         (p) => p.conversation_id === convoId
       );
       for (const p of forThisConvo) {
+        if (sentTempIds.has(p.id)) {
+          try {
+            await dbDeleteMessage(p.id);
+          } catch {}
+          continue;
+        }
+        if (inflightSends.has(p.id)) continue;
+
+        inflightSends.add(p.id);
         try {
+          // 1) Kya ye message pehle hi server pe pahunch chuka hai?
+          const createdMs = Date.parse(p.created_at);
+          if (p.message_type === 'text' && p.content && !isNaN(createdMs)) {
+            const since = new Date(createdMs - 5000).toISOString();
+            const { data: dups } = await supabase
+              .from('messages')
+              .select('*')
+              .eq('conversation_id', p.conversation_id)
+              .eq('sender_id', p.sender_id)
+              .eq('message_type', 'text')
+              .eq('content', p.content)
+              .gte('created_at', since)
+              .order('created_at', { ascending: true })
+              .limit(10);
+            const already = (dups ?? []).find(
+              (r: any) => !insertedThisRun.has(r.id)
+            ) as Message | undefined;
+            if (already) {
+              insertedThisRun.add(already.id);
+              rememberSentTemp(p.id);
+              await dbUpsertMessage({
+                ...messageToDbRow(already),
+                local_status: 'synced',
+              });
+              await dbDeleteMessage(p.id);
+              setMessages((prev) =>
+                mergeMessages(
+                  prev.filter((m) => m.id !== p.id),
+                  [{ ...already, local_status: 'synced' }]
+                )
+              );
+              continue;
+            }
+          }
+
+          // 2) Nahi pahuncha -> bhejo
           const { data: inserted, error } = await supabase
             .from('messages')
             .insert({
@@ -863,24 +1056,25 @@ export default function ChatScreen() {
 
           if (error) throw error;
           if (inserted) {
-            await dbUpsertMessage({
-              ...messageToDbRow(inserted as Message),
+            const serverMsg: Message = {
+              ...(inserted as Message),
               local_status: 'synced',
-            });
+            };
+            insertedThisRun.add(serverMsg.id);
+            rememberSentTemp(p.id);
+            await dbUpsertMessage(messageToDbRow(serverMsg));
             await dbDeleteMessage(p.id);
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === p.id
-                  ? { ...(inserted as Message), local_status: 'synced' }
-                  : m
-              )
-            );
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === serverMsg.id))
+                return prev.filter((m) => m.id !== p.id);
+              return prev.map((m) => (m.id === p.id ? serverMsg : m));
+            });
 
             // ✅ update convo preview after queue flush
             bumpConvoPreview({
               convoId,
-              preview: previewFromMessage(inserted as Message),
-              atIso: (inserted as Message).created_at,
+              preview: previewFromMessage(serverMsg),
+              atIso: serverMsg.created_at,
             });
           }
         } catch (err) {
@@ -889,6 +1083,8 @@ export default function ChatScreen() {
           await patchMessageInDb(p.id, {
             local_status: stillOnline ? 'failed' : 'pending',
           });
+        } finally {
+          inflightSends.delete(p.id);
         }
       }
     } catch (err) {
@@ -906,9 +1102,21 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (online) {
+      syncMissedRef.current?.();
       retryPendingMessages();
     }
   }, [online, retryPendingMessages]);
+
+  // ✅ App background se wapas aaye to missed messages sync + queue retry
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        syncMissedRef.current?.();
+        retryPendingMessages();
+      }
+    });
+    return () => sub.remove();
+  }, [retryPendingMessages]);
 
   useEffect(() => {
     initialScrollDoneRef.current = false;
@@ -1009,7 +1217,7 @@ export default function ChatScreen() {
 
           if (incoming.sender_id !== myId) {
             markAnimating(incoming.id);
-            if (!isMutedForConvo && !isCallLog) playReceive();
+            if (!mutedRef.current && !isCallLog) playReceive();
 
             if (!isCallLog && !incoming.delivered_at) {
               const deliveredAt = new Date().toISOString();
@@ -1033,15 +1241,16 @@ export default function ChatScreen() {
 
           setMessages((prev) => {
             if (prev.some((m) => m.id === incoming.id)) return prev;
-            const withoutTemp = prev.filter(
+            // sirf EK matching temp hatao (same text 2 baar bheja ho to dusra na ude)
+            const tempIdx = prev.findIndex(
               (m) =>
-                !(
-                  m.id.startsWith('temp-') &&
-                  m.sender_id === incoming.sender_id &&
-                  m.content === incoming.content
-                )
+                m.id.startsWith('temp-') &&
+                m.sender_id === incoming.sender_id &&
+                m.content === incoming.content
             );
-            return [...withoutTemp, incoming];
+            const base =
+              tempIdx >= 0 ? prev.filter((_, i) => i !== tempIdx) : prev;
+            return mergeMessages(base, [incoming]);
           });
 
           if (!isNearBottomRef.current && incoming.sender_id !== myId) {
@@ -1125,7 +1334,10 @@ export default function ChatScreen() {
           });
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        // ✅ channel (re)connect hote hi jo messages miss hue wo laa lo
+        if (status === 'SUBSCRIBED') syncMissedRef.current?.();
+      });
 
     channelRef.current = channel;
 
@@ -1134,7 +1346,7 @@ export default function ChatScreen() {
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [myId, convoId, lockRequired, markAnimating, isMutedForConvo, online]);
+  }, [myId, convoId, lockRequired, markAnimating, online]);
 
   useEffect(() => {
     if (!other?.id) return;
@@ -1573,6 +1785,10 @@ export default function ChatScreen() {
       return;
     }
 
+    // ✅ double-tap guard (state async hota hai, ref turant lock karta hai)
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+
     const replyTarget = replyingTo;
     setSending(true);
     setInput('');
@@ -1584,7 +1800,8 @@ export default function ChatScreen() {
       payload: { userId: myId, typing: false },
     });
 
-    const tempId = `temp-${Date.now()}`;
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    inflightSends.add(tempId);
     const nowIso = new Date().toISOString();
     const optimistic: Message = {
       id: tempId,
@@ -1616,6 +1833,8 @@ export default function ChatScreen() {
 
     if (!isOnline()) {
       hapticLight();
+      inflightSends.delete(tempId);
+      sendingRef.current = false;
       setSending(false);
       requestAnimationFrame(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
@@ -1642,6 +1861,9 @@ export default function ChatScreen() {
         ...(inserted as Message),
         local_status: 'synced',
       };
+
+      // ✅ turant mark karo: ab ye temp kabhi dobara SQLite me nahi likha jayega
+      rememberSentTemp(tempId);
 
       try {
         await dbUpsertMessage(messageToDbRow(serverMsg));
@@ -1687,17 +1909,22 @@ export default function ChatScreen() {
       );
 
       if (stillOnline) {
-        setInput(content);
-        setReplyingTo(replyTarget);
+        // ✅ message queue me saved hai aur auto-retry hoga.
+        //    Input wapas nahi bharte (warna user dobara bhejta hai -> duplicate)
         hapticError();
         Alert.alert(
           'Failed to send',
           'Message saved. Will retry automatically.'
         );
+        setTimeout(() => {
+          retryPendingMessages();
+        }, 4000);
       } else {
         hapticLight();
       }
     } finally {
+      inflightSends.delete(tempId);
+      sendingRef.current = false;
       setSending(false);
     }
   }
