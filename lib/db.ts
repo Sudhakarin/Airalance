@@ -336,7 +336,12 @@ const UPSERT_MESSAGE_SQL = `
     reaction = COALESCE($reaction, reaction),
     read_at = COALESCE($read_at, read_at),
     delivered_at = COALESCE($delivered_at, delivered_at),
-    local_status = COALESCE($local_status, local_status),
+    -- never downgrade a synced row back to pending/failed
+    local_status = CASE
+      WHEN local_status = 'synced' AND $local_status IN ('pending', 'failed')
+        THEN local_status
+      ELSE COALESCE($local_status, local_status)
+    END,
     synced_at = $now
 `;
 
@@ -405,7 +410,9 @@ export async function dbDeleteMessage(id: string) {
 export async function dbGetPendingMessages(): Promise<DBMessage[]> {
   const db = await getDB();
   return await db.getAllAsync<DBMessage>(
-    `SELECT * FROM messages WHERE local_status IN ('pending', 'failed') ORDER BY created_at ASC`
+    `SELECT * FROM messages
+     WHERE local_status IN ('pending', 'failed') AND id LIKE 'temp-%'
+     ORDER BY created_at ASC`
   );
 }
 
