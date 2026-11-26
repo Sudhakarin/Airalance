@@ -126,6 +126,13 @@ export default function UserProfileScreen() {
 
   const cacheShownRef = useRef(false);
 
+  // ✅ Suggestions (Instagram style) — profile ke neeche random 4 users
+  const [suggestions, setSuggestions] = useState<Profile[]>([]);
+  const [suggPool, setSuggPool] = useState<Profile[]>([]);
+  const [suggFollowing, setSuggFollowing] = useState<Record<string, boolean>>({});
+  const [suggBusy, setSuggBusy] = useState<Record<string, boolean>>({});
+  const dismissedRef = useRef<Set<string>>(new Set());
+
   const isVerified = (p: Profile | null) =>
     !!p &&
     (!!p.verified ||
@@ -565,6 +572,125 @@ export default function UserProfileScreen() {
     }
   }
 
+  // ───────── User suggestions ─────────
+  const loadSuggestions = useCallback(async () => {
+    if (!myId || !userId || myId === userId) return;
+    try {
+      const [followRes, blockRes] = await Promise.all([
+        supabase
+          .from('follows')
+          .select('followed_id')
+          .eq('follower_id', myId)
+          .limit(5000),
+        supabase
+          .from('blocked_users')
+          .select('blocker_id, blocked_id')
+          .or(`blocker_id.eq.${myId},blocked_id.eq.${myId}`),
+      ]);
+
+      const hidden = new Set<string>([myId, userId]);
+      (blockRes.data ?? []).forEach((r: any) => {
+        hidden.add(r.blocker_id);
+        hidden.add(r.blocked_id);
+      });
+      const alreadyFollowing = new Set<string>(
+        (followRes.data ?? []).map((r: any) => r.followed_id)
+      );
+
+      // Chhota exclude-list hi server ko bhejte hain (URL lamba na ho)
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .not('id', 'in', `(${Array.from(hidden).join(',')})`)
+        .order('last_seen', { ascending: false, nullsFirst: false })
+        .limit(80);
+      if (error) throw error;
+
+      const list = ((data ?? []) as Profile[]).filter(
+        (u) =>
+          !!u.username &&
+          !hidden.has(u.id) &&
+          !alreadyFollowing.has(u.id) &&
+          !dismissedRef.current.has(u.id)
+      );
+
+      // Random shuffle
+      for (let i = list.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [list[i], list[j]] = [list[j], list[i]];
+      }
+
+      setSuggestions(list.slice(0, 4));
+      setSuggPool(list.slice(4));
+      setSuggFollowing({});
+    } catch (err) {
+      console.warn('Load suggestions error:', err);
+    }
+  }, [myId, userId]);
+
+  useEffect(() => {
+    setSuggestions([]);
+    setSuggPool([]);
+    dismissedRef.current = new Set();
+    loadSuggestions();
+  }, [loadSuggestions]);
+
+  function dismissSuggestion(id: string) {
+    dismissedRef.current.add(id);
+    const next = suggPool[0];
+    setSuggPool((prev) => prev.slice(1));
+    setSuggestions((prev) => {
+      const idx = prev.findIndex((u) => u.id === id);
+      if (idx < 0) return prev;
+      const copy = [...prev];
+      if (next) copy[idx] = next;
+      else copy.splice(idx, 1);
+      return copy;
+    });
+  }
+
+  async function toggleSuggFollow(target: Profile) {
+    if (!myId || suggBusy[target.id]) return;
+    const wasFollowing = !!suggFollowing[target.id];
+    setSuggBusy((b) => ({ ...b, [target.id]: true }));
+    try {
+      if (wasFollowing) {
+        const { error } = await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', myId)
+          .eq('followed_id', target.id);
+        if (!error) setSuggFollowing((f) => ({ ...f, [target.id]: false }));
+      } else {
+        const { error } = await supabase
+          .from('follows')
+          .insert({ follower_id: myId, followed_id: target.id });
+        if (!error) {
+          setSuggFollowing((f) => ({ ...f, [target.id]: true }));
+          try {
+            const { data: me } = await supabase
+              .from('profiles')
+              .select('display_name')
+              .eq('id', myId)
+              .single();
+            await supabase.functions.invoke('send-push', {
+              body: {
+                userId: target.id,
+                title: 'New follower',
+                body: `${me?.display_name || 'Someone'} started following you`,
+                data: { screen: 'profile', userId: myId },
+              },
+            });
+          } catch {}
+        }
+      }
+    } catch (err) {
+      console.warn('Suggestion follow error:', err);
+    } finally {
+      setSuggBusy((b) => ({ ...b, [target.id]: false }));
+    }
+  }
+
   function formatLastSeen(iso: string | null | undefined) {
     if (!iso) return 'Offline';
     const diffMs = Date.now() - new Date(iso).getTime();
@@ -778,6 +904,120 @@ export default function UserProfileScreen() {
         {profile.bio_link ? (
           <Text style={styles.bioLink}>{profile.bio_link}</Text>
         ) : null}
+
+        {/* ✅ Suggested for you — glass cards */}
+        {!isBlocked && !!myId && myId !== userId && suggestions.length > 0 && (
+          <View style={styles.sugWrap}>
+            <LinearGradient
+              colors={[
+                'rgba(124,92,255,0.30)',
+                'rgba(255,79,163,0.20)',
+                'rgba(25,211,197,0.20)',
+              ]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+            <View style={styles.sugHeader}>
+              <Text style={styles.sugTitle}>Suggested for you</Text>
+              <TouchableOpacity
+                onPress={loadSuggestions}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="refresh" size={18} color={COLORS.mistLight} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.sugGrid}>
+              {suggestions.map((item) => {
+                const following = !!suggFollowing[item.id];
+                const busy = !!suggBusy[item.id];
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.sugCard}
+                    activeOpacity={0.9}
+                    onPress={() => router.push(`/profile/${item.id}`)}
+                  >
+                    <LinearGradient
+                      colors={[
+                        'rgba(255,255,255,0.22)',
+                        'rgba(255,255,255,0.06)',
+                      ]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
+                    />
+                    <TouchableOpacity
+                      style={styles.sugClose}
+                      onPress={() => dismissSuggestion(item.id)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="close"
+                        size={16}
+                        color="rgba(255,255,255,0.75)"
+                      />
+                    </TouchableOpacity>
+
+                    <View style={styles.sugAvatarRing}>
+                      <Avatar
+                        name={item.display_name}
+                        color={item.avatar_color}
+                        avatarUrl={item.avatar_url}
+                        size={72}
+                      />
+                    </View>
+
+                    <View style={styles.sugNameRow}>
+                      <Text style={styles.sugName} numberOfLines={1}>
+                        {item.display_name}
+                      </Text>
+                      {isVerified(item) && (
+                        <View style={styles.badgeWrapSmall}>
+                          <VerifiedBadge size={13} />
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.sugUsername} numberOfLines={1}>
+                      @{item.username}
+                    </Text>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.sugFollowBtn,
+                        following && styles.sugFollowBtnActive,
+                      ]}
+                      onPress={() => toggleSuggFollow(item)}
+                      disabled={busy}
+                      activeOpacity={0.85}
+                    >
+                      {busy ? (
+                        <ActivityIndicator
+                          size="small"
+                          color={following ? '#FFFFFF' : '#111111'}
+                        />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.sugFollowText,
+                            following && styles.sugFollowTextActive,
+                          ]}
+                        >
+                          {following ? 'Following' : 'Follow'}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
       </ScrollView>
 
       {/* Avatar preview — bada circle, bahar tap karke band */}
@@ -1291,6 +1531,106 @@ const styles = StyleSheet.create({
     color: COLORS.teal,
     textAlign: 'center',
   },
+
+  // Suggested for you (glass)
+  sugWrap: {
+    marginTop: SPACING.lg,
+    marginHorizontal: 12,
+    paddingHorizontal: 12,
+    paddingTop: 14,
+    paddingBottom: 12,
+    borderRadius: 26,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  sugHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    marginBottom: 12,
+  },
+  sugTitle: {
+    fontSize: 15,
+    fontFamily: FONTS.displayBold,
+    color: '#FFFFFF',
+  },
+  sugGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 12,
+  },
+  sugCard: {
+    width: '48.5%',
+    paddingTop: 18,
+    paddingBottom: 12,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    borderRadius: 22,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.20)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  sugClose: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 2,
+    width: 22,
+    height: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sugAvatarRing: {
+    padding: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  sugNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    maxWidth: '100%',
+  },
+  sugName: {
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#FFFFFF',
+    flexShrink: 1,
+    includeFontPadding: false,
+  } as any,
+  sugUsername: {
+    fontSize: 12,
+    fontFamily: FONTS.body,
+    color: COLORS.mistLight,
+    marginTop: 2,
+    maxWidth: '100%',
+  },
+  sugFollowBtn: {
+    marginTop: 12,
+    width: '100%',
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sugFollowBtnActive: {
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
+  sugFollowText: {
+    fontSize: 14,
+    fontFamily: FONTS.bodySemiBold,
+    color: '#111111',
+  },
+  sugFollowTextActive: { color: '#FFFFFF' },
 
   loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
